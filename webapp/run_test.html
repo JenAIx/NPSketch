@@ -485,12 +485,13 @@
             
             try {
                 // Get settings
-                const useRegistration = document.getElementById('useRegistration').checked;
-                const registrationMotion = document.getElementById('registrationMotion').value;
-                const maxRotation = parseFloat(document.getElementById('maxRotation').value);
-                const posTolerance = parseFloat(document.getElementById('posTolerance').value);
-                const angleTolerance = parseFloat(document.getElementById('angleTolerance').value);
-                const lengthTolerance = parseFloat(document.getElementById('lengthTolerance').value) / 100;
+            // Optimized parameters for 100% Test Rating (Hungarian Algorithm)
+            const useRegistration = document.getElementById('useRegistration').checked;
+            const registrationMotion = document.getElementById('registrationMotion').value;
+            const maxRotation = parseFloat(document.getElementById('maxRotation').value);
+            const posTolerance = parseFloat(document.getElementById('posTolerance').value);
+            const angleTolerance = parseFloat(document.getElementById('angleTolerance').value);
+            const lengthTolerance = parseFloat(document.getElementById('lengthTolerance').value) / 100;
                 
                 // Build URL with query parameters
                 const params = new URLSearchParams({

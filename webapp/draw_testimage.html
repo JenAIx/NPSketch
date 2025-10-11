@@ -462,6 +462,10 @@
         let loadedTestId = null;
         let loadedTestName = null;
         let currentRotation = 0;
+        let originalCanvasData = null;
+        let originalCorrectLines = null;
+        let originalExtraLines = null;
+        let hasChanges = false;
         
         // Initialize canvas
         ctx.fillStyle = 'white';
@@ -476,6 +480,12 @@
             const correct = parseInt(e.target.value) || 0;
             const missing = Math.max(0, totalReferenceLines - correct);
             document.getElementById('missingLines').value = missing;
+            checkForChanges();
+        });
+        
+        // Track extra lines changes
+        document.getElementById('extraLines').addEventListener('input', () => {
+            checkForChanges();
         });
         
         // Drawing functions
@@ -512,6 +522,9 @@
             // Update last position
             lastX = pos.x;
             lastY = pos.y;
+            
+            // Mark as changed
+            checkForChanges();
         }
         
         function stopDrawing() {
@@ -547,6 +560,7 @@
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             currentRotation = 0;
             updateRotationDisplay();
+            checkForChanges();
         }
         
         // Rotate canvas content
@@ -581,6 +595,7 @@
             
             // Update display
             updateRotationDisplay();
+            checkForChanges();
         }
         
         function updateRotationDisplay() {
@@ -686,6 +701,10 @@
         function resetForm() {
             loadedTestId = null;
             loadedTestName = null;
+            originalCanvasData = null;
+            originalCorrectLines = null;
+            originalExtraLines = null;
+            hasChanges = false;
             clearCanvas();
             document.getElementById('testName').value = '';
             document.getElementById('correctLines').value = '0';
@@ -746,7 +765,7 @@
                     item.addEventListener('click', (e) => {
                         // Don't trigger if clicking on delete icon
                         if (!e.target.closest('.delete-icon')) {
-                            loadTestImage(test.id, test.test_name, test.expected_correct, test.expected_extra);
+                            loadTestImage(test.id, test.test_name, test.expected_correct, test.expected_missing, test.expected_extra);
                         }
                     });
                     
@@ -759,7 +778,7 @@
         }
         
         // Load test image into canvas
-        async function loadTestImage(testId, testName, correctLines, extraLines) {
+        async function loadTestImage(testId, testName, correctLines, missingLines, extraLines) {
             try {
                 const response = await fetch(`/api/test-images/${testId}/image`);
                 const blob = await response.blob();
@@ -779,7 +798,14 @@
                     loadedTestName = testName;
                     document.getElementById('testName').value = testName;
                     document.getElementById('correctLines').value = correctLines;
+                    document.getElementById('missingLines').value = missingLines;
                     document.getElementById('extraLines').value = extraLines;
+                    
+                    // Store original values
+                    originalCanvasData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    originalCorrectLines = correctLines;
+                    originalExtraLines = extraLines;
+                    hasChanges = false;
                     
                     // Update button to Update mode
                     updateSaveButton();
@@ -806,6 +832,45 @@
             }
         }
         
+        // Check if there are changes compared to original
+        function checkForChanges() {
+            if (!loadedTestId) {
+                // New image - always allow save
+                hasChanges = true;
+                updateSaveButton();
+                return;
+            }
+            
+            // Check canvas changes
+            const currentCanvasData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const canvasChanged = !originalCanvasData || 
+                !compareImageData(currentCanvasData, originalCanvasData);
+            
+            // Check form changes
+            const currentCorrect = parseInt(document.getElementById('correctLines').value) || 0;
+            const currentExtra = parseInt(document.getElementById('extraLines').value) || 0;
+            const formChanged = currentCorrect !== originalCorrectLines || 
+                               currentExtra !== originalExtraLines;
+            
+            hasChanges = canvasChanged || formChanged;
+            updateSaveButton();
+        }
+        
+        // Compare two ImageData objects
+        function compareImageData(data1, data2) {
+            if (data1.width !== data2.width || data1.height !== data2.height) {
+                return false;
+            }
+            
+            // Compare pixel data (sample every 10th pixel for performance)
+            for (let i = 0; i < data1.data.length; i += 40) {
+                if (data1.data[i] !== data2.data[i]) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        
         // Update save button based on loaded state
         function updateSaveButton() {
             const saveBtn = document.getElementById('saveBtn');
@@ -816,11 +881,26 @@
                 // Same name = Update mode
                 saveBtn.textContent = '🔄 Update Test Image';
                 saveBtn.style.background = 'linear-gradient(135deg, #ffc107 0%, #ff9800 100%)';
-                warning.style.display = 'block';
+                saveBtn.disabled = !hasChanges;
+                warning.style.display = hasChanges ? 'block' : 'none';
+                
+                if (!hasChanges) {
+                    warning.style.display = 'block';
+                    warning.innerHTML = 'ℹ️ No changes detected';
+                    warning.style.background = '#e3f2fd';
+                    warning.style.color = '#1565c0';
+                    warning.style.borderLeftColor = '#2196f3';
+                } else {
+                    warning.innerHTML = '⚠️ Clicking Update will overwrite the original image!';
+                    warning.style.background = '#fff3cd';
+                    warning.style.color = '#856404';
+                    warning.style.borderLeftColor = '#ffc107';
+                }
             } else {
                 // Different name or new = Save mode
                 saveBtn.textContent = '💾 Save Test Image';
                 saveBtn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                saveBtn.disabled = false;
                 warning.style.display = 'none';
             }
         }
