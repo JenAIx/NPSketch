@@ -254,6 +254,28 @@
         .test-id {
             font-weight: bold;
             color: #333;
+            flex: 1;
+        }
+        
+        .test-meta {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .delete-icon {
+            cursor: pointer;
+            font-size: 16px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: all 0.2s;
+            opacity: 0.6;
+        }
+        
+        .delete-icon:hover {
+            opacity: 1;
+            background: #ffebee;
+            transform: scale(1.2);
         }
         
         .test-stats {
@@ -275,135 +297,7 @@
             color: #999;
         }
         
-        .test-actions {
-            display: flex;
-            gap: 5px;
-            margin-top: 8px;
-        }
         
-        .action-btn {
-            padding: 4px 12px;
-            font-size: 12px;
-            border: 1px solid #ddd;
-            background: white;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        
-        .action-btn:hover {
-            background: #f0f0f0;
-        }
-        
-        .action-btn.load {
-            color: #667eea;
-            border-color: #667eea;
-        }
-        
-        .action-btn.load:hover {
-            background: #667eea;
-            color: white;
-        }
-        
-        .action-btn.rename {
-            color: #ffc107;
-            border-color: #ffc107;
-        }
-        
-        .action-btn.rename:hover {
-            background: #ffc107;
-            color: white;
-        }
-        
-        .action-btn.delete {
-            color: #dc3545;
-            border-color: #dc3545;
-        }
-        
-        .action-btn.delete:hover {
-            background: #dc3545;
-            color: white;
-        }
-        
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .modal.show {
-            display: flex;
-        }
-        
-        .modal-content {
-            background: white;
-            padding: 30px;
-            border-radius: 12px;
-            max-width: 400px;
-            width: 90%;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-        }
-        
-        .modal-title {
-            font-size: 20px;
-            font-weight: bold;
-            color: #333;
-            margin-bottom: 20px;
-        }
-        
-        .modal-input {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #ddd;
-            border-radius: 6px;
-            font-size: 16px;
-            margin-bottom: 20px;
-        }
-        
-        .modal-input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        .modal-buttons {
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-        }
-        
-        .modal-btn {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-        
-        .modal-btn.cancel {
-            background: #e9ecef;
-            color: #333;
-        }
-        
-        .modal-btn.cancel:hover {
-            background: #dee2e6;
-        }
-        
-        .modal-btn.confirm {
-            background: #667eea;
-            color: white;
-        }
-        
-        .modal-btn.confirm:hover {
-            background: #5568d3;
-        }
         
         .success-message {
             background: #d4edda;
@@ -431,18 +325,6 @@
         
         <div class="success-message" id="successMessage">
             ✓ Test image saved successfully!
-        </div>
-        
-        <!-- Rename Modal -->
-        <div class="modal" id="renameModal">
-            <div class="modal-content">
-                <div class="modal-title">Rename Test Image</div>
-                <input type="text" class="modal-input" id="renameInput" placeholder="Enter new name">
-                <div class="modal-buttons">
-                    <button class="modal-btn cancel" onclick="closeRenameModal()">Cancel</button>
-                    <button class="modal-btn confirm" onclick="confirmRename()">Rename</button>
-                </div>
-            </div>
         </div>
         
         <div class="main-grid">
@@ -477,8 +359,8 @@
                     <div class="form-title">📊 Manual Scoring</div>
                     
                     <div class="form-group">
-                        <label>Test Name</label>
-                        <input type="text" id="testName" placeholder="e.g., Simple House" value="Test Drawing">
+                        <label>Test Name <span id="nameStatus" style="font-size: 0.9em;"></span></label>
+                        <input type="text" id="testName" placeholder="e.g., Simple House" value="">
                     </div>
                     
                     <div class="form-group">
@@ -496,9 +378,12 @@
                         <input type="number" id="extraLines" min="0" value="0">
                     </div>
                     
-                    <button class="save-btn" id="saveBtn" onclick="saveTestImage()">
+                    <button class="save-btn" id="saveBtn" onclick="saveOrUpdateTestImage()">
                         💾 Save Test Image
                     </button>
+                    <div id="updateWarning" style="display: none; margin-top: 10px; padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px; font-size: 13px; color: #856404;">
+                        ⚠️ Clicking Update will overwrite the original image!
+                    </div>
                 </div>
                 
                 <div class="test-images-list">
@@ -517,12 +402,19 @@
         let isDrawing = false;
         let currentMode = 'draw';
         let brushSize = 3;
-        let renameTestId = null;
         let totalReferenceLines = 8;
+        let lastX = 0;
+        let lastY = 0;
+        let loadedTestId = null;
+        let loadedTestName = null;
         
         // Initialize canvas
         ctx.fillStyle = 'white';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Set up line drawing properties
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         
         // Auto-calculate missing lines
         document.getElementById('correctLines').addEventListener('input', (e) => {
@@ -545,13 +437,26 @@
         function startDrawing(e) {
             isDrawing = true;
             const pos = getMousePos(e);
-            drawDot(pos.x, pos.y);
+            lastX = pos.x;
+            lastY = pos.y;
         }
         
         function draw(e) {
             if (!isDrawing) return;
+            
             const pos = getMousePos(e);
-            drawDot(pos.x, pos.y);
+            
+            // Draw line from last position to current position
+            ctx.strokeStyle = currentMode === 'draw' ? 'black' : 'white';
+            ctx.lineWidth = brushSize * 2;
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+            
+            // Update last position
+            lastX = pos.x;
+            lastY = pos.y;
         }
         
         function stopDrawing() {
@@ -574,13 +479,6 @@
                 x: e.clientX - rect.left,
                 y: e.clientY - rect.top
             };
-        }
-        
-        function drawDot(x, y) {
-            ctx.fillStyle = currentMode === 'draw' ? 'black' : 'white';
-            ctx.beginPath();
-            ctx.arc(x, y, brushSize, 0, Math.PI * 2);
-            ctx.fill();
         }
         
         function setMode(mode) {
@@ -609,16 +507,32 @@
         
         updateBrushPreview();
         
-        // Save test image
-        async function saveTestImage() {
-            const testName = document.getElementById('testName').value.trim();
+        // Generate default name with timestamp
+        function generateDefaultName() {
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+            return `test_${timestamp}`;
+        }
+        
+        // Save or update test image
+        async function saveOrUpdateTestImage() {
+            let testName = document.getElementById('testName').value.trim();
             const correctLines = parseInt(document.getElementById('correctLines').value);
             const missingLines = parseInt(document.getElementById('missingLines').value);
             const extraLines = parseInt(document.getElementById('extraLines').value);
             
+            // Generate default name if empty
             if (!testName) {
-                alert('Please enter a test name');
-                return;
+                testName = generateDefaultName();
+                document.getElementById('testName').value = testName;
+            }
+            
+            const isUpdate = loadedTestId && testName === loadedTestName;
+            
+            // Confirm overwrite if updating
+            if (isUpdate) {
+                if (!confirm(`Are you sure you want to overwrite "${testName}"?`)) {
+                    return;
+                }
             }
             
             // Convert canvas to blob
@@ -631,23 +545,33 @@
                 formData.append('extra_lines', extraLines);
                 
                 try {
-                    const response = await fetch('/api/test-images', {
-                        method: 'POST',
-                        body: formData
-                    });
+                    let response;
+                    if (isUpdate) {
+                        // Update existing - delete old and create new
+                        await fetch(`/api/test-images/${loadedTestId}`, { method: 'DELETE' });
+                        response = await fetch('/api/test-images', {
+                            method: 'POST',
+                            body: formData
+                        });
+                    } else {
+                        // Create new
+                        response = await fetch('/api/test-images', {
+                            method: 'POST',
+                            body: formData
+                        });
+                    }
                     
                     if (response.ok) {
-                        const data = await response.json();
-                        showSuccessMessage();
-                        clearCanvas();
+                        showSuccessMessage(isUpdate ? 'updated' : 'saved');
+                        resetForm();
                         loadTestImages();
-                        
-                        // Reset form
-                        document.getElementById('correctLines').value = '0';
-                        document.getElementById('missingLines').value = '0';
-                        document.getElementById('extraLines').value = '0';
                     } else {
-                        alert('Error saving test image');
+                        const errorData = await response.json();
+                        if (response.status === 400 && errorData.detail && errorData.detail.includes('UNIQUE')) {
+                            alert(`Name "${testName}" already exists! Please choose a different name.`);
+                        } else {
+                            alert('Error saving test image');
+                        }
                     }
                 } catch (error) {
                     alert('Error: ' + error.message);
@@ -655,8 +579,23 @@
             }, 'image/png');
         }
         
-        function showSuccessMessage() {
+        // Reset form to new image mode
+        function resetForm() {
+            loadedTestId = null;
+            loadedTestName = null;
+            clearCanvas();
+            document.getElementById('testName').value = '';
+            document.getElementById('correctLines').value = '0';
+            document.getElementById('extraLines').value = '0';
+            updateSaveButton();
+        }
+        
+        function showSuccessMessage(action = 'saved') {
             const msg = document.getElementById('successMessage');
+            msg.textContent = action === 'updated' ? '✓ Test image updated successfully!' : '✓ Test image saved successfully!';
+            msg.style.background = '#d4edda';
+            msg.style.color = '#155724';
+            msg.style.borderLeftColor = '#28a745';
             msg.style.display = 'block';
             setTimeout(() => {
                 msg.style.display = 'none';
@@ -687,19 +626,25 @@
                     item.innerHTML = `
                         <div class="test-item-header">
                             <span class="test-id">#${test.id} - ${test.test_name}</span>
-                            <span style="font-size: 12px; color: #999;">${dateStr}</span>
+                            <div class="test-meta">
+                                <span style="font-size: 12px; color: #999;">${dateStr}</span>
+                                <span class="delete-icon" onclick="deleteTestImage(${test.id}, event)" title="Delete">🗑️</span>
+                            </div>
                         </div>
                         <div class="test-stats">
                             <span class="stat-item">✓ ${test.expected_correct}</span>
                             <span class="stat-item">✗ ${test.expected_missing}</span>
                             <span class="stat-item">+ ${test.expected_extra}</span>
                         </div>
-                        <div class="test-actions">
-                            <button class="action-btn load" onclick="loadTestImage(${test.id}, event)">📥 Load</button>
-                            <button class="action-btn rename" onclick="renameTestImage(${test.id}, '${test.test_name}', event)">✏️ Rename</button>
-                            <button class="action-btn delete" onclick="deleteTestImage(${test.id}, event)">🗑️ Delete</button>
-                        </div>
                     `;
+                    
+                    // Load test image on click
+                    item.addEventListener('click', (e) => {
+                        // Don't trigger if clicking on delete icon
+                        if (!e.target.closest('.delete-icon')) {
+                            loadTestImage(test.id, test.test_name, test.expected_correct, test.expected_extra);
+                        }
+                    });
                     
                     listDiv.appendChild(item);
                 });
@@ -710,9 +655,7 @@
         }
         
         // Load test image into canvas
-        async function loadTestImage(testId, event) {
-            event.stopPropagation();
-            
+        async function loadTestImage(testId, testName, correctLines, extraLines) {
             try {
                 const response = await fetch(`/api/test-images/${testId}/image`);
                 const blob = await response.blob();
@@ -727,13 +670,29 @@
                     ctx.drawImage(img, 0, 0);
                     URL.revokeObjectURL(imageUrl);
                     
+                    // Set form values
+                    loadedTestId = testId;
+                    loadedTestName = testName;
+                    document.getElementById('testName').value = testName;
+                    document.getElementById('correctLines').value = correctLines;
+                    document.getElementById('extraLines').value = extraLines;
+                    
+                    // Update button to Update mode
+                    updateSaveButton();
+                    
                     // Show success message
                     const msg = document.getElementById('successMessage');
-                    msg.textContent = '✓ Test image loaded! Edit and save to create a copy.';
+                    msg.textContent = `✓ Loaded: ${testName}`;
+                    msg.style.background = '#d1ecf1';
+                    msg.style.color = '#0c5460';
+                    msg.style.borderLeftColor = '#17a2b8';
                     msg.style.display = 'block';
                     setTimeout(() => {
                         msg.style.display = 'none';
                         msg.textContent = '✓ Test image saved successfully!';
+                        msg.style.background = '#d4edda';
+                        msg.style.color = '#155724';
+                        msg.style.borderLeftColor = '#28a745';
                     }, 3000);
                 };
                 img.src = imageUrl;
@@ -743,56 +702,27 @@
             }
         }
         
-        // Rename test image
-        function renameTestImage(testId, currentName, event) {
-            event.stopPropagation();
+        // Update save button based on loaded state
+        function updateSaveButton() {
+            const saveBtn = document.getElementById('saveBtn');
+            const warning = document.getElementById('updateWarning');
+            const currentName = document.getElementById('testName').value.trim();
             
-            renameTestId = testId;
-            document.getElementById('renameInput').value = currentName;
-            document.getElementById('renameModal').classList.add('show');
-            document.getElementById('renameInput').focus();
-        }
-        
-        function closeRenameModal() {
-            document.getElementById('renameModal').classList.remove('show');
-            renameTestId = null;
-        }
-        
-        async function confirmRename() {
-            const newName = document.getElementById('renameInput').value.trim();
-            
-            if (!newName) {
-                alert('Please enter a name');
-                return;
-            }
-            
-            try {
-                const formData = new FormData();
-                formData.append('test_name', newName);
-                
-                const response = await fetch(`/api/test-images/${renameTestId}`, {
-                    method: 'PUT',
-                    body: formData
-                });
-                
-                if (response.ok) {
-                    closeRenameModal();
-                    loadTestImages();
-                    
-                    const msg = document.getElementById('successMessage');
-                    msg.textContent = '✓ Test image renamed successfully!';
-                    msg.style.display = 'block';
-                    setTimeout(() => {
-                        msg.style.display = 'none';
-                        msg.textContent = '✓ Test image saved successfully!';
-                    }, 3000);
-                } else {
-                    alert('Error renaming test image');
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
+            if (loadedTestId && currentName === loadedTestName) {
+                // Same name = Update mode
+                saveBtn.textContent = '🔄 Update Test Image';
+                saveBtn.style.background = 'linear-gradient(135deg, #ffc107 0%, #ff9800 100%)';
+                warning.style.display = 'block';
+            } else {
+                // Different name or new = Save mode
+                saveBtn.textContent = '💾 Save Test Image';
+                saveBtn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                warning.style.display = 'none';
             }
         }
+        
+        // Watch for name changes
+        document.getElementById('testName').addEventListener('input', updateSaveButton);
         
         // Delete test image
         async function deleteTestImage(testId, event) {
@@ -830,20 +760,6 @@
                 alert('Error: ' + error.message);
             }
         }
-        
-        // Close modal on ESC key
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                closeRenameModal();
-            }
-        });
-        
-        // Close modal on background click
-        document.getElementById('renameModal').addEventListener('click', (e) => {
-            if (e.target.id === 'renameModal') {
-                closeRenameModal();
-            }
-        });
         
         // Load reference info to get total lines
         async function loadReferenceInfo() {

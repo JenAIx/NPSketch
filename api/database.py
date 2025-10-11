@@ -147,7 +147,7 @@ class TestImage(Base):
     __tablename__ = "test_images"
     
     id = Column(Integer, primary_key=True, index=True)
-    test_name = Column(String, index=True)
+    test_name = Column(String, unique=True, index=True)
     image_data = Column(LargeBinary)
     expected_correct = Column(Integer)
     expected_missing = Column(Integer)
