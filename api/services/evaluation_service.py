@@ -222,4 +222,72 @@ class EvaluationService:
         return self.db.query(EvaluationResult).order_by(
             EvaluationResult.evaluated_at.desc()
         ).limit(limit).all()
+    
+    def evaluate_test_image(
+        self,
+        image: np.ndarray,
+        reference_id: int,
+        test_name: str
+    ) -> EvaluationResult:
+        """
+        Evaluate a test image against a reference.
+        Does not store the image itself, only creates an evaluation result.
+        
+        Args:
+            image: Test image as numpy array
+            reference_id: Reference image ID
+            test_name: Name of the test
+            
+        Returns:
+            EvaluationResult
+        """
+        # Normalize image
+        normalized = normalize_image(image)
+        
+        # Extract features
+        features = self.line_detector.extract_features(normalized)
+        
+        # Get reference image
+        reference = self.db.query(ReferenceImage).filter(
+            ReferenceImage.id == reference_id
+        ).first()
+        
+        if not reference:
+            raise ValueError(f"Reference with ID {reference_id} not found")
+        
+        # Compare with reference
+        reference_features = self.line_detector.features_from_json(reference.feature_data)
+        comparison = self.comparator.compare_lines(
+            features['lines'],
+            reference_features['lines']
+        )
+        
+        # Create visualization
+        viz_filename = f"test_{test_name}.png"
+        viz_path = os.path.join(self.viz_dir, viz_filename)
+        
+        ref_image = load_image_from_bytes(reference.processed_image_data)
+        visualization = self._create_comparison_visualization(
+            normalized,
+            ref_image,
+            features['lines'],
+            reference_features['lines'],
+            comparison
+        )
+        
+        import cv2
+        cv2.imwrite(viz_path, visualization)
+        
+        # Create evaluation result (without storing in DB yet)
+        evaluation = EvaluationResult(
+            image_id=None,  # No uploaded image for tests
+            reference_id=reference.id,
+            correct_lines=comparison['correct_lines'],
+            missing_lines=comparison['missing_lines'],
+            extra_lines=comparison['extra_lines'],
+            similarity_score=comparison['similarity_score'],
+            visualization_path=f"/api/visualizations/{viz_filename}"
+        )
+        
+        return evaluation
 

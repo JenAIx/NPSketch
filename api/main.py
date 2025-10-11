@@ -389,6 +389,143 @@ async def delete_test_image(
     return {"success": True, "message": "Test image deleted successfully"}
 
 
+@app.post("/api/test-images/run-tests")
+async def run_all_tests(db: Session = Depends(get_db)):
+    """
+    Run automated tests on all test images.
+    Evaluates each test image and compares expected vs actual results.
+    
+    Returns:
+        Test results with statistics
+    """
+    import cv2
+    import numpy as np
+    from io import BytesIO
+    
+    # Get all test images
+    test_images = db.query(TestImage).order_by(TestImage.id).all()
+    
+    if not test_images:
+        return {
+            "total_tests": 0,
+            "results": [],
+            "statistics": {}
+        }
+    
+    # Get reference
+    ref_service = ReferenceService(db)
+    references = ref_service.list_all_references()
+    if not references:
+        raise HTTPException(status_code=404, detail="No reference image found")
+    
+    reference = references[0]
+    
+    # Evaluate each test image
+    results = []
+    eval_service = EvaluationService(db)
+    
+    for test_img in test_images:
+        try:
+            # Load test image from blob
+            nparr = np.frombuffer(test_img.image_data, np.uint8)
+            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            # Evaluate
+            evaluation = eval_service.evaluate_test_image(image, reference.id, f"{test_img.id}")
+            
+            # Calculate differences
+            correct_diff = evaluation.correct_lines - test_img.expected_correct
+            missing_diff = evaluation.missing_lines - test_img.expected_missing
+            extra_diff = evaluation.extra_lines - test_img.expected_extra
+            
+            # Calculate accuracy based on actual detection quality
+            # Get total reference lines from reference
+            from image_processing import LineDetector
+            line_detector = LineDetector()
+            ref_features = line_detector.features_from_json(reference.feature_data)
+            total_ref_lines = len(ref_features['lines'])
+            
+            # Effective correct = actual correct - extra lines penalty (min 0)
+            # Extra lines are false positives and should reduce the score
+            effective_correct = max(0, evaluation.correct_lines - evaluation.extra_lines)
+            
+            # Accuracy = effective_correct / total_reference_lines
+            # 0% if nothing correct, 100% if all correct and no extras
+            accuracy = effective_correct / total_ref_lines if total_ref_lines > 0 else 0.0
+            accuracy = max(0.0, min(1.0, accuracy))  # Clamp between 0 and 1
+            
+            results.append({
+                "test_id": test_img.id,
+                "test_name": test_img.test_name,
+                "expected": {
+                    "correct": test_img.expected_correct,
+                    "missing": test_img.expected_missing,
+                    "extra": test_img.expected_extra
+                },
+                "actual": {
+                    "correct": evaluation.correct_lines,
+                    "missing": evaluation.missing_lines,
+                    "extra": evaluation.extra_lines,
+                    "similarity_score": evaluation.similarity_score
+                },
+                "diff": {
+                    "correct": correct_diff,
+                    "missing": missing_diff,
+                    "extra": extra_diff
+                },
+                "accuracy": accuracy,
+                "visualization_path": evaluation.visualization_path,
+                "evaluation_id": evaluation.id
+            })
+            
+        except Exception as e:
+            results.append({
+                "test_id": test_img.id,
+                "test_name": test_img.test_name,
+                "error": str(e),
+                "accuracy": 0.0
+            })
+    
+    # Calculate overall statistics
+    successful_tests = [r for r in results if "error" not in r]
+    
+    if successful_tests:
+        avg_accuracy = sum(r["accuracy"] for r in successful_tests) / len(successful_tests)
+        
+        avg_correct_diff = sum(abs(r["diff"]["correct"]) for r in successful_tests) / len(successful_tests)
+        avg_missing_diff = sum(abs(r["diff"]["missing"]) for r in successful_tests) / len(successful_tests)
+        avg_extra_diff = sum(abs(r["diff"]["extra"]) for r in successful_tests) / len(successful_tests)
+        
+        perfect_matches = sum(1 for r in successful_tests if r["accuracy"] == 1.0)
+        
+        statistics = {
+            "total_tests": len(test_images),
+            "successful": len(successful_tests),
+            "failed": len(test_images) - len(successful_tests),
+            "average_accuracy": avg_accuracy,
+            "perfect_matches": perfect_matches,
+            "average_diff": {
+                "correct": avg_correct_diff,
+                "missing": avg_missing_diff,
+                "extra": avg_extra_diff
+            }
+        }
+    else:
+        statistics = {
+            "total_tests": len(test_images),
+            "successful": 0,
+            "failed": len(test_images),
+            "average_accuracy": 0.0,
+            "perfect_matches": 0
+        }
+    
+    return {
+        "total_tests": len(test_images),
+        "results": results,
+        "statistics": statistics
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
