@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 from typing import List, Tuple, Dict
 import json
+from .utils import preprocess_for_line_detection
 
 
 class LineDetector:
@@ -163,8 +164,6 @@ class LineDetector:
         Returns:
             Dictionary containing detected features
         """
-        from image_processing.utils import preprocess_for_line_detection
-        
         # Preprocess image
         binary = preprocess_for_line_detection(image)
         

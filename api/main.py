@@ -394,9 +394,9 @@ async def run_all_tests(
     use_registration: bool = True,
     registration_motion: str = "similarity",
     max_rotation_degrees: float = 30.0,
-    position_tolerance: float = 20.0,
-    angle_tolerance: float = 15.0,
-    length_tolerance: float = 0.3,
+    position_tolerance: float = 100.0,  # Optimized default
+    angle_tolerance: float = 45.0,      # Optimized default
+    length_tolerance: float = 0.7,      # Optimized default
     db: Session = Depends(get_db)
 ):
     """

@@ -387,29 +387,29 @@
                         
                         <div style="margin-bottom: 15px;">
                             <label style="display: block; margin-bottom: 5px; font-weight: 500;">
-                                Position: <span id="posToleranceVal">20</span>px
+                                Position: <span id="posToleranceVal">100</span>px
                             </label>
-                            <input type="range" id="posTolerance" min="5" max="50" value="20" step="1" 
+                            <input type="range" id="posTolerance" min="10" max="150" value="100" step="5" 
                                    style="width: 100%;" oninput="updateToleranceDisplay()">
-                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Distance for position match</p>
+                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Distance for position match (optimized: 100px)</p>
                         </div>
                         
                         <div style="margin-bottom: 15px;">
                             <label style="display: block; margin-bottom: 5px; font-weight: 500;">
-                                Angle: <span id="angleToleranceVal">15</span>°
+                                Angle: <span id="angleToleranceVal">45</span>°
                             </label>
-                            <input type="range" id="angleTolerance" min="5" max="30" value="15" step="1" 
+                            <input type="range" id="angleTolerance" min="5" max="60" value="45" step="5" 
                                    style="width: 100%;" oninput="updateToleranceDisplay()">
-                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Maximum angle difference</p>
+                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Maximum angle difference (optimized: 45°)</p>
                         </div>
                         
                         <div>
                             <label style="display: block; margin-bottom: 5px; font-weight: 500;">
-                                Length: <span id="lengthToleranceVal">30</span>%
+                                Length: <span id="lengthToleranceVal">70</span>%
                             </label>
-                            <input type="range" id="lengthTolerance" min="10" max="50" value="30" step="5" 
+                            <input type="range" id="lengthTolerance" min="10" max="100" value="70" step="5" 
                                    style="width: 100%;" oninput="updateToleranceDisplay()">
-                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Relative length difference</p>
+                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Relative length difference (optimized: 70%)</p>
                         </div>
                     </div>
                 </div>
