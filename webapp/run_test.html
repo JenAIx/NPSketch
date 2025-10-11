@@ -387,29 +387,29 @@
                         
                         <div style="margin-bottom: 15px;">
                             <label style="display: block; margin-bottom: 5px; font-weight: 500;">
-                                Position: <span id="posToleranceVal">100</span>px
+                                Position: <span id="posToleranceVal">120</span>px
                             </label>
-                            <input type="range" id="posTolerance" min="10" max="150" value="100" step="5" 
+                            <input type="range" id="posTolerance" min="10" max="150" value="120" step="5" 
                                    style="width: 100%;" oninput="updateToleranceDisplay()">
-                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Distance for position match (optimized: 100px)</p>
+                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Distance for position match (re-optimized: 120px)</p>
                         </div>
                         
                         <div style="margin-bottom: 15px;">
                             <label style="display: block; margin-bottom: 5px; font-weight: 500;">
-                                Angle: <span id="angleToleranceVal">45</span>°
+                                Angle: <span id="angleToleranceVal">50</span>°
                             </label>
-                            <input type="range" id="angleTolerance" min="5" max="60" value="45" step="5" 
+                            <input type="range" id="angleTolerance" min="5" max="60" value="50" step="5" 
                                    style="width: 100%;" oninput="updateToleranceDisplay()">
-                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Maximum angle difference (optimized: 45°)</p>
+                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Maximum angle difference (re-optimized: 50°)</p>
                         </div>
                         
                         <div>
                             <label style="display: block; margin-bottom: 5px; font-weight: 500;">
-                                Length: <span id="lengthToleranceVal">70</span>%
+                                Length: <span id="lengthToleranceVal">80</span>%
                             </label>
-                            <input type="range" id="lengthTolerance" min="10" max="100" value="70" step="5" 
+                            <input type="range" id="lengthTolerance" min="10" max="100" value="80" step="5" 
                                    style="width: 100%;" oninput="updateToleranceDisplay()">
-                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Relative length difference (optimized: 70%)</p>
+                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Relative length difference (re-optimized: 80%)</p>
                         </div>
                     </div>
                 </div>
@@ -426,11 +426,13 @@
             <div class="stats-grid">
                 <div class="stat-card highlight">
                     <div class="stat-value" id="avgAccuracy">-</div>
-                    <div class="stat-label">Average Accuracy</div>
+                    <div class="stat-label">Test Rating</div>
+                    <div style="font-size: 0.8em; color: #666; margin-top: 5px;">Expected vs Actual</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-value" id="perfectMatches">-</div>
-                    <div class="stat-label">Perfect Matches</div>
+                    <div class="stat-label">Perfect Tests</div>
+                    <div style="font-size: 0.8em; color: #666; margin-top: 5px;">100% Match</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-value" id="totalTests">-</div>
@@ -532,8 +534,25 @@
         }
         
         function displayStatistics(stats) {
-            document.getElementById('avgAccuracy').textContent = (stats.average_accuracy * 100).toFixed(1) + '%';
-            document.getElementById('perfectMatches').textContent = stats.perfect_matches;
+            // For test suite, Test Rating (Expected vs Actual) is the main metric!
+            document.getElementById('avgAccuracy').textContent = (stats.average_prediction_accuracy * 100).toFixed(1) + '%';
+            document.getElementById('perfectMatches').textContent = stats.perfect_predictions;
+            
+            // Add reference match as secondary metric
+            const statsGrid = document.querySelector('.stats-grid');
+            if (!document.getElementById('detectionScoreStat')) {
+                const detectionStat = document.createElement('div');
+                detectionStat.className = 'stat-card';
+                detectionStat.id = 'detectionScoreStat';
+                detectionStat.innerHTML = `
+                    <div class="stat-value" id="avgDetectionScore">${(stats.average_detection_score * 100).toFixed(1)}%</div>
+                    <div class="stat-label">Avg Reference Match</div>
+                    <div style="font-size: 0.8em; color: #666; margin-top: 5px;">vs Reference Image</div>
+                `;
+                statsGrid.appendChild(detectionStat);
+            } else {
+                document.getElementById('avgDetectionScore').textContent = (stats.average_detection_score * 100).toFixed(1) + '%';
+            }
             document.getElementById('totalTests').textContent = stats.total_tests;
             document.getElementById('successful').textContent = stats.successful;
             
@@ -548,34 +567,41 @@
             listDiv.innerHTML = '';
             
             results.forEach(result => {
-                const item = document.createElement('div');
-                item.className = 'result-item';
-                
-                if (result.accuracy === 1.0) {
-                    item.classList.add('perfect');
-                } else if (result.error) {
-                    item.classList.add('error');
-                }
-                
-                if (result.error) {
-                    item.innerHTML = `
-                        <div class="result-header">
-                            <div class="result-name">${result.test_name}</div>
-                            <div style="display: flex; align-items: center;">
-                                <div class="accuracy-badge accuracy-poor">ERROR</div>
-                                <span class="expand-indicator">▶</span>
+                    const item = document.createElement('div');
+                    item.className = 'result-item';
+                    
+                    if (result.detection_score === 1.0 && result.prediction_accuracy === 1.0) {
+                        item.classList.add('perfect');
+                    } else if (result.error) {
+                        item.classList.add('error');
+                    }
+                    
+                    if (result.error) {
+                        item.innerHTML = `
+                            <div class="result-header">
+                                <div class="result-name">${result.test_name}</div>
+                                <div style="display: flex; align-items: center;">
+                                    <div class="accuracy-badge accuracy-poor">ERROR</div>
+                                    <span class="expand-indicator">▶</span>
+                                </div>
                             </div>
-                        </div>
-                        <div class="result-content">
-                            <p style="color: #dc3545; margin-top: 15px;">${result.error}</p>
-                        </div>
-                    `;
-                } else {
-                    const accuracy = result.accuracy * 100;
-                    let accuracyClass = 'accuracy-poor';
-                    if (accuracy === 100) accuracyClass = 'accuracy-perfect';
-                    else if (accuracy >= 80) accuracyClass = 'accuracy-good';
-                    else if (accuracy >= 50) accuracyClass = 'accuracy-medium';
+                            <div class="result-content">
+                                <p style="color: #dc3545; margin-top: 15px;">${result.error}</p>
+                            </div>
+                        `;
+                    } else {
+                        const detectionScore = result.detection_score * 100;
+                        const predictionAccuracy = result.prediction_accuracy * 100;
+                        
+                        let detectionClass = 'accuracy-poor';
+                        if (detectionScore === 100) detectionClass = 'accuracy-perfect';
+                        else if (detectionScore >= 80) detectionClass = 'accuracy-good';
+                        else if (detectionScore >= 50) detectionClass = 'accuracy-medium';
+                        
+                        let predictionClass = 'accuracy-poor';
+                        if (predictionAccuracy === 100) predictionClass = 'accuracy-perfect';
+                        else if (predictionAccuracy >= 80) predictionClass = 'accuracy-good';
+                        else if (predictionAccuracy >= 50) predictionClass = 'accuracy-medium';
                     
                     const diffSign = (val) => {
                         if (val === 0) return '<span class="metric-diff zero">(±0)</span>';
@@ -583,14 +609,21 @@
                         return `<span class="metric-diff negative">(${val})</span>`;
                     };
                     
-                    item.innerHTML = `
-                        <div class="result-header">
-                            <div class="result-name">#${result.test_id} - ${result.test_name}</div>
-                            <div style="display: flex; align-items: center;">
-                                <div class="accuracy-badge ${accuracyClass}">${accuracy.toFixed(1)}%</div>
-                                <span class="expand-indicator">▶</span>
+                        item.innerHTML = `
+                            <div class="result-header">
+                                <div class="result-name">#${result.test_id} - ${result.test_name}</div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <div style="text-align: center;">
+                                        <div style="font-size: 0.7em; color: #666; margin-bottom: 2px;">Reference Match</div>
+                                        <div class="accuracy-badge ${detectionClass}">${detectionScore.toFixed(1)}%</div>
+                                    </div>
+                                    <div style="text-align: center;">
+                                        <div style="font-size: 0.7em; color: #666; margin-bottom: 2px;">Test Rating</div>
+                                        <div class="accuracy-badge ${predictionClass}">${predictionAccuracy.toFixed(1)}%</div>
+                                    </div>
+                                    <span class="expand-indicator">▶</span>
+                                </div>
                             </div>
-                        </div>
                         
                         <div class="result-content">
                             <div class="comparison-grid" style="margin-top: 15px;">

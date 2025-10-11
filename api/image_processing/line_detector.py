@@ -24,9 +24,9 @@ class LineDetector:
         self,
         rho: float = 1.0,
         theta: float = np.pi / 180,
-        threshold: int = 100,
-        min_line_length: int = 80,
-        max_line_gap: int = 25
+        threshold: int = 70,           # Optimized: was 100
+        min_line_length: int = 70,     # Optimized: was 80
+        max_line_gap: int = 30         # Optimized: was 25
     ):
         """
         Initialize the line detector with parameters.
@@ -34,9 +34,13 @@ class LineDetector:
         Args:
             rho: Distance resolution in pixels
             theta: Angle resolution in radians
-            threshold: Minimum number of votes (intersections)
-            min_line_length: Minimum length of line
-            max_line_gap: Maximum gap between line segments
+            threshold: Minimum number of votes (intersections, optimized: 70)
+            min_line_length: Minimum length of line (optimized: 70)
+            max_line_gap: Maximum gap between line segments (optimized: 30)
+        
+        Note:
+            These parameters were optimized through automated testing to achieve
+            best balance between detecting all lines and avoiding false positives.
         """
         self.rho = rho
         self.theta = theta

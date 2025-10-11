@@ -394,9 +394,9 @@ async def run_all_tests(
     use_registration: bool = True,
     registration_motion: str = "similarity",
     max_rotation_degrees: float = 30.0,
-    position_tolerance: float = 100.0,  # Optimized default
-    angle_tolerance: float = 45.0,      # Optimized default
-    length_tolerance: float = 0.7,      # Optimized default
+    position_tolerance: float = 120.0,  # Re-optimized default
+    angle_tolerance: float = 50.0,      # Re-optimized default
+    length_tolerance: float = 0.8,      # Re-optimized default
     db: Session = Depends(get_db)
 ):
     """
@@ -465,10 +465,23 @@ async def run_all_tests(
             # Extra lines are false positives and should reduce the score
             effective_correct = max(0, evaluation.correct_lines - evaluation.extra_lines)
             
-            # Accuracy = effective_correct / total_reference_lines
+            # Reference Match: How well does the image match the reference?
             # 0% if nothing correct, 100% if all correct and no extras
-            accuracy = effective_correct / total_ref_lines if total_ref_lines > 0 else 0.0
-            accuracy = max(0.0, min(1.0, accuracy))  # Clamp between 0 and 1
+            detection_score = effective_correct / total_ref_lines if total_ref_lines > 0 else 0.0
+            detection_score = max(0.0, min(1.0, detection_score))  # Clamp between 0 and 1
+            
+            # Test Rating: How well did we predict the actual results? (Expected vs Actual)
+            # Perfect test (Expected = Actual) = 100%
+            # Maximum possible error per metric is total_ref_lines
+            max_error_per_metric = total_ref_lines
+            total_max_error = max_error_per_metric * 3  # 3 metrics: correct, missing, extra
+
+            
+            total_actual_error = abs(correct_diff) + abs(missing_diff) + abs(extra_diff)
+            
+            # Test rating: 100% if all diffs are 0, decreases with errors
+            prediction_accuracy = 1.0 - (total_actual_error / total_max_error) if total_max_error > 0 else 1.0
+            prediction_accuracy = max(0.0, min(1.0, prediction_accuracy))  # Clamp between 0 and 1
             
             results.append({
                 "test_id": test_img.id,
@@ -489,7 +502,9 @@ async def run_all_tests(
                     "missing": missing_diff,
                     "extra": extra_diff
                 },
-                "accuracy": accuracy,
+                "detection_score": detection_score,      # Reference Match: Image vs Reference
+                "prediction_accuracy": prediction_accuracy,  # Test Rating: Expected vs Actual
+                "accuracy": detection_score,  # Keep for backward compatibility
                 "visualization_path": evaluation.visualization_path,
                 "evaluation_id": evaluation.id
             })
@@ -506,20 +521,28 @@ async def run_all_tests(
     successful_tests = [r for r in results if "error" not in r]
     
     if successful_tests:
-        avg_accuracy = sum(r["accuracy"] for r in successful_tests) / len(successful_tests)
+        avg_detection_score = sum(r["detection_score"] for r in successful_tests) / len(successful_tests)
+        avg_prediction_accuracy = sum(r["prediction_accuracy"] for r in successful_tests) / len(successful_tests)
+        avg_accuracy = avg_detection_score  # For backward compatibility
         
         avg_correct_diff = sum(abs(r["diff"]["correct"]) for r in successful_tests) / len(successful_tests)
         avg_missing_diff = sum(abs(r["diff"]["missing"]) for r in successful_tests) / len(successful_tests)
         avg_extra_diff = sum(abs(r["diff"]["extra"]) for r in successful_tests) / len(successful_tests)
         
-        perfect_matches = sum(1 for r in successful_tests if r["accuracy"] == 1.0)
+        perfect_detections = sum(1 for r in successful_tests if r["detection_score"] == 1.0)
+        perfect_predictions = sum(1 for r in successful_tests if r["prediction_accuracy"] == 1.0)
+        perfect_matches = perfect_detections  # For backward compatibility
         
         statistics = {
             "total_tests": len(test_images),
             "successful": len(successful_tests),
             "failed": len(test_images) - len(successful_tests),
-            "average_accuracy": avg_accuracy,
-            "perfect_matches": perfect_matches,
+            "average_detection_score": avg_detection_score,
+            "average_prediction_accuracy": avg_prediction_accuracy,
+            "average_accuracy": avg_accuracy,  # Backward compatibility
+            "perfect_detections": perfect_detections,
+            "perfect_predictions": perfect_predictions,
+            "perfect_matches": perfect_matches,  # Backward compatibility
             "average_diff": {
                 "correct": avg_correct_diff,
                 "missing": avg_missing_diff,

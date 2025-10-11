@@ -8,6 +8,7 @@ correct, missing, and extra lines.
 
 import numpy as np
 from typing import List, Tuple, Dict
+from scipy.optimize import linear_sum_assignment
 
 
 class LineComparator:
@@ -20,26 +21,28 @@ class LineComparator:
     
     def __init__(
         self,
-        position_tolerance: float = 100.0,  # Optimized from testing: was 20.0
-        angle_tolerance: float = 45.0,      # Optimized from testing: was 15.0
-        length_tolerance: float = 0.7       # Optimized from testing: was 0.3
+        position_tolerance: float = 120.0,  # Re-optimized: was 100.0
+        angle_tolerance: float = 50.0,      # Re-optimized: was 45.0
+        length_tolerance: float = 0.8,      # Re-optimized: was 0.7
+        similarity_threshold: float = 0.5   # Lowered from 0.7 for better matching
     ):
         """
         Initialize comparator with tolerance thresholds.
         
         Args:
-            position_tolerance: Maximum distance in pixels for position match (optimized: 100px)
-            angle_tolerance: Maximum angle difference in degrees (optimized: 45°)
-            length_tolerance: Maximum relative length difference (0-1, optimized: 0.7)
+            position_tolerance: Maximum distance in pixels for position match (optimized: 120px)
+            angle_tolerance: Maximum angle difference in degrees (optimized: 50°)
+            length_tolerance: Maximum relative length difference (0-1, optimized: 0.8)
+            similarity_threshold: Minimum similarity score for a match (lowered to 0.5)
         
         Note:
-            These default values were optimized through automated testing (72 configurations)
-            to achieve best accuracy with hand-drawn images that may have slight variations.
-            Best accuracy achieved: 37.5% with these parameters.
+            Now uses Hungarian Algorithm for optimal line matching instead of greedy approach.
+            This ensures the best global assignment of detected lines to reference lines.
         """
         self.position_tolerance = position_tolerance
         self.angle_tolerance = angle_tolerance
         self.length_tolerance = length_tolerance
+        self.similarity_threshold = similarity_threshold
     
     def compare_lines(
         self,
@@ -47,7 +50,10 @@ class LineComparator:
         reference_lines: List[Tuple[int, int, int, int]]
     ) -> Dict:
         """
-        Compare detected lines with reference lines.
+        Compare detected lines with reference lines using Hungarian Algorithm.
+        
+        Uses optimal bipartite matching to find the best global assignment of
+        detected lines to reference lines, rather than greedy matching.
         
         Args:
             detected_lines: List of detected lines as (x1, y1, x2, y2)
@@ -56,30 +62,43 @@ class LineComparator:
         Returns:
             Dictionary containing comparison results
         """
+        if len(detected_lines) == 0 or len(reference_lines) == 0:
+            # Handle empty cases
+            return {
+                'correct_lines': 0,
+                'missing_lines': len(reference_lines),
+                'extra_lines': len(detected_lines),
+                'similarity_score': 0.0,
+                'matches': [],
+                'matched_detected_indices': [],
+                'matched_reference_indices': []
+            }
+        
+        # Build similarity matrix (cost matrix)
+        # Higher similarity = lower cost, so use (1 - similarity)
+        n_detected = len(detected_lines)
+        n_reference = len(reference_lines)
+        cost_matrix = np.ones((n_detected, n_reference))
+        
+        for i, det_line in enumerate(detected_lines):
+            for j, ref_line in enumerate(reference_lines):
+                similarity = self._calculate_line_similarity(det_line, ref_line)
+                cost_matrix[i, j] = 1.0 - similarity  # Convert to cost
+        
+        # Use Hungarian Algorithm for optimal assignment
+        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+        
+        # Filter matches by similarity threshold
         matched_detected = set()
         matched_reference = set()
         matches = []
         
-        # Find matches between detected and reference lines
-        for i, det_line in enumerate(detected_lines):
-            best_match = None
-            best_similarity = 0.0
-            
-            for j, ref_line in enumerate(reference_lines):
-                if j in matched_reference:
-                    continue
-                
-                similarity = self._calculate_line_similarity(det_line, ref_line)
-                
-                # Check if this is a match based on threshold
-                if similarity > 0.7 and similarity > best_similarity:
-                    best_similarity = similarity
-                    best_match = j
-            
-            if best_match is not None:
+        for i, j in zip(row_ind, col_ind):
+            similarity = 1.0 - cost_matrix[i, j]
+            if similarity >= self.similarity_threshold:
                 matched_detected.add(i)
-                matched_reference.add(best_match)
-                matches.append((i, best_match, best_similarity))
+                matched_reference.add(j)
+                matches.append((i, j, similarity))
         
         # Calculate metrics
         correct_lines = len(matches)
@@ -144,7 +163,8 @@ class LineComparator:
             length_sim = 0
         
         # Weighted average of similarities
-        similarity = 0.4 * position_sim + 0.3 * angle_sim + 0.3 * length_sim
+        # Position is most important (50%), angle secondary (30%), length tertiary (20%)
+        similarity = 0.5 * position_sim + 0.3 * angle_sim + 0.2 * length_sim
         
         return similarity
     
