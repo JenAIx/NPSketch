@@ -1,0 +1,33 @@
+services:
+  nginx:
+    image: nginx:latest
+    container_name: npsketch-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./webapp:/usr/share/nginx/html:ro
+    depends_on:
+      - api
+    networks:
+      - npsketch-network
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: npsketch-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./api:/app:rw
+      - ./data:/app/data:rw
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - npsketch-network
+
+networks:
+  npsketch-network:
+    driver: bridge
+

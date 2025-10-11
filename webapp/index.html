@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPSketch v1.0</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            text-align: center;
+            background: white;
+            padding: 60px 80px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 600px;
+        }
+        
+        h1 {
+            color: #333;
+            font-size: 3em;
+            margin-bottom: 10px;
+        }
+        
+        .version {
+            color: #667eea;
+            font-size: 1.2em;
+            margin-bottom: 30px;
+        }
+        
+        .description {
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 30px;
+        }
+        
+        .links {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 15px 30px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+        
+        .btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #764ba2;
+        }
+        
+        .btn-secondary:hover {
+            background: #653d8e;
+        }
+        
+        .status {
+            margin-top: 30px;
+            padding: 15px;
+            background: #f0f9ff;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .status-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background: #00ff00;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎨 NPSketch</h1>
+        <div class="version">v. 1.0</div>
+        
+        <p class="description">
+            Automated Line Detection for Hand-Drawn Images<br>
+            Compare your drawings to reference templates with AI-powered analysis
+        </p>
+        
+        <div class="links">
+            <a href="/app.html" class="btn">Application</a>
+            <a href="/upload.html" class="btn">Upload Interface</a>
+            <a href="/api/docs" class="btn btn-secondary">API Documentation</a>
+        </div>
+        
+        <div class="status">
+            <span class="status-dot"></span>
+            <strong>System Online</strong>
+            <p style="margin-top: 10px; color: #666; font-size: 0.9em;">
+                Ready to analyze drawings
+            </p>
+        </div>
+    </div>
+</body>
+</html>
