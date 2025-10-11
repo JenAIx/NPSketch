@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPSketch - Evaluations</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        
+        .content-grid {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 30px;
+            margin-top: 20px;
+        }
+        
+        .evaluations-list {
+            max-height: 700px;
+            overflow-y: auto;
+            border-right: 2px solid #eee;
+            padding-right: 20px;
+        }
+        
+        .eval-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border-left: 4px solid transparent;
+        }
+        
+        .eval-item:hover {
+            background: #e9ecef;
+            transform: translateX(5px);
+        }
+        
+        .eval-item.active {
+            background: #667eea;
+            color: white;
+            border-left-color: #764ba2;
+        }
+        
+        .eval-item.active .eval-meta {
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .eval-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        
+        .eval-id {
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .eval-score {
+            font-size: 20px;
+            font-weight: bold;
+        }
+        
+        .score-good {
+            color: #28a745;
+        }
+        
+        .score-medium {
+            color: #ffc107;
+        }
+        
+        .score-bad {
+            color: #dc3545;
+        }
+        
+        .eval-item.active .score-good,
+        .eval-item.active .score-medium,
+        .eval-item.active .score-bad {
+            color: white;
+        }
+        
+        .eval-meta {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .eval-stats {
+            display: flex;
+            gap: 10px;
+            margin-top: 8px;
+            font-size: 13px;
+        }
+        
+        .stat-badge {
+            background: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        
+        .eval-item.active .stat-badge {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .detail-view {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 400px;
+            color: #999;
+        }
+        
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+        
+        .detail-header {
+            margin-bottom: 20px;
+        }
+        
+        .detail-title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .detail-subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .metric-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .metric-card.highlight {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .metric-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+        
+        .visualization-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        
+        .viz-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+        }
+        
+        .viz-image {
+            width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .legend {
+            display: flex;
+            gap: 20px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+        
+        .legend-box {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .no-evaluations {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+        
+        .no-evaluations-icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+        
+        .upload-btn {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 500;
+            transition: transform 0.2s;
+        }
+        
+        .upload-btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        @media (max-width: 1024px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .evaluations-list {
+                max-height: 300px;
+                border-right: none;
+                border-bottom: 2px solid #eee;
+                padding-right: 0;
+                padding-bottom: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/app.html" class="back-link">← Back to Home</a>
+        
+        <h1>📊 Evaluations</h1>
+        <p class="subtitle">Browse and review all drawing evaluations</p>
+        
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading evaluations...</p>
+        </div>
+        
+        <div id="noEvaluations" class="no-evaluations" style="display: none;">
+            <div class="no-evaluations-icon">📝</div>
+            <h2>No Evaluations Yet</h2>
+            <p>Upload your first drawing to see evaluation results here.</p>
+            <a href="/upload.html" class="upload-btn">Upload Drawing</a>
+        </div>
+        
+        <div id="content" class="content-grid" style="display: none;">
+            <div class="evaluations-list" id="evalList">
+                <!-- Evaluation items will be inserted here -->
+            </div>
+            
+            <div class="detail-view" id="detailView">
+                <div class="empty-state">
+                    <div class="empty-state-icon">👈</div>
+                    <p>Select an evaluation to view details</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let evaluations = [];
+        let selectedEvalId = null;
+        
+        async function loadEvaluations() {
+            try {
+                const response = await fetch('/api/evaluations/recent?limit=100');
+                evaluations = await response.json();
+                
+                document.getElementById('loading').style.display = 'none';
+                
+                if (evaluations.length === 0) {
+                    document.getElementById('noEvaluations').style.display = 'block';
+                } else {
+                    document.getElementById('content').style.display = 'grid';
+                    displayEvaluationsList();
+                }
+                
+            } catch (error) {
+                document.getElementById('loading').innerHTML = 
+                    '<p style="color: #c33;">Error loading evaluations</p>';
+            }
+        }
+        
+        function displayEvaluationsList() {
+            const listDiv = document.getElementById('evalList');
+            listDiv.innerHTML = '';
+            
+            evaluations.forEach(eval => {
+                const item = createEvaluationItem(eval);
+                listDiv.appendChild(item);
+            });
+        }
+        
+        function createEvaluationItem(eval) {
+            const div = document.createElement('div');
+            div.className = 'eval-item';
+            if (selectedEvalId === eval.id) {
+                div.classList.add('active');
+            }
+            
+            const score = eval.similarity_score * 100;
+            let scoreClass = 'score-good';
+            if (score < 50) scoreClass = 'score-bad';
+            else if (score < 80) scoreClass = 'score-medium';
+            
+            const date = new Date(eval.evaluated_at);
+            const dateStr = date.toLocaleString();
+            
+            div.innerHTML = `
+                <div class="eval-header">
+                    <span class="eval-id">Evaluation #${eval.id}</span>
+                    <span class="eval-score ${scoreClass}">${score.toFixed(0)}%</span>
+                </div>
+                <div class="eval-stats">
+                    <span class="stat-badge">✓ ${eval.correct_lines}</span>
+                    <span class="stat-badge">✗ ${eval.missing_lines}</span>
+                    <span class="stat-badge">+ ${eval.extra_lines}</span>
+                </div>
+                <div class="eval-meta">${dateStr}</div>
+            `;
+            
+            div.onclick = () => selectEvaluation(eval.id);
+            
+            return div;
+        }
+        
+        async function selectEvaluation(evalId) {
+            selectedEvalId = evalId;
+            
+            // Update list UI
+            document.querySelectorAll('.eval-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.target.closest('.eval-item').classList.add('active');
+            
+            // Load and display details
+            await displayEvaluationDetail(evalId);
+        }
+        
+        async function displayEvaluationDetail(evalId) {
+            const detailDiv = document.getElementById('detailView');
+            detailDiv.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading details...</p></div>';
+            
+            try {
+                const response = await fetch(`/api/evaluations/${evalId}`);
+                const eval = await response.json();
+                
+                const score = eval.similarity_score * 100;
+                let scoreClass = 'score-good';
+                if (score < 50) scoreClass = 'score-bad';
+                else if (score < 80) scoreClass = 'score-medium';
+                
+                const date = new Date(eval.evaluated_at);
+                const dateStr = date.toLocaleString();
+                
+                detailDiv.innerHTML = `
+                    <div class="detail-header">
+                        <div class="detail-title">Evaluation #${eval.id}</div>
+                        <div class="detail-subtitle">${dateStr}</div>
+                    </div>
+                    
+                    <div class="metrics-grid">
+                        <div class="metric-card highlight">
+                            <div class="metric-value">${score.toFixed(1)}%</div>
+                            <div class="metric-label">Similarity Score</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" style="color: #28a745;">${eval.correct_lines}</div>
+                            <div class="metric-label">Correct Lines</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" style="color: #dc3545;">${eval.missing_lines}</div>
+                            <div class="metric-label">Missing Lines</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" style="color: #ffc107;">${eval.extra_lines}</div>
+                            <div class="metric-label">Extra Lines</div>
+                        </div>
+                    </div>
+                    
+                    <div class="visualization-section">
+                        <div class="viz-title">📐 Line Detection Visualization</div>
+                        <img src="${eval.visualization_path}" alt="Evaluation Visualization" class="viz-image">
+                        <div class="legend">
+                            <div class="legend-item">
+                                <div class="legend-box" style="background: #00ff00;"></div>
+                                <span>Correct Lines (${eval.correct_lines})</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-box" style="background: #ff0000;"></div>
+                                <span>Missing Lines (${eval.missing_lines})</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-box" style="background: #0000ff;"></div>
+                                <span>Extra Lines (${eval.extra_lines})</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+            } catch (error) {
+                detailDiv.innerHTML = '<p style="color: #c33; padding: 20px;">Error loading evaluation details</p>';
+            }
+        }
+        
+        // Load evaluations on page load
+        loadEvaluations();
+    </script>
+</body>
+</html>
+
