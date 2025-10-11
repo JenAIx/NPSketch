@@ -17,7 +17,8 @@ from image_processing import (
     image_to_bytes,
     create_visualization,
     LineDetector,
-    LineComparator
+    LineComparator,
+    ImageRegistration
 )
 
 
@@ -28,16 +29,23 @@ class EvaluationService:
     Handles the complete workflow from upload to evaluation and visualization.
     """
     
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, use_registration: bool = True, registration_motion: str = "euclidean", max_rotation_degrees: float = 30.0):
         """
         Initialize the evaluation service.
         
         Args:
             db: SQLAlchemy database session
+            use_registration: Whether to use image registration for alignment
+            registration_motion: Motion model ('euclidean', 'affine', 'translation')
+            max_rotation_degrees: Maximum allowed rotation in degrees
         """
         self.db = db
         self.line_detector = LineDetector()
         self.comparator = LineComparator()
+        self.registration = ImageRegistration()
+        self.use_registration = use_registration
+        self.registration_motion = registration_motion
+        self.max_rotation_degrees = max_rotation_degrees
         
         # Create directories for storing visualizations
         # Static files are stored in the mounted data directory
@@ -244,9 +252,6 @@ class EvaluationService:
         # Normalize image
         normalized = normalize_image(image)
         
-        # Extract features
-        features = self.line_detector.extract_features(normalized)
-        
         # Get reference image
         reference = self.db.query(ReferenceImage).filter(
             ReferenceImage.id == reference_id
@@ -255,6 +260,34 @@ class EvaluationService:
         if not reference:
             raise ValueError(f"Reference with ID {reference_id} not found")
         
+        ref_image = load_image_from_bytes(reference.processed_image_data)
+        
+        # Perform image registration if enabled
+        registered_image = normalized
+        registration_info = {'used': False}
+        
+        if self.use_registration:
+            try:
+                registered_image, registration_info = self.registration.register_images(
+                    normalized,
+                    ref_image,
+                    method="ecc",
+                    motion_type=self.registration_motion,
+                    max_rotation_degrees=self.max_rotation_degrees
+                )
+                registration_info['used'] = True
+                registration_info['motion_type'] = self.registration_motion
+            except Exception as e:
+                # If registration fails, use original
+                registered_image = normalized
+                registration_info = {
+                    'used': False,
+                    'error': str(e)
+                }
+        
+        # Extract features from registered image
+        features = self.line_detector.extract_features(registered_image)
+        
         # Compare with reference
         reference_features = self.line_detector.features_from_json(reference.feature_data)
         comparison = self.comparator.compare_lines(
@@ -262,17 +295,18 @@ class EvaluationService:
             reference_features['lines']
         )
         
-        # Create visualization
+        # Create 3-way visualization: Original | Registered | Reference
         viz_filename = f"test_{test_name}.png"
         viz_path = os.path.join(self.viz_dir, viz_filename)
         
-        ref_image = load_image_from_bytes(reference.processed_image_data)
-        visualization = self._create_comparison_visualization(
+        visualization = self._create_3way_comparison_visualization(
             normalized,
+            registered_image,
             ref_image,
             features['lines'],
             reference_features['lines'],
-            comparison
+            comparison,
+            registration_info
         )
         
         import cv2
@@ -290,4 +324,72 @@ class EvaluationService:
         )
         
         return evaluation
+    
+    def _create_3way_comparison_visualization(
+        self,
+        original_img: np.ndarray,
+        registered_img: np.ndarray,
+        reference_img: np.ndarray,
+        detected_lines: list,
+        reference_lines: list,
+        comparison: dict,
+        registration_info: dict
+    ) -> np.ndarray:
+        """
+        Create a 3-way comparison visualization showing Original | Registered | Reference.
+        
+        Args:
+            original_img: Original uploaded image
+            registered_img: Image after registration
+            reference_img: Reference image
+            detected_lines: Detected lines from registered image
+            reference_lines: Lines from reference
+            comparison: Comparison results
+            registration_info: Information about the registration
+            
+        Returns:
+            Combined visualization image
+        """
+        import cv2
+        
+        # Create copies for drawing
+        orig_vis = original_img.copy()
+        reg_vis = registered_img.copy()
+        ref_vis = reference_img.copy()
+        
+        # Draw detected lines on registered image
+        # Green for matched lines, red for extra lines
+        matched_indices = set(comparison['matched_detected_indices'])
+        for i, line in enumerate(detected_lines):
+            x1, y1, x2, y2 = line
+            color = (0, 255, 0) if i in matched_indices else (0, 0, 255)
+            cv2.line(reg_vis, (x1, y1), (x2, y2), color, 2)
+        
+        # Draw reference lines
+        # Green for matched, blue for missing
+        matched_ref = set(comparison['matched_reference_indices'])
+        for i, line in enumerate(reference_lines):
+            x1, y1, x2, y2 = line
+            color = (0, 255, 0) if i in matched_ref else (255, 0, 0)
+            cv2.line(ref_vis, (x1, y1), (x2, y2), color, 2)
+        
+        # Combine three images horizontally
+        combined = np.hstack([orig_vis, reg_vis, ref_vis])
+        
+        # Add labels
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(combined, "Original", (10, 30), font, 0.8, (0, 0, 0), 2)
+        cv2.putText(combined, "Registered", (orig_vis.shape[1] + 10, 30), font, 0.8, (0, 0, 0), 2)
+        cv2.putText(combined, "Reference", (orig_vis.shape[1] + reg_vis.shape[1] + 10, 30), font, 0.8, (0, 0, 0), 2)
+        
+        # Add registration info if used
+        if registration_info.get('used', False):
+            reg_text = f"Tx:{registration_info.get('translation_x', 0):.1f} Ty:{registration_info.get('translation_y', 0):.1f} Rot:{registration_info.get('rotation_degrees', 0):.1f}deg Scale:{registration_info.get('scale', 1.0):.2f}x"
+            cv2.putText(combined, reg_text, (orig_vis.shape[1] + 10, 50), font, 0.5, (0, 0, 255), 1)
+        
+        # Add metrics at bottom
+        metrics_text = f"Correct: {comparison['correct_lines']} | Missing: {comparison['missing_lines']} | Extra: {comparison['extra_lines']} | Score: {comparison['similarity_score']:.2%}"
+        cv2.putText(combined, metrics_text, (10, combined.shape[0] - 20), font, 0.6, (0, 0, 0), 2)
+        
+        return combined
 

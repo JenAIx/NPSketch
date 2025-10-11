@@ -334,6 +334,87 @@
                     🚀 Run All Tests
                 </button>
             </div>
+            
+            <!-- Settings Panel -->
+            <details open style="margin-bottom: 20px; background: white; padding: 15px; border-radius: 8px; border: 2px solid #667eea;">
+                <summary style="cursor: pointer; font-weight: bold; color: #667eea; user-select: none; font-size: 1.1em;">
+                    ⚙️ Advanced Settings
+                </summary>
+                
+                <div style="margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <!-- Registration Settings -->
+                    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #667eea;">
+                        <h3 style="color: #667eea; margin: 0 0 15px 0; font-size: 1em;">
+                            🔄 Image Registration
+                        </h3>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">
+                                <input type="checkbox" id="useRegistration" checked> 
+                                Enable Registration
+                            </label>
+                            <p style="font-size: 0.85em; color: #666; margin: 0;">Align images before comparison</p>
+                        </div>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">
+                                Registration Mode
+                            </label>
+                            <select id="registrationMotion" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd; font-size: 0.95em;">
+                                <option value="translation">Translation (X/Y)</option>
+                                <option value="euclidean">Euclidean (X/Y + Rot)</option>
+                                <option value="similarity" selected>Similarity (X/Y + Rot + Zoom) ⭐</option>
+                                <option value="affine">Affine (+ Shear)</option>
+                            </select>
+                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">⭐ Recommended for drawings</p>
+                        </div>
+                        
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">
+                                Max Rotation: <span id="maxRotationVal">30</span>°
+                            </label>
+                            <input type="range" id="maxRotation" min="5" max="90" value="30" step="5" 
+                                   style="width: 100%;" oninput="updateToleranceDisplay()">
+                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Maximum allowed rotation</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Tolerance Settings -->
+                    <div style="background: #fff3e0; padding: 20px; border-radius: 8px; border-left: 4px solid #ff9800;">
+                        <h3 style="color: #ff9800; margin: 0 0 15px 0; font-size: 1em;">
+                            📏 Line Matching Tolerances
+                        </h3>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">
+                                Position: <span id="posToleranceVal">20</span>px
+                            </label>
+                            <input type="range" id="posTolerance" min="5" max="50" value="20" step="1" 
+                                   style="width: 100%;" oninput="updateToleranceDisplay()">
+                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Distance for position match</p>
+                        </div>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">
+                                Angle: <span id="angleToleranceVal">15</span>°
+                            </label>
+                            <input type="range" id="angleTolerance" min="5" max="30" value="15" step="1" 
+                                   style="width: 100%;" oninput="updateToleranceDisplay()">
+                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Maximum angle difference</p>
+                        </div>
+                        
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">
+                                Length: <span id="lengthToleranceVal">30</span>%
+                            </label>
+                            <input type="range" id="lengthTolerance" min="10" max="50" value="30" step="5" 
+                                   style="width: 100%;" oninput="updateToleranceDisplay()">
+                            <p style="font-size: 0.85em; color: #666; margin: 5px 0 0 0;">Relative length difference</p>
+                        </div>
+                    </div>
+                </div>
+            </details>
+            
             <div class="loading" id="loading" style="display: none;">
                 <div class="spinner"></div>
                 <p>Running tests...</p>
@@ -377,6 +458,17 @@
     </div>
     
     <script>
+        function updateToleranceDisplay() {
+            document.getElementById('maxRotationVal').textContent = 
+                document.getElementById('maxRotation').value;
+            document.getElementById('posToleranceVal').textContent = 
+                document.getElementById('posTolerance').value;
+            document.getElementById('angleToleranceVal').textContent = 
+                document.getElementById('angleTolerance').value;
+            document.getElementById('lengthToleranceVal').textContent = 
+                document.getElementById('lengthTolerance').value;
+        }
+        
         async function runTests() {
             const runBtn = document.getElementById('runBtn');
             const loading = document.getElementById('loading');
@@ -390,7 +482,25 @@
             results.style.display = 'none';
             
             try {
-                const response = await fetch('/api/test-images/run-tests', {
+                // Get settings
+                const useRegistration = document.getElementById('useRegistration').checked;
+                const registrationMotion = document.getElementById('registrationMotion').value;
+                const maxRotation = parseFloat(document.getElementById('maxRotation').value);
+                const posTolerance = parseFloat(document.getElementById('posTolerance').value);
+                const angleTolerance = parseFloat(document.getElementById('angleTolerance').value);
+                const lengthTolerance = parseFloat(document.getElementById('lengthTolerance').value) / 100;
+                
+                // Build URL with query parameters
+                const params = new URLSearchParams({
+                    use_registration: useRegistration,
+                    registration_motion: registrationMotion,
+                    max_rotation_degrees: maxRotation,
+                    position_tolerance: posTolerance,
+                    angle_tolerance: angleTolerance,
+                    length_tolerance: lengthTolerance
+                });
+                
+                const response = await fetch(`/api/test-images/run-tests?${params}`, {
                     method: 'POST'
                 });
                 

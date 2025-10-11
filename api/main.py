@@ -390,7 +390,15 @@ async def delete_test_image(
 
 
 @app.post("/api/test-images/run-tests")
-async def run_all_tests(db: Session = Depends(get_db)):
+async def run_all_tests(
+    use_registration: bool = True,
+    registration_motion: str = "similarity",
+    max_rotation_degrees: float = 30.0,
+    position_tolerance: float = 20.0,
+    angle_tolerance: float = 15.0,
+    length_tolerance: float = 0.3,
+    db: Session = Depends(get_db)
+):
     """
     Run automated tests on all test images.
     Evaluates each test image and compares expected vs actual results.
@@ -422,7 +430,15 @@ async def run_all_tests(db: Session = Depends(get_db)):
     
     # Evaluate each test image
     results = []
-    eval_service = EvaluationService(db)
+    eval_service = EvaluationService(db, use_registration=use_registration, registration_motion=registration_motion, max_rotation_degrees=max_rotation_degrees)
+    
+    # Create custom comparator with provided tolerances
+    from image_processing import LineComparator
+    eval_service.comparator = LineComparator(
+        position_tolerance=position_tolerance,
+        angle_tolerance=angle_tolerance,
+        length_tolerance=length_tolerance
+    )
     
     for test_img in test_images:
         try:
