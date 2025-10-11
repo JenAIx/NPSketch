@@ -64,7 +64,56 @@
         .canvas-wrapper {
             display: flex;
             justify-content: center;
+            align-items: center;
             margin-bottom: 20px;
+            gap: 15px;
+            position: relative;
+        }
+        
+        .rotate-btn {
+            width: 50px;
+            height: 50px;
+            border: 2px solid #667eea;
+            background: white;
+            color: #667eea;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 24px;
+            font-weight: bold;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+        }
+        
+        .rotate-btn:hover {
+            background: #667eea;
+            color: white;
+            transform: scale(1.1);
+        }
+        
+        .rotate-btn:active {
+            transform: scale(0.95);
+        }
+        
+        .rotation-display {
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .rotation-display.show {
+            opacity: 1;
         }
         
         #drawCanvas {
@@ -330,7 +379,12 @@
         <div class="main-grid">
             <div class="canvas-section">
                 <div class="canvas-wrapper">
-                    <canvas id="drawCanvas" width="256" height="256"></canvas>
+                    <button class="rotate-btn" onclick="rotateCanvas(-10)" title="Rotate 10° left">↶</button>
+                    <div style="position: relative;">
+                        <canvas id="drawCanvas" width="256" height="256"></canvas>
+                        <div class="rotation-display" id="rotationDisplay">0°</div>
+                    </div>
+                    <button class="rotate-btn" onclick="rotateCanvas(10)" title="Rotate 10° right">↷</button>
                 </div>
                 
                 <div class="brush-size">
@@ -407,6 +461,7 @@
         let lastY = 0;
         let loadedTestId = null;
         let loadedTestName = null;
+        let currentRotation = 0;
         
         // Initialize canvas
         ctx.fillStyle = 'white';
@@ -490,6 +545,54 @@
         function clearCanvas() {
             ctx.fillStyle = 'white';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
+            currentRotation = 0;
+            updateRotationDisplay();
+        }
+        
+        // Rotate canvas content
+        function rotateCanvas(degrees) {
+            // Store current canvas content
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(canvas, 0, 0);
+            
+            // Update rotation
+            currentRotation += degrees;
+            
+            // Clear canvas with white
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Save context state
+            ctx.save();
+            
+            // Move to center, rotate, move back
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate(degrees * Math.PI / 180);
+            ctx.translate(-canvas.width / 2, -canvas.height / 2);
+            
+            // Draw the stored image
+            ctx.drawImage(tempCanvas, 0, 0);
+            
+            // Restore context state
+            ctx.restore();
+            
+            // Update display
+            updateRotationDisplay();
+        }
+        
+        function updateRotationDisplay() {
+            const display = document.getElementById('rotationDisplay');
+            const normalizedRotation = ((currentRotation % 360) + 360) % 360; // Normalize to 0-360
+            display.textContent = `${normalizedRotation}°`;
+            
+            // Show temporarily
+            display.classList.add('show');
+            setTimeout(() => {
+                display.classList.remove('show');
+            }, 1500);
         }
         
         // Brush size control
@@ -587,6 +690,7 @@
             document.getElementById('testName').value = '';
             document.getElementById('correctLines').value = '0';
             document.getElementById('extraLines').value = '0';
+            currentRotation = 0;
             updateSaveButton();
         }
         
