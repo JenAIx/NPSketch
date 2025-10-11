@@ -131,6 +131,33 @@ class EvaluationResult(Base):
     reference = relationship("ReferenceImage")
 
 
+class TestImage(Base):
+    """
+    Stores manually created test images with expected scores for testing.
+    
+    Attributes:
+        id: Primary key
+        test_name: Name/description of the test
+        image_data: Image binary data
+        expected_correct: Expected number of correct lines
+        expected_missing: Expected number of missing lines
+        expected_extra: Expected number of extra lines
+        created_at: Timestamp of creation
+    """
+    __tablename__ = "test_images"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    test_name = Column(String, index=True)
+    image_data = Column(LargeBinary)
+    expected_correct = Column(Integer)
+    expected_missing = Column(Integer)
+    expected_extra = Column(Integer)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    def __repr__(self):
+        return f"<TestImage(id={self.id}, name='{self.test_name}')>"
+
+
 def init_database():
     """
     Initialize the database by creating all tables.

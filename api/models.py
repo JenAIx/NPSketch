@@ -76,3 +76,17 @@ class FeatureStats(BaseModel):
     image_resolution: tuple[int, int]
 
 
+class TestImageResponse(BaseModel):
+    """Response model for test images."""
+    
+    id: int
+    test_name: str
+    expected_correct: int
+    expected_missing: int
+    expected_extra: int
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+

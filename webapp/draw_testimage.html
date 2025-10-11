@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPSketch - Draw Test Image</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 30px;
+        }
+        
+        .canvas-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        
+        .canvas-wrapper {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        
+        #drawCanvas {
+            border: 2px solid #333;
+            cursor: crosshair;
+            background: white;
+            image-rendering: pixelated;
+        }
+        
+        .tools {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        
+        .tool-btn {
+            padding: 12px 24px;
+            border: 2px solid #667eea;
+            background: white;
+            color: #667eea;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .tool-btn:hover {
+            background: #f0f0f0;
+        }
+        
+        .tool-btn.active {
+            background: #667eea;
+            color: white;
+        }
+        
+        .tool-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .brush-size {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        
+        .brush-size label {
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .brush-size input {
+            width: 150px;
+        }
+        
+        .brush-preview {
+            width: 30px;
+            height: 30px;
+            border: 2px solid #333;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .brush-dot {
+            background: black;
+            border-radius: 50%;
+        }
+        
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .score-form {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        
+        .form-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            font-weight: 500;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .form-group input[type="number"] {
+            text-align: center;
+            font-size: 20px;
+            font-weight: bold;
+        }
+        
+        .save-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .save-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+        }
+        
+        .save-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .test-images-list {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        
+        .list-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+        }
+        
+        .test-item {
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .test-item:hover {
+            background: #f8f9fa;
+            transform: translateX(5px);
+        }
+        
+        .test-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        
+        .test-id {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .test-stats {
+            display: flex;
+            gap: 10px;
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .empty-list {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+        }
+        
+        .test-actions {
+            display: flex;
+            gap: 5px;
+            margin-top: 8px;
+        }
+        
+        .action-btn {
+            padding: 4px 12px;
+            font-size: 12px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .action-btn:hover {
+            background: #f0f0f0;
+        }
+        
+        .action-btn.load {
+            color: #667eea;
+            border-color: #667eea;
+        }
+        
+        .action-btn.load:hover {
+            background: #667eea;
+            color: white;
+        }
+        
+        .action-btn.rename {
+            color: #ffc107;
+            border-color: #ffc107;
+        }
+        
+        .action-btn.rename:hover {
+            background: #ffc107;
+            color: white;
+        }
+        
+        .action-btn.delete {
+            color: #dc3545;
+            border-color: #dc3545;
+        }
+        
+        .action-btn.delete:hover {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal.show {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+        
+        .modal-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 20px;
+        }
+        
+        .modal-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+        
+        .modal-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        
+        .modal-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .modal-btn.cancel {
+            background: #e9ecef;
+            color: #333;
+        }
+        
+        .modal-btn.cancel:hover {
+            background: #dee2e6;
+        }
+        
+        .modal-btn.confirm {
+            background: #667eea;
+            color: white;
+        }
+        
+        .modal-btn.confirm:hover {
+            background: #5568d3;
+        }
+        
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #28a745;
+            display: none;
+        }
+        
+        @media (max-width: 1024px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/index.html" class="back-link">← Back to Home</a>
+        
+        <h1>🎨 Draw Test Image</h1>
+        <p class="subtitle">Create test images with manual scoring for evaluation testing</p>
+        
+        <div class="success-message" id="successMessage">
+            ✓ Test image saved successfully!
+        </div>
+        
+        <!-- Rename Modal -->
+        <div class="modal" id="renameModal">
+            <div class="modal-content">
+                <div class="modal-title">Rename Test Image</div>
+                <input type="text" class="modal-input" id="renameInput" placeholder="Enter new name">
+                <div class="modal-buttons">
+                    <button class="modal-btn cancel" onclick="closeRenameModal()">Cancel</button>
+                    <button class="modal-btn confirm" onclick="confirmRename()">Rename</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="main-grid">
+            <div class="canvas-section">
+                <div class="canvas-wrapper">
+                    <canvas id="drawCanvas" width="256" height="256"></canvas>
+                </div>
+                
+                <div class="brush-size">
+                    <label>Brush Size:</label>
+                    <input type="range" id="brushSize" min="1" max="10" value="3">
+                    <div class="brush-preview">
+                        <div class="brush-dot" id="brushPreview"></div>
+                    </div>
+                </div>
+                
+                <div class="tools">
+                    <button class="tool-btn active" id="drawBtn" onclick="setMode('draw')">
+                        ✏️ Draw
+                    </button>
+                    <button class="tool-btn" id="eraseBtn" onclick="setMode('erase')">
+                        🧹 Erase
+                    </button>
+                    <button class="tool-btn" onclick="clearCanvas()">
+                        🗑️ Clear All
+                    </button>
+                </div>
+            </div>
+            
+            <div class="sidebar">
+                <div class="score-form">
+                    <div class="form-title">📊 Manual Scoring</div>
+                    
+                    <div class="form-group">
+                        <label>Test Name</label>
+                        <input type="text" id="testName" placeholder="e.g., Simple House" value="Test Drawing">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Correct Lines</label>
+                        <input type="number" id="correctLines" min="0" value="0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Missing Lines</label>
+                        <input type="number" id="missingLines" min="0" value="0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Extra Lines</label>
+                        <input type="number" id="extraLines" min="0" value="0">
+                    </div>
+                    
+                    <button class="save-btn" id="saveBtn" onclick="saveTestImage()">
+                        💾 Save Test Image
+                    </button>
+                </div>
+                
+                <div class="test-images-list">
+                    <div class="list-title">📋 Test Images</div>
+                    <div id="testImagesList">
+                        <div class="empty-list">Loading...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const canvas = document.getElementById('drawCanvas');
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false;
+        let currentMode = 'draw';
+        let brushSize = 3;
+        let renameTestId = null;
+        
+        // Initialize canvas
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Drawing functions
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseout', stopDrawing);
+        
+        // Touch support
+        canvas.addEventListener('touchstart', handleTouch);
+        canvas.addEventListener('touchmove', handleTouch);
+        canvas.addEventListener('touchend', stopDrawing);
+        
+        function startDrawing(e) {
+            isDrawing = true;
+            const pos = getMousePos(e);
+            drawDot(pos.x, pos.y);
+        }
+        
+        function draw(e) {
+            if (!isDrawing) return;
+            const pos = getMousePos(e);
+            drawDot(pos.x, pos.y);
+        }
+        
+        function stopDrawing() {
+            isDrawing = false;
+        }
+        
+        function handleTouch(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const mouseEvent = new MouseEvent(e.type === 'touchstart' ? 'mousedown' : 'mousemove', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            canvas.dispatchEvent(mouseEvent);
+        }
+        
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+        }
+        
+        function drawDot(x, y) {
+            ctx.fillStyle = currentMode === 'draw' ? 'black' : 'white';
+            ctx.beginPath();
+            ctx.arc(x, y, brushSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('drawBtn').classList.toggle('active', mode === 'draw');
+            document.getElementById('eraseBtn').classList.toggle('active', mode === 'erase');
+        }
+        
+        function clearCanvas() {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        
+        // Brush size control
+        document.getElementById('brushSize').addEventListener('input', (e) => {
+            brushSize = parseInt(e.target.value);
+            updateBrushPreview();
+        });
+        
+        function updateBrushPreview() {
+            const preview = document.getElementById('brushPreview');
+            const size = brushSize * 2;
+            preview.style.width = size + 'px';
+            preview.style.height = size + 'px';
+        }
+        
+        updateBrushPreview();
+        
+        // Save test image
+        async function saveTestImage() {
+            const testName = document.getElementById('testName').value.trim();
+            const correctLines = parseInt(document.getElementById('correctLines').value);
+            const missingLines = parseInt(document.getElementById('missingLines').value);
+            const extraLines = parseInt(document.getElementById('extraLines').value);
+            
+            if (!testName) {
+                alert('Please enter a test name');
+                return;
+            }
+            
+            // Convert canvas to blob
+            canvas.toBlob(async (blob) => {
+                const formData = new FormData();
+                formData.append('file', blob, 'test_image.png');
+                formData.append('test_name', testName);
+                formData.append('correct_lines', correctLines);
+                formData.append('missing_lines', missingLines);
+                formData.append('extra_lines', extraLines);
+                
+                try {
+                    const response = await fetch('/api/test-images', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        showSuccessMessage();
+                        clearCanvas();
+                        loadTestImages();
+                        
+                        // Reset form
+                        document.getElementById('correctLines').value = '0';
+                        document.getElementById('missingLines').value = '0';
+                        document.getElementById('extraLines').value = '0';
+                    } else {
+                        alert('Error saving test image');
+                    }
+                } catch (error) {
+                    alert('Error: ' + error.message);
+                }
+            }, 'image/png');
+        }
+        
+        function showSuccessMessage() {
+            const msg = document.getElementById('successMessage');
+            msg.style.display = 'block';
+            setTimeout(() => {
+                msg.style.display = 'none';
+            }, 3000);
+        }
+        
+        // Load test images
+        async function loadTestImages() {
+            try {
+                const response = await fetch('/api/test-images');
+                const testImages = await response.json();
+                
+                const listDiv = document.getElementById('testImagesList');
+                
+                if (testImages.length === 0) {
+                    listDiv.innerHTML = '<div class="empty-list">No test images yet</div>';
+                    return;
+                }
+                
+                listDiv.innerHTML = '';
+                testImages.forEach(test => {
+                    const item = document.createElement('div');
+                    item.className = 'test-item';
+                    
+                    const date = new Date(test.created_at);
+                    const dateStr = date.toLocaleDateString();
+                    
+                    item.innerHTML = `
+                        <div class="test-item-header">
+                            <span class="test-id">#${test.id} - ${test.test_name}</span>
+                            <span style="font-size: 12px; color: #999;">${dateStr}</span>
+                        </div>
+                        <div class="test-stats">
+                            <span class="stat-item">✓ ${test.expected_correct}</span>
+                            <span class="stat-item">✗ ${test.expected_missing}</span>
+                            <span class="stat-item">+ ${test.expected_extra}</span>
+                        </div>
+                        <div class="test-actions">
+                            <button class="action-btn load" onclick="loadTestImage(${test.id}, event)">📥 Load</button>
+                            <button class="action-btn rename" onclick="renameTestImage(${test.id}, '${test.test_name}', event)">✏️ Rename</button>
+                            <button class="action-btn delete" onclick="deleteTestImage(${test.id}, event)">🗑️ Delete</button>
+                        </div>
+                    `;
+                    
+                    listDiv.appendChild(item);
+                });
+            } catch (error) {
+                document.getElementById('testImagesList').innerHTML = 
+                    '<div class="empty-list">Error loading test images</div>';
+            }
+        }
+        
+        // Load test image into canvas
+        async function loadTestImage(testId, event) {
+            event.stopPropagation();
+            
+            try {
+                const response = await fetch(`/api/test-images/${testId}/image`);
+                const blob = await response.blob();
+                const imageUrl = URL.createObjectURL(blob);
+                
+                const img = new Image();
+                img.onload = () => {
+                    // Clear canvas and draw loaded image
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0);
+                    URL.revokeObjectURL(imageUrl);
+                    
+                    // Show success message
+                    const msg = document.getElementById('successMessage');
+                    msg.textContent = '✓ Test image loaded! Edit and save to create a copy.';
+                    msg.style.display = 'block';
+                    setTimeout(() => {
+                        msg.style.display = 'none';
+                        msg.textContent = '✓ Test image saved successfully!';
+                    }, 3000);
+                };
+                img.src = imageUrl;
+                
+            } catch (error) {
+                alert('Error loading test image: ' + error.message);
+            }
+        }
+        
+        // Rename test image
+        function renameTestImage(testId, currentName, event) {
+            event.stopPropagation();
+            
+            renameTestId = testId;
+            document.getElementById('renameInput').value = currentName;
+            document.getElementById('renameModal').classList.add('show');
+            document.getElementById('renameInput').focus();
+        }
+        
+        function closeRenameModal() {
+            document.getElementById('renameModal').classList.remove('show');
+            renameTestId = null;
+        }
+        
+        async function confirmRename() {
+            const newName = document.getElementById('renameInput').value.trim();
+            
+            if (!newName) {
+                alert('Please enter a name');
+                return;
+            }
+            
+            try {
+                const formData = new FormData();
+                formData.append('test_name', newName);
+                
+                const response = await fetch(`/api/test-images/${renameTestId}`, {
+                    method: 'PUT',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    closeRenameModal();
+                    loadTestImages();
+                    
+                    const msg = document.getElementById('successMessage');
+                    msg.textContent = '✓ Test image renamed successfully!';
+                    msg.style.display = 'block';
+                    setTimeout(() => {
+                        msg.style.display = 'none';
+                        msg.textContent = '✓ Test image saved successfully!';
+                    }, 3000);
+                } else {
+                    alert('Error renaming test image');
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+        
+        // Delete test image
+        async function deleteTestImage(testId, event) {
+            event.stopPropagation();
+            
+            if (!confirm('Are you sure you want to delete this test image?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/test-images/${testId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    loadTestImages();
+                    
+                    const msg = document.getElementById('successMessage');
+                    msg.textContent = '✓ Test image deleted successfully!';
+                    msg.style.background = '#f8d7da';
+                    msg.style.color = '#721c24';
+                    msg.style.borderLeftColor = '#dc3545';
+                    msg.style.display = 'block';
+                    setTimeout(() => {
+                        msg.style.display = 'none';
+                        msg.textContent = '✓ Test image saved successfully!';
+                        msg.style.background = '#d4edda';
+                        msg.style.color = '#155724';
+                        msg.style.borderLeftColor = '#28a745';
+                    }, 3000);
+                } else {
+                    alert('Error deleting test image');
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+        
+        // Close modal on ESC key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeRenameModal();
+            }
+        });
+        
+        // Close modal on background click
+        document.getElementById('renameModal').addEventListener('click', (e) => {
+            if (e.target.id === 'renameModal') {
+                closeRenameModal();
+            }
+        });
+        
+        // Load test images on page load
+        loadTestImages();
+    </script>
+</body>
+</html>
+

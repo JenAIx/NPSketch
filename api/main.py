@@ -12,19 +12,20 @@ Date: October 2025
 Version: 1.0
 """
 
-from fastapi import FastAPI, UploadFile, File, Depends, HTTPException
+from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from sqlalchemy.orm import Session
 from typing import List
 import os
 
-from database import init_database, get_db, ReferenceImage
+from database import init_database, get_db, ReferenceImage, TestImage
 from models import (
     UploadResponse,
     HealthResponse,
     EvaluationResultResponse,
-    ReferenceImageResponse
+    ReferenceImageResponse,
+    TestImageResponse
 )
 from services import ReferenceService, EvaluationService
 
@@ -242,6 +243,150 @@ async def get_reference_features(
         "image_shape": features.get("image_shape", []),
         "num_contours": features.get("num_contours", 0)
     }
+
+
+@app.post("/api/test-images", response_model=TestImageResponse)
+async def create_test_image(
+    file: UploadFile = File(...),
+    test_name: str = Form(...),
+    correct_lines: int = Form(...),
+    missing_lines: int = Form(...),
+    extra_lines: int = Form(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a test image with manual scoring.
+    
+    Args:
+        file: Image file
+        test_name: Name/description of the test
+        correct_lines: Expected number of correct lines
+        missing_lines: Expected number of missing lines
+        extra_lines: Expected number of extra lines
+        db: Database session
+        
+    Returns:
+        Created test image data
+    """
+    # Read image data
+    image_data = await file.read()
+    
+    # Create test image record
+    test_image = TestImage(
+        test_name=test_name,
+        image_data=image_data,
+        expected_correct=correct_lines,
+        expected_missing=missing_lines,
+        expected_extra=extra_lines
+    )
+    
+    db.add(test_image)
+    db.commit()
+    db.refresh(test_image)
+    
+    return test_image
+
+
+@app.get("/api/test-images", response_model=List[TestImageResponse])
+async def get_test_images(
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    """
+    Get all test images.
+    
+    Args:
+        limit: Maximum number of test images to return
+        db: Database session
+        
+    Returns:
+        List of test images
+    """
+    test_images = db.query(TestImage)\
+        .order_by(TestImage.created_at.desc())\
+        .limit(limit)\
+        .all()
+    
+    return test_images
+
+
+@app.get("/api/test-images/{test_id}/image")
+async def get_test_image_file(
+    test_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get test image file data.
+    
+    Args:
+        test_id: Test image ID
+        db: Database session
+        
+    Returns:
+        Image file
+    """
+    test_image = db.query(TestImage).filter(TestImage.id == test_id).first()
+    
+    if not test_image:
+        raise HTTPException(status_code=404, detail="Test image not found")
+    
+    from fastapi.responses import Response
+    return Response(content=test_image.image_data, media_type="image/png")
+
+
+@app.put("/api/test-images/{test_id}", response_model=TestImageResponse)
+async def update_test_image(
+    test_id: int,
+    test_name: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Update test image name.
+    
+    Args:
+        test_id: Test image ID
+        test_name: New name for the test image
+        db: Database session
+        
+    Returns:
+        Updated test image data
+    """
+    test_image = db.query(TestImage).filter(TestImage.id == test_id).first()
+    
+    if not test_image:
+        raise HTTPException(status_code=404, detail="Test image not found")
+    
+    test_image.test_name = test_name
+    db.commit()
+    db.refresh(test_image)
+    
+    return TestImageResponse.model_validate(test_image)
+
+
+@app.delete("/api/test-images/{test_id}")
+async def delete_test_image(
+    test_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a test image.
+    
+    Args:
+        test_id: Test image ID
+        db: Database session
+        
+    Returns:
+        Success message
+    """
+    test_image = db.query(TestImage).filter(TestImage.id == test_id).first()
+    
+    if not test_image:
+        raise HTTPException(status_code=404, detail="Test image not found")
+    
+    db.delete(test_image)
+    db.commit()
+    
+    return {"success": True, "message": "Test image deleted successfully"}
 
 
 if __name__ == "__main__":
