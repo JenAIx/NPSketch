@@ -482,13 +482,13 @@
                     </div>
                     
                     <div class="form-group">
-                        <label>Correct Lines</label>
-                        <input type="number" id="correctLines" min="0" value="0">
+                        <label>Correct Lines (of <span id="totalRefLines">8</span>)</label>
+                        <input type="number" id="correctLines" min="0" max="8" value="0">
                     </div>
                     
                     <div class="form-group">
-                        <label>Missing Lines</label>
-                        <input type="number" id="missingLines" min="0" value="0">
+                        <label>Missing Lines <span style="color: #999; font-size: 0.9em;">(auto-calculated)</span></label>
+                        <input type="number" id="missingLines" min="0" value="8" disabled style="background: #e9ecef; cursor: not-allowed;">
                     </div>
                     
                     <div class="form-group">
@@ -518,10 +518,18 @@
         let currentMode = 'draw';
         let brushSize = 3;
         let renameTestId = null;
+        let totalReferenceLines = 8;
         
         // Initialize canvas
         ctx.fillStyle = 'white';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Auto-calculate missing lines
+        document.getElementById('correctLines').addEventListener('input', (e) => {
+            const correct = parseInt(e.target.value) || 0;
+            const missing = Math.max(0, totalReferenceLines - correct);
+            document.getElementById('missingLines').value = missing;
+        });
         
         // Drawing functions
         canvas.addEventListener('mousedown', startDrawing);
@@ -837,8 +845,30 @@
             }
         });
         
-        // Load test images on page load
+        // Load reference info to get total lines
+        async function loadReferenceInfo() {
+            try {
+                const response = await fetch('/api/references');
+                const references = await response.json();
+                
+                if (references.length > 0) {
+                    // Get features to know the number of lines
+                    const featuresResponse = await fetch(`/api/references/${references[0].id}/features`);
+                    const features = await featuresResponse.json();
+                    
+                    totalReferenceLines = features.num_lines;
+                    document.getElementById('totalRefLines').textContent = totalReferenceLines;
+                    document.getElementById('missingLines').value = totalReferenceLines;
+                    document.getElementById('correctLines').max = totalReferenceLines;
+                }
+            } catch (error) {
+                console.error('Error loading reference info:', error);
+            }
+        }
+        
+        // Load test images and reference info on page load
         loadTestImages();
+        loadReferenceInfo();
     </script>
 </body>
 </html>
