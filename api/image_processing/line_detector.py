@@ -23,9 +23,9 @@ class LineDetector:
         self,
         rho: float = 1.0,
         theta: float = np.pi / 180,
-        threshold: int = 50,
-        min_line_length: int = 30,
-        max_line_gap: int = 10
+        threshold: int = 100,
+        min_line_length: int = 80,
+        max_line_gap: int = 25
     ):
         """
         Initialize the line detector with parameters.
@@ -71,7 +71,70 @@ class LineDetector:
             x1, y1, x2, y2 = line[0]
             detected_lines.append((int(x1), int(y1), int(x2), int(y2)))
         
-        return detected_lines
+        # Merge similar lines to reduce duplicates
+        merged_lines = self._merge_similar_lines(detected_lines)
+        
+        return merged_lines
+    
+    def _merge_similar_lines(self, lines: List[Tuple[int, int, int, int]], 
+                            position_threshold: float = 15.0,
+                            angle_threshold: float = 8.0) -> List[Tuple[int, int, int, int]]:
+        """
+        Merge lines that are very similar (likely duplicates from Hough Transform).
+        
+        Args:
+            lines: List of lines
+            position_threshold: Max distance to consider lines similar (pixels)
+            angle_threshold: Max angle difference to consider lines similar (degrees)
+            
+        Returns:
+            List of merged lines
+        """
+        if len(lines) == 0:
+            return []
+        
+        merged = []
+        used = set()
+        
+        for i, line1 in enumerate(lines):
+            if i in used:
+                continue
+                
+            # Find all similar lines
+            similar = [line1]
+            x1_1, y1_1, x2_1, y2_1 = line1
+            angle1 = np.arctan2(y2_1 - y1_1, x2_1 - x1_1) * 180 / np.pi
+            mid1 = ((x1_1 + x2_1) / 2, (y1_1 + y2_1) / 2)
+            
+            for j, line2 in enumerate(lines):
+                if j <= i or j in used:
+                    continue
+                
+                x1_2, y1_2, x2_2, y2_2 = line2
+                angle2 = np.arctan2(y2_2 - y1_2, x2_2 - x1_2) * 180 / np.pi
+                mid2 = ((x1_2 + x2_2) / 2, (y1_2 + y2_2) / 2)
+                
+                # Check if similar
+                angle_diff = abs(angle1 - angle2)
+                if angle_diff > 180:
+                    angle_diff = 360 - angle_diff
+                    
+                distance = np.sqrt((mid1[0] - mid2[0])**2 + (mid1[1] - mid2[1])**2)
+                
+                if angle_diff < angle_threshold and distance < position_threshold:
+                    similar.append(line2)
+                    used.add(j)
+            
+            # Average all similar lines
+            if len(similar) > 0:
+                avg_x1 = int(np.mean([l[0] for l in similar]))
+                avg_y1 = int(np.mean([l[1] for l in similar]))
+                avg_x2 = int(np.mean([l[2] for l in similar]))
+                avg_y2 = int(np.mean([l[3] for l in similar]))
+                merged.append((avg_x1, avg_y1, avg_x2, avg_y2))
+                used.add(i)
+        
+        return merged
     
     def detect_contours(self, binary_image: np.ndarray) -> List:
         """

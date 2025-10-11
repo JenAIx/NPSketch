@@ -208,6 +208,42 @@ async def get_reference_image(
     return Response(content=reference.processed_image_data, media_type="image/png")
 
 
+@app.get("/api/references/{ref_id}/features")
+async def get_reference_features(
+    ref_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get reference image features (detected lines).
+    
+    Args:
+        ref_id: Reference image ID
+        db: Database session
+        
+    Returns:
+        Feature data including detected lines
+    """
+    ref_service = ReferenceService(db)
+    reference = ref_service.get_reference_by_id(ref_id)
+    
+    if not reference:
+        raise HTTPException(status_code=404, detail="Reference not found")
+    
+    import json
+    features = json.loads(reference.feature_data)
+    
+    return {
+        "reference_id": reference.id,
+        "reference_name": reference.name,
+        "num_lines": features.get("num_lines", 0),
+        "lines": features.get("lines", []),
+        "line_lengths": features.get("line_lengths", []),
+        "line_angles": features.get("line_angles", []),
+        "image_shape": features.get("image_shape", []),
+        "num_contours": features.get("num_contours", 0)
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -38,9 +38,10 @@ class ReferenceService:
     
     def initialize_default_reference(self, name: str = "default_reference"):
         """
-        Initialize a default reference image (simple geometric shape).
+        Initialize a default reference image from file.
         
-        Creates a simple "House of Nikolaus" pattern as default reference.
+        Loads reference_image.png from templates/ directory if available,
+        otherwise creates a simple "House of Nikolaus" pattern.
         
         Args:
             name: Name for the reference image
@@ -50,7 +51,17 @@ class ReferenceService:
         if existing:
             return existing
         
-        # Create a simple reference image (House of Nikolaus pattern)
+        # Try to load reference image from file
+        import cv2
+        reference_path = '/app/templates/reference_image.png'
+        if os.path.exists(reference_path):
+            img = cv2.imread(reference_path)
+            if img is not None:
+                print(f"✓ Loaded reference image from {reference_path}")
+                return self.store_reference(name, img)
+        
+        # Fallback: Create a simple reference image (House of Nikolaus pattern)
+        print("⚠ Reference image not found, creating default pattern")
         img = self._create_default_pattern()
         
         # Store the reference
@@ -65,22 +76,22 @@ class ReferenceService:
         """
         import cv2
         
-        # Create white canvas
-        img = np.ones((512, 512, 3), dtype=np.uint8) * 255
+        # Create white canvas (256x256 to match normalization target)
+        img = np.ones((256, 256, 3), dtype=np.uint8) * 255
         
-        # Define the House of Nikolaus pattern
+        # Define the House of Nikolaus pattern (scaled for 256x256)
         # This is a classic drawing puzzle
         points = [
-            (156, 356),  # Bottom left
-            (356, 356),  # Bottom right
-            (356, 156),  # Top right of square
-            (156, 156),  # Top left of square
-            (256, 56),   # Roof peak
-            (356, 156),  # Back to top right
-            (156, 356),  # Diagonal to bottom left
-            (156, 156),  # Up to top left
-            (256, 56),   # To roof peak
-            (356, 356),  # Diagonal to bottom right
+            (78, 178),   # Bottom left
+            (178, 178),  # Bottom right
+            (178, 78),   # Top right of square
+            (78, 78),    # Top left of square
+            (128, 28),   # Roof peak
+            (178, 78),   # Back to top right
+            (78, 178),   # Diagonal to bottom left
+            (78, 78),    # Up to top left
+            (128, 28),   # To roof peak
+            (178, 178),  # Diagonal to bottom right
         ]
         
         # Draw lines
