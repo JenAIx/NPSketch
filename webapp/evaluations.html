@@ -147,6 +147,25 @@
             background: rgba(255, 255, 255, 0.2);
         }
         
+        .delete-icon {
+            cursor: pointer;
+            font-size: 16px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: all 0.2s;
+            opacity: 0.6;
+        }
+        
+        .delete-icon:hover {
+            opacity: 1;
+            background: #ffebee;
+            transform: scale(1.2);
+        }
+        
+        .eval-item.active .delete-icon:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
         .detail-view {
             display: flex;
             flex-direction: column;
@@ -401,7 +420,10 @@
             div.innerHTML = `
                 <div class="eval-header">
                     <span class="eval-id">Evaluation #${eval.id}</span>
-                    <span class="eval-score ${scoreClass}">${score.toFixed(0)}%</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="eval-score ${scoreClass}">${score.toFixed(0)}%</span>
+                        <span class="delete-icon" onclick="deleteEvaluation(${eval.id}, event)" title="Delete">🗑️</span>
+                    </div>
                 </div>
                 <div class="eval-stats">
                     <span class="stat-badge">✓ ${eval.correct_lines}</span>
@@ -411,7 +433,12 @@
                 <div class="eval-meta">${dateStr}</div>
             `;
             
-            div.onclick = () => selectEvaluation(eval.id);
+            div.onclick = (e) => {
+                // Don't trigger if clicking on delete icon
+                if (!e.target.closest('.delete-icon')) {
+                    selectEvaluation(eval.id);
+                }
+            };
             
             return div;
         }
@@ -427,6 +454,51 @@
             
             // Load and display details
             await displayEvaluationDetail(evalId);
+        }
+        
+        // Delete evaluation
+        async function deleteEvaluation(evalId, event) {
+            event.stopPropagation();
+            
+            if (!confirm('Are you sure you want to delete this evaluation?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/evaluations/${evalId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    // Remove from local array
+                    evaluations = evaluations.filter(e => e.id !== evalId);
+                    
+                    // Clear detail view if this evaluation was selected
+                    if (selectedEvalId === evalId) {
+                        selectedEvalId = null;
+                        document.getElementById('detailView').innerHTML = `
+                            <div class="empty-state">
+                                <div class="empty-state-icon">👈</div>
+                                <p>Select an evaluation to view details</p>
+                            </div>
+                        `;
+                    }
+                    
+                    // Reload list
+                    displayEvaluationsList();
+                    
+                    // Show message if no evaluations left
+                    if (evaluations.length === 0) {
+                        document.getElementById('content').style.display = 'none';
+                        document.getElementById('noEvaluations').style.display = 'block';
+                    }
+                    
+                } else {
+                    alert('Error deleting evaluation');
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
         }
         
         async function displayEvaluationDetail(evalId) {

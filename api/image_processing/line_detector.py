@@ -24,9 +24,9 @@ class LineDetector:
         self,
         rho: float = 1.0,
         theta: float = np.pi / 180,
-        threshold: int = 70,           # Optimized: was 100
-        min_line_length: int = 70,     # Optimized: was 80
-        max_line_gap: int = 30         # Optimized: was 25
+        threshold: int = 75,           # Raised: 70 → 75 (less noise)
+        min_line_length: int = 65,     # Slightly lowered: 70 → 65
+        max_line_gap: int = 50         # Increased: 30 → 50 (connect broken lines!)
     ):
         """
         Initialize the line detector with parameters.
@@ -34,13 +34,13 @@ class LineDetector:
         Args:
             rho: Distance resolution in pixels
             theta: Angle resolution in radians
-            threshold: Minimum number of votes (intersections, optimized: 70)
-            min_line_length: Minimum length of line (optimized: 70)
-            max_line_gap: Maximum gap between line segments (optimized: 30)
+            threshold: Minimum number of votes (intersections, lowered for sensitivity: 60)
+            min_line_length: Minimum length of line (lowered to 60)
+            max_line_gap: Maximum gap between line segments (increased to 50 to connect broken lines!)
         
         Note:
-            These parameters were optimized through automated testing to achieve
-            best balance between detecting all lines and avoiding false positives.
+            These parameters were re-optimized to prevent long lines from being split into segments.
+            The key change is max_line_gap: 30 → 50, which helps connect broken line segments.
         """
         self.rho = rho
         self.theta = theta
@@ -82,8 +82,8 @@ class LineDetector:
         return merged_lines
     
     def _merge_similar_lines(self, lines: List[Tuple[int, int, int, int]], 
-                            position_threshold: float = 15.0,
-                            angle_threshold: float = 8.0) -> List[Tuple[int, int, int, int]]:
+                            position_threshold: float = 20.0,  # Increased from 15.0
+                            angle_threshold: float = 10.0) -> List[Tuple[int, int, int, int]]:
         """
         Merge lines that are very similar (likely duplicates from Hough Transform).
         

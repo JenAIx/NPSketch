@@ -168,6 +168,45 @@ async def get_evaluation(
     return EvaluationResultResponse.model_validate(evaluation)
 
 
+@app.delete("/api/evaluations/{eval_id}")
+async def delete_evaluation(
+    eval_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Delete an evaluation result.
+    
+    Args:
+        eval_id: Evaluation ID to delete
+        db: Database session
+        
+    Returns:
+        Success message
+    """
+    from database import EvaluationResult
+    
+    # Find evaluation
+    evaluation = db.query(EvaluationResult).filter(EvaluationResult.id == eval_id).first()
+    
+    if not evaluation:
+        raise HTTPException(status_code=404, detail="Evaluation not found")
+    
+    # Delete visualization file if it exists
+    if evaluation.visualization_path:
+        viz_path = evaluation.visualization_path.replace('/api/visualizations/', '/app/data/visualizations/')
+        if os.path.exists(viz_path):
+            try:
+                os.remove(viz_path)
+            except Exception as e:
+                print(f"Warning: Could not delete visualization file: {e}")
+    
+    # Delete from database
+    db.delete(evaluation)
+    db.commit()
+    
+    return {"message": "Evaluation deleted successfully", "id": eval_id}
+
+
 @app.get("/api/references", response_model=List[ReferenceImageResponse])
 async def list_references(db: Session = Depends(get_db)):
     """
