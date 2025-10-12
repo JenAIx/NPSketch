@@ -277,8 +277,50 @@
     </div>
     
     <script>
+        // Check reference status on load
+        async function checkReferenceStatus() {
+            try {
+                const response = await fetch('/api/reference/status');
+                const status = await response.json();
+                
+                if (!status.initialized) {
+                    // Hide all buttons except Reference
+                    const links = document.querySelector('.links');
+                    links.innerHTML = '<a href="/reference.html" class="btn" style="font-size: 1.2em; padding: 20px 40px;">📐 Setup Reference Image</a>';
+                    
+                    // Show warning
+                    const statusDiv = document.querySelector('.status');
+                    statusDiv.innerHTML = `
+                        <span class="status-dot" style="background: #ffc107;"></span>
+                        <strong>Setup Required</strong>
+                        <p style="margin-top: 10px; color: #856404; font-size: 0.9em;">
+                            ${status.message}<br>
+                            Please create reference features before using the system
+                        </p>
+                    `;
+                    
+                    // Hide stats
+                    document.getElementById('statsGrid').style.display = 'none';
+                    
+                    return false;
+                }
+                
+                return true;
+            } catch (error) {
+                console.error('Failed to check reference status:', error);
+                return false;
+            }
+        }
+        
         // Load stats and update UI
         async function loadStats() {
+            // First check if reference is initialized
+            const initialized = await checkReferenceStatus();
+            
+            if (!initialized) {
+                return;
+            }
+            
             try {
                 // Get health data
                 const healthResponse = await fetch('/api/health');

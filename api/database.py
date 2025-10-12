@@ -8,7 +8,7 @@ This module defines the SQLAlchemy models for storing:
 - Evaluation results
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, LargeBinary, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, LargeBinary, ForeignKey, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -103,28 +103,45 @@ class EvaluationResult(Base):
     """
     Stores evaluation results comparing uploaded images to reference.
     
+    Includes both automated detection results and optional user evaluation
+    for AI training purposes.
+    
     Attributes:
         id: Primary key
         image_id: Foreign key to uploaded_images
         reference_id: Foreign key to reference_images
-        correct_lines: Number of correctly matched lines
-        missing_lines: Number of lines present in reference but missing
-        extra_lines: Number of extra lines not in reference
+        correct_lines: Number of correctly matched lines (automated detection)
+        missing_lines: Number of lines present in reference but missing (automated)
+        extra_lines: Number of extra lines not in reference (automated)
         similarity_score: Overall similarity score (0-1)
         visualization_path: Path to visualization image
         evaluated_at: Timestamp of evaluation
+        user_evaluated: Whether user has manually evaluated this result
+        evaluated_correct: User-evaluated correct lines count
+        evaluated_missing: User-evaluated missing lines count
+        evaluated_extra: User-evaluated extra lines count
+        evaluated_at_timestamp: When user evaluation was performed
     """
     __tablename__ = "evaluation_results"
     
     id = Column(Integer, primary_key=True, index=True)
     image_id = Column(Integer, ForeignKey("uploaded_images.id"))
     reference_id = Column(Integer, ForeignKey("reference_images.id"))
+    
+    # Automated detection results
     correct_lines = Column(Integer)
     missing_lines = Column(Integer)
     extra_lines = Column(Integer)
     similarity_score = Column(Float)
     visualization_path = Column(String, nullable=True)
     evaluated_at = Column(DateTime, default=datetime.utcnow)
+    
+    # User evaluation for AI training (optional)
+    user_evaluated = Column(Boolean, default=False, nullable=False)
+    evaluated_correct = Column(Integer, nullable=True)
+    evaluated_missing = Column(Integer, nullable=True)
+    evaluated_extra = Column(Integer, nullable=True)
+    evaluated_at_timestamp = Column(DateTime, nullable=True)
     
     # Relationships
     image = relationship("UploadedImage", back_populates="evaluations")

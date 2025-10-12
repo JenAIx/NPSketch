@@ -24,6 +24,7 @@ from models import (
     UploadResponse,
     HealthResponse,
     EvaluationResultResponse,
+    EvaluationUpdateRequest,
     ReferenceImageResponse,
     TestImageResponse
 )
@@ -205,6 +206,48 @@ async def delete_evaluation(
     db.commit()
     
     return {"message": "Evaluation deleted successfully", "id": eval_id}
+
+
+@app.put("/api/evaluations/{eval_id}/evaluate", response_model=EvaluationResultResponse)
+async def update_evaluation(
+    eval_id: int,
+    evaluation_data: EvaluationUpdateRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Update evaluation with user-provided correctness assessment.
+    
+    This endpoint allows users to manually evaluate the automated detection results,
+    providing ground truth data for AI training purposes.
+    
+    Args:
+        eval_id: Evaluation ID to update
+        evaluation_data: User evaluation data (correct, missing, extra counts)
+        db: Database session
+        
+    Returns:
+        Updated evaluation result
+    """
+    from database import EvaluationResult
+    from datetime import datetime
+    
+    # Find evaluation
+    evaluation = db.query(EvaluationResult).filter(EvaluationResult.id == eval_id).first()
+    
+    if not evaluation:
+        raise HTTPException(status_code=404, detail="Evaluation not found")
+    
+    # Update user evaluation fields
+    evaluation.user_evaluated = True
+    evaluation.evaluated_correct = evaluation_data.evaluated_correct
+    evaluation.evaluated_missing = evaluation_data.evaluated_missing
+    evaluation.evaluated_extra = evaluation_data.evaluated_extra
+    evaluation.evaluated_at_timestamp = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(evaluation)
+    
+    return EvaluationResultResponse.model_validate(evaluation)
 
 
 @app.get("/api/references", response_model=List[ReferenceImageResponse])
@@ -607,3 +650,254 @@ async def run_all_tests(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+@app.post("/api/reference/manual")
+async def create_manual_reference(data: dict, db: Session = Depends(get_db)):
+    """Create reference from manually drawn lines."""
+    import json
+    import numpy as np
+    from database import ReferenceImage
+    from image_processing.utils import image_to_bytes
+    
+    # Delete existing
+    db.query(ReferenceImage).delete()
+    db.commit()
+    
+    # Create features
+    lines = []
+    line_angles = []
+    line_lengths = []
+    
+    for line_data in data['lines']:
+        x1, y1 = line_data['start']['x'], line_data['start']['y']
+        x2, y2 = line_data['end']['x'], line_data['end']['y']
+        
+        lines.append([x1, y1, x2, y2])
+        angle = np.arctan2(y2 - y1, x2 - x1) * 180 / np.pi
+        line_angles.append(angle)
+        length = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+        line_lengths.append(length)
+    
+    features = {
+        'num_lines': len(lines),
+        'lines': lines,
+        'image_shape': [256, 256],
+        'line_lengths': line_lengths,
+        'line_angles': line_angles,
+        'line_counts': data['summary']
+    }
+    
+    img = np.ones((256, 256, 3), dtype=np.uint8) * 255
+    
+    ref = ReferenceImage(
+        name="manual_reference",
+        image_data=image_to_bytes(img),
+        processed_image_data=image_to_bytes(img),
+        feature_data=json.dumps(features),
+        width=256,
+        height=256
+    )
+    
+    db.add(ref)
+    db.commit()
+    
+    return {"success": True, "lines_count": len(lines), "summary": data['summary']}
+
+
+
+@app.get("/api/reference/status")
+async def get_reference_status(db: Session = Depends(get_db)):
+    """Check if reference is properly initialized with features."""
+    from database import ReferenceImage
+    import json
+    
+    ref = db.query(ReferenceImage).first()
+    
+    if not ref:
+        return {
+            "initialized": False,
+            "message": "No reference image found"
+        }
+    
+    # Check if features exist and are valid
+    if not ref.feature_data:
+        return {
+            "initialized": False,
+            "message": "Reference exists but has no features"
+        }
+    
+    try:
+        features = json.loads(ref.feature_data)
+        num_lines = features.get('num_lines', 0)
+        
+        if num_lines < 6:  # Minimum 6 lines for a valid reference
+            return {
+                "initialized": False,
+                "message": f"Only {num_lines} lines defined (minimum 6 required)"
+            }
+        
+        return {
+            "initialized": True,
+            "message": f"Reference properly initialized with {num_lines} lines",
+            "num_lines": num_lines,
+            "line_counts": features.get('line_counts', {})
+        }
+    except:
+        return {
+            "initialized": False,
+            "message": "Invalid feature data"
+        }
+
+
+@app.post("/api/reference/features")
+async def add_reference_feature(
+    feature: dict,
+    db: Session = Depends(get_db)
+):
+    """Add a new feature line to reference."""
+    from database import ReferenceImage
+    import json
+    import numpy as np
+    
+    ref = db.query(ReferenceImage).first()
+    if not ref:
+        raise HTTPException(status_code=404, detail="No reference image found")
+    
+    # Load existing features
+    if ref.feature_data:
+        features = json.loads(ref.feature_data)
+    else:
+        features = {
+            'num_lines': 0,
+            'lines': [],
+            'line_angles': [],
+            'line_lengths': [],
+            'image_shape': [256, 256],
+            'line_counts': {'horizontal': 0, 'vertical': 0, 'diagonal': 0, 'total': 0}
+        }
+    
+    # Add new line
+    x1, y1 = feature['start']['x'], feature['start']['y']
+    x2, y2 = feature['end']['x'], feature['end']['y']
+    
+    features['lines'].append([x1, y1, x2, y2])
+    
+    # Calculate angle
+    angle = np.arctan2(y2 - y1, x2 - x1) * 180 / np.pi
+    features['line_angles'].append(angle)
+    
+    # Calculate length
+    length = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+    features['line_lengths'].append(length)
+    
+    # Update counts
+    features['num_lines'] = len(features['lines'])
+    
+    # Categorize
+    norm_angle = abs(angle) if abs(angle) <= 90 else 180 - abs(angle)
+    if norm_angle < 15:
+        features['line_counts']['horizontal'] += 1
+    elif norm_angle > 75:
+        features['line_counts']['vertical'] += 1
+    else:
+        features['line_counts']['diagonal'] += 1
+    
+    features['line_counts']['total'] = features['num_lines']
+    
+    # Save
+    ref.feature_data = json.dumps(features)
+    db.commit()
+    
+    return {
+        "success": True,
+        "feature_id": features['num_lines'] - 1,
+        "total_features": features['num_lines'],
+        "line_counts": features['line_counts']
+    }
+
+
+@app.delete("/api/reference/features/{feature_id}")
+async def delete_reference_feature(
+    feature_id: int,
+    db: Session = Depends(get_db)
+):
+    """Delete a feature line from reference."""
+    from database import ReferenceImage
+    import json
+    
+    ref = db.query(ReferenceImage).first()
+    if not ref:
+        raise HTTPException(status_code=404, detail="No reference image found")
+    
+    if not ref.feature_data:
+        raise HTTPException(status_code=404, detail="No features found")
+    
+    features = json.loads(ref.feature_data)
+    
+    if feature_id < 0 or feature_id >= len(features['lines']):
+        raise HTTPException(status_code=404, detail="Feature not found")
+    
+    # Remove feature
+    features['lines'].pop(feature_id)
+    features['line_angles'].pop(feature_id)
+    features['line_lengths'].pop(feature_id)
+    features['num_lines'] = len(features['lines'])
+    
+    # Recalculate counts
+    features['line_counts'] = {'horizontal': 0, 'vertical': 0, 'diagonal': 0}
+    
+    for angle in features['line_angles']:
+        norm_angle = abs(angle) if abs(angle) <= 90 else 180 - abs(angle)
+        if norm_angle < 15:
+            features['line_counts']['horizontal'] += 1
+        elif norm_angle > 75:
+            features['line_counts']['vertical'] += 1
+        else:
+            features['line_counts']['diagonal'] += 1
+    
+    features['line_counts']['total'] = features['num_lines']
+    
+    # Save
+    ref.feature_data = json.dumps(features)
+    db.commit()
+    
+    return {
+        "success": True,
+        "total_features": features['num_lines'],
+        "line_counts": features['line_counts']
+    }
+
+
+
+@app.post("/api/reference/clear")
+async def clear_reference_features(db: Session = Depends(get_db)):
+    """Clear all features from reference (reset to empty state)."""
+    from database import ReferenceImage
+    import json
+    import numpy as np
+    from image_processing.utils import image_to_bytes
+    
+    ref = db.query(ReferenceImage).first()
+    if not ref:
+        raise HTTPException(status_code=404, detail="No reference image found")
+    
+    # Reset features to empty
+    features = {
+        'num_lines': 0,
+        'lines': [],
+        'line_angles': [],
+        'line_lengths': [],
+        'image_shape': [256, 256],
+        'line_counts': {'horizontal': 0, 'vertical': 0, 'diagonal': 0, 'total': 0}
+    }
+    
+    ref.feature_data = json.dumps(features)
+    db.commit()
+    
+    return {
+        "success": True,
+        "message": "All features cleared",
+        "features": 0
+    }
+

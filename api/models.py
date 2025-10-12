@@ -22,8 +22,23 @@ class EvaluationResultResponse(BaseModel):
     visualization_path: Optional[str] = None
     evaluated_at: datetime
     
+    # User evaluation fields for AI training
+    user_evaluated: bool = False
+    evaluated_correct: Optional[int] = None
+    evaluated_missing: Optional[int] = None
+    evaluated_extra: Optional[int] = None
+    evaluated_at_timestamp: Optional[datetime] = None
+    
     class Config:
         from_attributes = True
+
+
+class EvaluationUpdateRequest(BaseModel):
+    """Request model for updating user evaluation."""
+    
+    evaluated_correct: int = Field(..., ge=0, description="User-evaluated correct lines count")
+    evaluated_missing: int = Field(..., ge=0, description="User-evaluated missing lines count")
+    evaluated_extra: int = Field(..., ge=0, description="User-evaluated extra lines count")
 
 
 class UploadedImageResponse(BaseModel):
@@ -46,6 +61,7 @@ class ReferenceImageResponse(BaseModel):
     width: int
     height: int
     created_at: datetime
+    feature_data: Optional[str] = None  # Include feature_data JSON string
     
     class Config:
         from_attributes = True

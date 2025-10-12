@@ -143,6 +143,25 @@
             font-weight: 500;
         }
         
+        .evaluation-status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        
+        .status-evaluated {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status-unevaluated {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
         .eval-item.active .stat-badge {
             background: rgba(255, 255, 255, 0.2);
         }
@@ -320,6 +339,116 @@
             transform: translateY(-2px);
         }
         
+        .evaluation-section {
+            background: #fff3cd;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            border-left: 4px solid #ffc107;
+        }
+        
+        .evaluation-section.evaluated {
+            background: #d4edda;
+            border-left-color: #28a745;
+        }
+        
+        .evaluation-form {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .eval-input-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .eval-input-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .eval-input-group input {
+            padding: 8px 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            text-align: center;
+            transition: border-color 0.3s;
+        }
+        
+        .eval-input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .eval-button {
+            grid-column: span 3;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .eval-button:hover {
+            transform: translateY(-2px);
+        }
+        
+        .eval-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .comparison-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        
+        .comparison-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .comparison-values {
+            display: flex;
+            justify-content: space-around;
+        }
+        
+        .comparison-value {
+            text-align: center;
+        }
+        
+        .comparison-value-number {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .comparison-value-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        
         @media (max-width: 1024px) {
             .content-grid {
                 grid-template-columns: 1fr;
@@ -417,9 +546,13 @@
             const date = new Date(eval.evaluated_at);
             const dateStr = date.toLocaleString();
             
+            const statusBadge = eval.user_evaluated 
+                ? '<span class="evaluation-status status-evaluated">✓ Evaluated</span>'
+                : '<span class="evaluation-status status-unevaluated">⚠ Unevaluated</span>';
+            
             div.innerHTML = `
                 <div class="eval-header">
-                    <span class="eval-id">Evaluation #${eval.id}</span>
+                    <span class="eval-id">Evaluation #${eval.id} ${statusBadge}</span>
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span class="eval-score ${scoreClass}">${score.toFixed(0)}%</span>
                         <span class="delete-icon" onclick="deleteEvaluation(${eval.id}, event)" title="Delete">🗑️</span>
@@ -517,30 +650,107 @@
                 const date = new Date(eval.evaluated_at);
                 const dateStr = date.toLocaleString();
                 
+                // Evaluation status section
+                const evaluationSectionClass = eval.user_evaluated ? 'evaluation-section evaluated' : 'evaluation-section';
+                const evaluationStatusHtml = eval.user_evaluated
+                    ? `
+                        <h3 style="margin: 0 0 10px 0; color: #155724;">✓ User Evaluated</h3>
+                        <p style="margin: 0; font-size: 14px; color: #666;">
+                            Evaluation completed for AI training
+                            ${eval.evaluated_at_timestamp ? `on ${new Date(eval.evaluated_at_timestamp).toLocaleString()}` : ''}
+                        </p>
+                    `
+                    : `
+                        <h3 style="margin: 0 0 10px 0; color: #856404;">⚠ Needs Evaluation</h3>
+                        <p style="margin: 0 0 15px 0; font-size: 14px; color: #666;">
+                            Please review and correct the detected values for AI training
+                        </p>
+                        <div class="evaluation-form">
+                            <div class="eval-input-group">
+                                <label>Correct Lines</label>
+                                <input type="number" id="evalCorrect" min="0" value="${eval.correct_lines}">
+                            </div>
+                            <div class="eval-input-group">
+                                <label>Missing Lines</label>
+                                <input type="number" id="evalMissing" min="0" value="${eval.missing_lines}">
+                            </div>
+                            <div class="eval-input-group">
+                                <label>Extra Lines</label>
+                                <input type="number" id="evalExtra" min="0" value="${eval.extra_lines}">
+                            </div>
+                            <button class="eval-button" onclick="submitEvaluation(${eval.id})">
+                                💾 Submit Evaluation
+                            </button>
+                        </div>
+                    `;
+                
                 detailDiv.innerHTML = `
                     <div class="detail-header">
                         <div class="detail-title">Evaluation #${eval.id}</div>
                         <div class="detail-subtitle">${dateStr}</div>
                     </div>
                     
-                    <div class="metrics-grid">
-                        <div class="metric-card highlight">
-                            <div class="metric-value">${score.toFixed(1)}%</div>
-                            <div class="metric-label">Similarity Score</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-value" style="color: #28a745;">${eval.correct_lines}</div>
-                            <div class="metric-label">Correct Lines</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-value" style="color: #dc3545;">${eval.missing_lines}</div>
-                            <div class="metric-label">Missing Lines</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-value" style="color: #ffc107;">${eval.extra_lines}</div>
-                            <div class="metric-label">Extra Lines</div>
-                        </div>
+                    <div class="${evaluationSectionClass}">
+                        ${evaluationStatusHtml}
                     </div>
+                    
+                    ${eval.user_evaluated ? `
+                        <div class="comparison-grid">
+                            <div class="comparison-card">
+                                <div class="comparison-title">🤖 Automated Detection</div>
+                                <div class="comparison-values">
+                                    <div class="comparison-value">
+                                        <div class="comparison-value-number" style="color: #28a745;">${eval.correct_lines}</div>
+                                        <div class="comparison-value-label">Correct</div>
+                                    </div>
+                                    <div class="comparison-value">
+                                        <div class="comparison-value-number" style="color: #dc3545;">${eval.missing_lines}</div>
+                                        <div class="comparison-value-label">Missing</div>
+                                    </div>
+                                    <div class="comparison-value">
+                                        <div class="comparison-value-number" style="color: #ffc107;">${eval.extra_lines}</div>
+                                        <div class="comparison-value-label">Extra</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="comparison-card" style="background: #d4edda;">
+                                <div class="comparison-title">👤 User Evaluation</div>
+                                <div class="comparison-values">
+                                    <div class="comparison-value">
+                                        <div class="comparison-value-number" style="color: #155724;">${eval.evaluated_correct}</div>
+                                        <div class="comparison-value-label">Correct</div>
+                                    </div>
+                                    <div class="comparison-value">
+                                        <div class="comparison-value-number" style="color: #721c24;">${eval.evaluated_missing}</div>
+                                        <div class="comparison-value-label">Missing</div>
+                                    </div>
+                                    <div class="comparison-value">
+                                        <div class="comparison-value-number" style="color: #856404;">${eval.evaluated_extra}</div>
+                                        <div class="comparison-value-label">Extra</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ` : `
+                        <div class="metrics-grid">
+                            <div class="metric-card highlight">
+                                <div class="metric-value">${score.toFixed(1)}%</div>
+                                <div class="metric-label">Similarity Score</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value" style="color: #28a745;">${eval.correct_lines}</div>
+                                <div class="metric-label">Detected Correct</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value" style="color: #dc3545;">${eval.missing_lines}</div>
+                                <div class="metric-label">Detected Missing</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value" style="color: #ffc107;">${eval.extra_lines}</div>
+                                <div class="metric-label">Detected Extra</div>
+                            </div>
+                        </div>
+                    `}
                     
                     <div class="visualization-section">
                         <div class="viz-title">📐 Line Detection Visualization</div>
@@ -548,15 +758,15 @@
                         <div class="legend">
                             <div class="legend-item">
                                 <div class="legend-box" style="background: #00ff00;"></div>
-                                <span>Correct Lines (${eval.correct_lines})</span>
+                                <span>Correct Lines</span>
                             </div>
                             <div class="legend-item">
                                 <div class="legend-box" style="background: #ff0000;"></div>
-                                <span>Missing Lines (${eval.missing_lines})</span>
+                                <span>Missing Lines</span>
                             </div>
                             <div class="legend-item">
                                 <div class="legend-box" style="background: #0000ff;"></div>
-                                <span>Extra Lines (${eval.extra_lines})</span>
+                                <span>Extra Lines</span>
                             </div>
                         </div>
                     </div>
@@ -564,6 +774,53 @@
                 
             } catch (error) {
                 detailDiv.innerHTML = '<p style="color: #c33; padding: 20px;">Error loading evaluation details</p>';
+            }
+        }
+        
+        // Submit user evaluation
+        async function submitEvaluation(evalId) {
+            const correctLines = parseInt(document.getElementById('evalCorrect').value);
+            const missingLines = parseInt(document.getElementById('evalMissing').value);
+            const extraLines = parseInt(document.getElementById('evalExtra').value);
+            
+            if (isNaN(correctLines) || isNaN(missingLines) || isNaN(extraLines)) {
+                alert('Please enter valid numbers');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/evaluations/${evalId}/evaluate`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        evaluated_correct: correctLines,
+                        evaluated_missing: missingLines,
+                        evaluated_extra: extraLines
+                    })
+                });
+                
+                if (response.ok) {
+                    const updated = await response.json();
+                    
+                    // Update local evaluations array
+                    const index = evaluations.findIndex(e => e.id === evalId);
+                    if (index !== -1) {
+                        evaluations[index] = updated;
+                    }
+                    
+                    // Refresh displays
+                    displayEvaluationsList();
+                    await displayEvaluationDetail(evalId);
+                    
+                    // Show success message
+                    alert('✓ Evaluation submitted successfully!');
+                } else {
+                    alert('Error submitting evaluation');
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
             }
         }
         

@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Draw Reference Lines - NPSketch</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        h1 {
+            color: #667eea;
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            font-size: 1.1em;
+        }
+        
+        .workspace {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 30px;
+            margin-top: 30px;
+        }
+        
+        .canvas-area {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        #canvas {
+            border: 3px solid #667eea;
+            cursor: crosshair;
+            background: white;
+        }
+        
+        .controls {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        
+        .control-section {
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .control-section:last-child {
+            border-bottom: none;
+        }
+        
+        h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+        
+        .line-type-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .type-btn {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #ddd;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+        
+        .type-btn.active {
+            border-color: #667eea;
+            background: #667eea;
+            color: white;
+        }
+        
+        .type-btn.horizontal { border-color: #28a745; }
+        .type-btn.horizontal.active { background: #28a745; }
+        
+        .type-btn.vertical { border-color: #007bff; }
+        .type-btn.vertical.active { background: #007bff; }
+        
+        .type-btn.diagonal { border-color: #fd7e14; }
+        .type-btn.diagonal.active { background: #fd7e14; }
+        
+        .lines-list {
+            max-height: 300px;
+            overflow-y: auto;
+            background: white;
+            border-radius: 8px;
+            padding: 10px;
+        }
+        
+        .line-item {
+            padding: 10px;
+            margin-bottom: 8px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+            font-size: 0.9em;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .line-item.horizontal { border-left-color: #28a745; }
+        .line-item.vertical { border-left-color: #007bff; }
+        .line-item.diagonal { border-left-color: #fd7e14; }
+        
+        .delete-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+        }
+        
+        .delete-btn:hover {
+            background: #c82333;
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .status {
+            text-align: center;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            display: none;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            display: block;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            display: block;
+        }
+        
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+            color: #0c5460;
+        }
+        
+        .counter {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 15px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+        }
+        
+        .counter-item {
+            text-align: center;
+        }
+        
+        .counter-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .counter-label {
+            font-size: 0.85em;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎨 Reference Lines Zeichnen</h1>
+            <p class="subtitle">Definiere die 8 Referenz-Linien manuell durch Klicken</p>
+        </div>
+        
+        <div class="info-box">
+            <strong>📝 Anleitung:</strong><br>
+            1. Wähle den Linien-Typ (Horizontal/Vertical/Diagonal)<br>
+            2. Klicke auf die Canvas um Start- und End-Punkt zu setzen<br>
+            3. Die Linie wird automatisch zur Liste hinzugefügt<br>
+            4. Zeichne alle 8 Linien und klicke "Save Reference"
+        </div>
+        
+        <div class="workspace">
+            <div class="canvas-area">
+                <canvas id="canvas" width="256" height="256"></canvas>
+                <div class="counter">
+                    <div class="counter-item">
+                        <div class="counter-value" id="totalCount">0</div>
+                        <div class="counter-label">Total</div>
+                    </div>
+                    <div class="counter-item">
+                        <div class="counter-value" id="hCount" style="color: #28a745;">0</div>
+                        <div class="counter-label">Horizontal</div>
+                    </div>
+                    <div class="counter-item">
+                        <div class="counter-value" id="vCount" style="color: #007bff;">0</div>
+                        <div class="counter-label">Vertical</div>
+                    </div>
+                    <div class="counter-item">
+                        <div class="counter-value" id="dCount" style="color: #fd7e14;">0</div>
+                        <div class="counter-label">Diagonal</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="controls">
+                <div class="control-section">
+                    <h3>Linien-Typ wählen</h3>
+                    <div class="line-type-selector">
+                        <button class="type-btn horizontal active" onclick="setLineType('horizontal')">Horizontal</button>
+                        <button class="type-btn vertical" onclick="setLineType('vertical')">Vertical</button>
+                        <button class="type-btn diagonal" onclick="setLineType('diagonal')">Diagonal</button>
+                    </div>
+                </div>
+                
+                <div class="control-section">
+                    <h3>Definierte Linien (8 benötigt)</h3>
+                    <div class="lines-list" id="linesList"></div>
+                </div>
+                
+                <div class="control-section">
+                    <h3>Aktionen</h3>
+                    <div class="action-buttons">
+                        <button class="btn btn-secondary" onclick="clearAll()">🗑️ Clear All</button>
+                        <button class="btn btn-primary" onclick="saveReference()" id="saveBtn" disabled>💾 Save Reference</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="status" id="status"></div>
+        
+        <div style="text-align: center; margin-top: 30px;">
+            <a href="index.html" style="color: #667eea; text-decoration: none; font-weight: 600;">← Back to Dashboard</a>
+        </div>
+    </div>
+    
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let currentType = 'horizontal';
+        let lines = [];
+        let currentPoint = null;
+        let nextLineId = 1;
+        
+        // Colors
+        const colors = {
+            horizontal: '#28a745',
+            vertical: '#007bff',
+            diagonal: '#fd7e14'
+        };
+        
+        // Initialize
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        function setLineType(type) {
+            currentType = type;
+            document.querySelectorAll('.type-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelector(`.type-btn.${type}`).classList.add('active');
+        }
+        
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.round(e.clientX - rect.left);
+            const y = Math.round(e.clientY - rect.top);
+            
+            if (!currentPoint) {
+                // First point
+                currentPoint = {x, y};
+                drawPoint(x, y, colors[currentType]);
+            } else {
+                // Second point - complete the line
+                const line = {
+                    id: nextLineId++,
+                    type: currentType,
+                    start: currentPoint,
+                    end: {x, y}
+                };
+                
+                lines.push(line);
+                drawLine(line);
+                currentPoint = null;
+                
+                updateLinesList();
+                updateCounters();
+                updateSaveButton();
+            }
+        });
+        
+        function drawPoint(x, y, color) {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+        
+        function drawLine(line) {
+            ctx.strokeStyle = colors[line.type];
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(line.start.x, line.start.y);
+            ctx.lineTo(line.end.x, line.end.y);
+            ctx.stroke();
+            
+            // Draw points
+            drawPoint(line.start.x, line.start.y, colors[line.type]);
+            drawPoint(line.end.x, line.end.y, colors[line.type]);
+            
+            // Draw line number
+            const midX = (line.start.x + line.end.x) / 2;
+            const midY = (line.start.y + line.end.y) / 2;
+            ctx.fillStyle = 'black';
+            ctx.font = 'bold 16px Arial';
+            ctx.fillText(line.id, midX - 8, midY + 6);
+        }
+        
+        function redrawCanvas() {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            lines.forEach(line => drawLine(line));
+            
+            if (currentPoint) {
+                drawPoint(currentPoint.x, currentPoint.y, colors[currentType]);
+            }
+        }
+        
+        function updateLinesList() {
+            const list = document.getElementById('linesList');
+            list.innerHTML = '';
+            
+            lines.forEach(line => {
+                const div = document.createElement('div');
+                div.className = `line-item ${line.type}`;
+                div.innerHTML = `
+                    <span>
+                        <strong>#${line.id}</strong> ${line.type}<br>
+                        <small>(${line.start.x},${line.start.y}) → (${line.end.x},${line.end.y})</small>
+                    </span>
+                    <button class="delete-btn" onclick="deleteLine(${line.id})">✕</button>
+                `;
+                list.appendChild(div);
+            });
+        }
+        
+        function deleteLine(id) {
+            lines = lines.filter(line => line.id !== id);
+            redrawCanvas();
+            updateLinesList();
+            updateCounters();
+            updateSaveButton();
+        }
+        
+        function updateCounters() {
+            const h = lines.filter(l => l.type === 'horizontal').length;
+            const v = lines.filter(l => l.type === 'vertical').length;
+            const d = lines.filter(l => l.type === 'diagonal').length;
+            
+            document.getElementById('totalCount').textContent = lines.length;
+            document.getElementById('hCount').textContent = h;
+            document.getElementById('vCount').textContent = v;
+            document.getElementById('dCount').textContent = d;
+        }
+        
+        function updateSaveButton() {
+            const saveBtn = document.getElementById('saveBtn');
+            saveBtn.disabled = lines.length !== 8;
+        }
+        
+        function clearAll() {
+            if (confirm('Alle Linien löschen?')) {
+                lines = [];
+                currentPoint = null;
+                nextLineId = 1;
+                redrawCanvas();
+                updateLinesList();
+                updateCounters();
+                updateSaveButton();
+            }
+        }
+        
+        async function saveReference() {
+            const h = lines.filter(l => l.type === 'horizontal').length;
+            const v = lines.filter(l => l.type === 'vertical').length;
+            const d = lines.filter(l => l.type === 'diagonal').length;
+            
+            const data = {
+                image_name: "reference_image.png",
+                description: "Manually defined reference lines",
+                image_size: {
+                    width: 256,
+                    height: 256
+                },
+                lines: lines.map(line => ({
+                    id: line.id,
+                    name: `Line ${line.id} (${line.type})`,
+                    type: line.type,
+                    start: line.start,
+                    end: line.end
+                })),
+                summary: {
+                    total_lines: lines.length,
+                    horizontal: h,
+                    vertical: v,
+                    diagonal: d
+                }
+            };
+            
+            try {
+                const response = await fetch('/api/reference/manual', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                if (response.ok) {
+                    showStatus('✅ Reference Lines erfolgreich gespeichert!', 'success');
+                    setTimeout(() => {
+                        window.location.href = 'index.html';
+                    }, 2000);
+                } else {
+                    showStatus('❌ Fehler beim Speichern', 'error');
+                }
+            } catch (error) {
+                showStatus('❌ Fehler: ' + error.message, 'error');
+            }
+        }
+        
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            
+            if (type === 'error') {
+                setTimeout(() => {
+                    status.style.display = 'none';
+                }, 5000);
+            }
+        }
+    </script>
+</body>
+</html>
+
