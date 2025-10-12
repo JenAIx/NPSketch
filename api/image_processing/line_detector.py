@@ -24,9 +24,10 @@ class LineDetector:
         self,
         rho: float = 1.0,
         theta: float = np.pi / 180,
-        threshold: int = 20,           # Optimized for 256x256 images
-        min_line_length: int = 80,     # Optimized: filters noise, keeps main lines
-        max_line_gap: int = 30         # Optimized: moderate merging
+        threshold: int = 18,           # Balanced sensitivity
+        min_line_length: int = 35,     # Balanced to avoid noise
+        max_line_gap: int = 35,        # Moderate gap closing
+        final_min_length: int = 30     # Final filter: no lines below 30px
     ):
         """
         Initialize the line detector with parameters.
@@ -34,23 +35,36 @@ class LineDetector:
         Args:
             rho: Distance resolution in pixels
             theta: Angle resolution in radians
-            threshold: Minimum number of votes (intersections, lowered for sensitivity: 60)
-            min_line_length: Minimum length of line (lowered to 60)
-            max_line_gap: Maximum gap between line segments (increased to 50 to connect broken lines!)
+            threshold: Minimum number of votes (lowered to 15 for better sensitivity)
+            min_line_length: Initial minimum length (25px allows detection of segments)
+            max_line_gap: Maximum gap between segments (40px to better connect broken lines)
+            final_min_length: Final minimum length filter (30px to remove short artifacts)
         
         Note:
-            These parameters were re-optimized to prevent long lines from being split into segments.
-            The key change is max_line_gap: 30 → 50, which helps connect broken line segments.
+            Two-stage filtering: First detect with min_line_length=25, then merge,
+            then filter out anything below final_min_length=30px.
         """
         self.rho = rho
         self.theta = theta
         self.threshold = threshold
         self.min_line_length = min_line_length
         self.max_line_gap = max_line_gap
+        self.final_min_length = final_min_length
     
     def detect_lines(self, binary_image: np.ndarray) -> List[Tuple[int, int, int, int]]:
         """
-        Detect lines in a binary image using Probabilistic Hough Transform.
+        Detect lines using ITERATIVE DETECTION with PIXEL SUBTRACTION.
+        
+        Strategy:
+        1. Detect lines (longest first)
+        2. Remove pixels of detected line from image (with buffer)
+        3. Repeat until no more lines found
+        4. Filter overlaps and duplicates
+        
+        This ensures:
+        - Longest lines are detected first
+        - No duplicate/overlapping detections
+        - Better handling of crossing lines
         
         Args:
             binary_image: Binary image (preprocessed)
@@ -58,32 +72,203 @@ class LineDetector:
         Returns:
             List of lines as (x1, y1, x2, y2) tuples
         """
-        lines = cv2.HoughLinesP(
-            binary_image,
-            rho=self.rho,
-            theta=self.theta,
-            threshold=self.threshold,
-            minLineLength=self.min_line_length,
-            maxLineGap=self.max_line_gap
-        )
+        return self._detect_lines_iterative(binary_image)
+    
+    def _detect_lines_iterative(self, binary_image: np.ndarray, max_iterations: int = 20) -> List[Tuple[int, int, int, int]]:
+        """
+        Iteratively detect lines with MULTI-PASS strategy:
         
-        if lines is None:
-            return []
+        Pass 1 (Iterations 1-10): Detect strong/long lines (strict)
+        Pass 2 (Iterations 11-20): Detect weak/short lines (relaxed)
         
-        # Convert to list of tuples
-        detected_lines = []
-        for line in lines:
-            x1, y1, x2, y2 = line[0]
-            detected_lines.append((int(x1), int(y1), int(x2), int(y2)))
+        After each line:
+        - Dilate line mask (expand by 2-3px)
+        - Subtract from image
+        - Search for next line
         
-        # Merge similar lines to reduce duplicates
-        merged_lines = self._merge_similar_lines(detected_lines)
+        Args:
+            binary_image: Binary image
+            max_iterations: Maximum number of iterations
+            
+        Returns:
+            List of detected lines
+        """
+        # Work on a copy
+        working_image = binary_image.copy()
+        all_lines = []
         
-        return merged_lines
+        print(f"  🔄 Iterative line detection (max {max_iterations} iterations)...")
+        print(f"  📊 Image has {np.sum(working_image > 0)} black pixels")
+        
+        for iteration in range(max_iterations):
+            # Adaptive threshold: Start strict, then relax
+            if iteration < 10:
+                # Pass 1: Strong lines (strict)
+                current_threshold = max(12, self.threshold - 3)
+                current_min_length = self.min_line_length
+            else:
+                # Pass 2: Weak lines (relaxed)
+                current_threshold = max(8, self.threshold - 8)
+                current_min_length = max(25, self.min_line_length - 10)
+            
+            # Detect lines
+            lines = cv2.HoughLinesP(
+                working_image,
+                rho=self.rho,
+                theta=self.theta,
+                threshold=current_threshold,
+                minLineLength=current_min_length,
+                maxLineGap=self.max_line_gap
+            )
+            
+            if lines is None or len(lines) == 0:
+                # Check remaining pixels
+                remaining = np.sum(working_image > 0)
+                print(f"    Iteration {iteration + 1}: No more lines found ({remaining} pixels remain). Stopping.")
+                break
+            
+            # Convert and sort by length (longest first)
+            detected = []
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                length = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+                detected.append((int(x1), int(y1), int(x2), int(y2), length))
+            
+            detected.sort(key=lambda x: x[4], reverse=True)
+            
+            # Take the longest line from this iteration
+            if len(detected) > 0:
+                longest = detected[0]
+                x1, y1, x2, y2, length = longest
+                line = (x1, y1, x2, y2)
+                
+                # Check if this line overlaps significantly with existing lines
+                if not self._overlaps_with_existing(line, all_lines):
+                    all_lines.append(line)
+                    print(f"    Iteration {iteration + 1} [Pass {1 if iteration < 10 else 2}]: Found line (length={length:.1f}px) → Total: {len(all_lines)}")
+                    
+                    # Remove pixels with dilated mask
+                    self._erase_line_pixels(working_image, line, buffer=4)
+                else:
+                    print(f"    Iteration {iteration + 1}: Line overlaps, skipping.")
+                    # Still erase to avoid infinite loop
+                    self._erase_line_pixels(working_image, line, buffer=4)
+            
+            # Stop if we have enough lines
+            if len(all_lines) >= 12:
+                print(f"    Reached {len(all_lines)} lines, stopping.")
+                break
+        
+        print(f"  ✅ Detected {len(all_lines)} lines after {min(iteration + 1, max_iterations)} iterations")
+        
+        # Final filter: Remove lines shorter than final_min_length
+        filtered_lines = []
+        for line in all_lines:
+            length = np.sqrt((line[2] - line[0])**2 + (line[3] - line[1])**2)
+            if length >= self.final_min_length:
+                filtered_lines.append(line)
+        
+        print(f"  ✅ After length filter (>={self.final_min_length}px): {len(filtered_lines)} lines")
+        
+        return filtered_lines
+    
+    def _erase_line_pixels(self, image: np.ndarray, line: Tuple[int, int, int, int], buffer: int = 5):
+        """
+        Erase pixels along a line from the image (with dilation + subtraction).
+        
+        Strategy:
+        1. Draw the line on a temporary mask
+        2. Dilate the line (expand by 2-3px) to include nearby pixels
+        3. Subtract from image to remove the entire line region
+        
+        This ensures:
+        - Complete removal of line pixels
+        - No artifacts/remnants left behind
+        - Crossing points are handled better
+        
+        Args:
+            image: Binary image (modified in-place)
+            line: Line as (x1, y1, x2, y2)
+            buffer: Buffer size around line to erase (pixels)
+        """
+        x1, y1, x2, y2 = line
+        
+        # Create a temporary mask for this line
+        mask = np.zeros_like(image)
+        
+        # Draw the line on the mask (thicker than before)
+        cv2.line(mask, (x1, y1), (x2, y2), 255, thickness=buffer * 2)
+        
+        # DILATE: Expand the line by 2-3 pixels to capture nearby artifacts
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        dilated_mask = cv2.dilate(mask, kernel, iterations=1)
+        
+        # SUBTRACT: Remove the dilated line region from the image
+        # Where mask is white (255), set image to black (0)
+        image[dilated_mask > 0] = 0
+    
+    def _overlaps_with_existing(
+        self, 
+        line: Tuple[int, int, int, int], 
+        existing_lines: List[Tuple[int, int, int, int]],
+        angle_threshold: float = 8.0,
+        position_threshold: float = 25.0
+    ) -> bool:
+        """
+        Check if a line significantly overlaps with existing lines.
+        
+        Special handling for crossing lines (X pattern):
+        - Crossing lines have different angles (e.g., 45° vs 135°)
+        - They share a crossing point but are NOT duplicates
+        
+        Args:
+            line: New line to check
+            existing_lines: List of already detected lines
+            angle_threshold: Max angle difference in degrees (8° for crossing tolerance)
+            position_threshold: Max distance in pixels (25px tighter)
+            
+        Returns:
+            True if line overlaps significantly
+        """
+        if len(existing_lines) == 0:
+            return False
+        
+        x1, y1, x2, y2 = line
+        angle = np.arctan2(y2 - y1, x2 - x1) * 180 / np.pi
+        mid = ((x1 + x2) / 2, (y1 + y2) / 2)
+        
+        # Normalize angle to 0-180° (keep direction to distinguish crossing lines)
+        norm_angle = angle % 180
+        
+        for existing in existing_lines:
+            ex1, ey1, ex2, ey2 = existing
+            e_angle = np.arctan2(ey2 - ey1, ex2 - ex1) * 180 / np.pi
+            e_mid = ((ex1 + ex2) / 2, (ey1 + ey2) / 2)
+            
+            # Normalize existing angle to 0-180°
+            e_norm_angle = e_angle % 180
+            
+            # Check angle difference
+            angle_diff = abs(norm_angle - e_norm_angle)
+            
+            # Special case: Crossing lines (e.g., 45° and 135°)
+            # These have ~90° difference and should NOT be considered overlapping
+            if 80 <= angle_diff <= 100:
+                # This is a crossing line, not a duplicate!
+                continue
+            
+            # Check distance
+            distance = np.sqrt((mid[0] - e_mid[0])**2 + (mid[1] - e_mid[1])**2)
+            
+            # If similar angle AND close position → overlap
+            if angle_diff < angle_threshold and distance < position_threshold:
+                return True
+        
+        return False
     
     def _merge_similar_lines(self, lines: List[Tuple[int, int, int, int]], 
-                            position_threshold: float = 50.0,  # VERY aggressive for fragmented lines
-                            angle_threshold: float = 2.0) -> List[Tuple[int, int, int, int]]:  # Strict for precise matching
+                            position_threshold: float = 40.0,  # More conservative
+                            angle_threshold: float = 3.0) -> List[Tuple[int, int, int, int]]:  # Slightly more tolerant
         """
         Merge lines that are very similar (likely duplicates from Hough Transform).
         

@@ -103,7 +103,19 @@ class LineComparator:
         # Calculate metrics
         correct_lines = len(matches)
         missing_lines = len(reference_lines) - len(matched_reference)
-        extra_lines = len(detected_lines) - len(matched_detected)
+        
+        # Count extra lines (unmatched detected lines)
+        # BUT: Only count lines longer than 30px to filter out short artifacts
+        extra_lines_count = 0
+        min_extra_line_length = 30.0  # Minimum length in pixels
+        
+        for i, line in enumerate(detected_lines):
+            if i not in matched_detected:
+                # This is an unmatched (extra) line
+                # Calculate length: sqrt((x2-x1)^2 + (y2-y1)^2)
+                length = np.sqrt((line[2] - line[0])**2 + (line[3] - line[1])**2)
+                if length >= min_extra_line_length:
+                    extra_lines_count += 1
         
         # Calculate overall similarity score
         if len(reference_lines) > 0:
@@ -114,7 +126,7 @@ class LineComparator:
         return {
             'correct_lines': correct_lines,
             'missing_lines': missing_lines,
-            'extra_lines': extra_lines,
+            'extra_lines': extra_lines_count,  # Now filtered by length
             'similarity_score': similarity_score,
             'matches': matches,
             'matched_detected_indices': list(matched_detected),
