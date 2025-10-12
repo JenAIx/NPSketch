@@ -128,21 +128,28 @@ class ImageRegistration:
                 'scale': 1.0
             }
         
-        # PRE-SCALE: Normalize drawing size based on bounding box height
+        # PRE-SCALE: Normalize drawing size based on bounding box (height AND width)
         # Find bounding boxes
         src_coords = np.column_stack(np.where(src_binary > 0))
         ref_coords = np.column_stack(np.where(ref_binary > 0))
         
         if len(src_coords) > 0 and len(ref_coords) > 0:
-            # Get bounding box heights
+            # Get bounding box dimensions (height and width)
             src_height = src_coords[:, 0].max() - src_coords[:, 0].min()
+            src_width = src_coords[:, 1].max() - src_coords[:, 1].min()
             ref_height = ref_coords[:, 0].max() - ref_coords[:, 0].min()
+            ref_width = ref_coords[:, 1].max() - ref_coords[:, 1].min()
             
-            # Calculate initial scale to match heights
-            initial_scale = ref_height / src_height if src_height > 0 else 1.0
-            initial_scale = np.clip(initial_scale, 0.5, 2.0)  # Limit to reasonable range
+            # Calculate scale for both dimensions
+            scale_h = ref_height / src_height if src_height > 0 else 1.0
+            scale_w = ref_width / src_width if src_width > 0 else 1.0
             
-            print(f"  🔍 Pre-scaling: src_height={src_height}px, ref_height={ref_height}px → scale={initial_scale:.2f}x")
+            # Use MINIMUM to ensure we don't exceed canvas in either dimension
+            initial_scale = min(scale_h, scale_w)
+            initial_scale = np.clip(initial_scale, 0.5, 2.5)  # Allow slightly more scale
+            
+            print(f"  🔍 Pre-scaling: src={src_height}x{src_width}px, ref={ref_height}x{ref_width}px")
+            print(f"     → scale_h={scale_h:.2f}x, scale_w={scale_w:.2f}x → using min={initial_scale:.2f}x")
             
             # Apply initial scale to BOTH source and src_gray
             h_scaled = int(src_gray.shape[0] * initial_scale)
@@ -156,14 +163,19 @@ class ImageRegistration:
             _, src_binary = cv2.threshold(src_gray, 127, 255, cv2.THRESH_BINARY_INV)
             src_pixels = np.sum(src_binary > 0)
             
-            # Resize to target size if needed
+            # Center on target canvas instead of resizing (prevents clipping!)
             if src_gray.shape != ref_gray.shape:
-                source = cv2.resize(source, (ref_gray.shape[1], ref_gray.shape[0]), interpolation=cv2.INTER_LINEAR)
-                src_gray = cv2.resize(src_gray, (ref_gray.shape[1], ref_gray.shape[0]), interpolation=cv2.INTER_LINEAR)
+                # Create white canvas with target size
+                target_h, target_w = ref_gray.shape
+                
+                # Center the scaled image on canvas
+                source = self._center_on_canvas(source, (target_h, target_w), value=255)
+                src_gray = self._center_on_canvas(src_gray, (target_h, target_w), value=255)
+                
                 _, src_binary = cv2.threshold(src_gray, 127, 255, cv2.THRESH_BINARY_INV)
                 src_pixels = np.sum(src_binary > 0)
             
-            print(f"  ✓ After pre-scaling: source={src_pixels} pixels")
+            print(f"  ✓ After pre-scaling & centering: source={src_pixels} pixels")
         else:
             initial_scale = 1.0
         
@@ -1373,6 +1385,54 @@ class ImageRegistration:
             return thinned_color
         else:
             return thinned
+    
+    def _center_on_canvas(
+        self,
+        image: np.ndarray,
+        target_size: tuple,
+        value: int = 255
+    ) -> np.ndarray:
+        """
+        Center an image on a canvas of target size.
+        
+        This prevents clipping when scaling up. Instead of resizing
+        (which cuts off edges), we place the image centered on a
+        white canvas.
+        
+        Args:
+            image: Image to center
+            target_size: (height, width) of target canvas
+            value: Fill value for canvas (255=white, 0=black)
+            
+        Returns:
+            Centered image on canvas
+        """
+        target_h, target_w = target_size
+        src_h, src_w = image.shape[:2]
+        
+        # If image is larger than target, we need to crop/resize
+        if src_h > target_h or src_w > target_w:
+            # Scale down to fit
+            scale = min(target_h / src_h, target_w / src_w)
+            new_h = int(src_h * scale)
+            new_w = int(src_w * scale)
+            image = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+            src_h, src_w = new_h, new_w
+        
+        # Create canvas
+        if len(image.shape) == 3:
+            canvas = np.full((target_h, target_w, image.shape[2]), value, dtype=image.dtype)
+        else:
+            canvas = np.full((target_h, target_w), value, dtype=image.dtype)
+        
+        # Calculate centered position
+        y_offset = (target_h - src_h) // 2
+        x_offset = (target_w - src_w) // 2
+        
+        # Place image on canvas
+        canvas[y_offset:y_offset+src_h, x_offset:x_offset+src_w] = image
+        
+        return canvas
     
     def _clean_borders(
         self,

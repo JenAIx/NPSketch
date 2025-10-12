@@ -326,13 +326,24 @@
         <p class="subtitle">Evaluate all test images and compare expected vs actual results</p>
         
         <div class="run-section">
-            <div style="display: flex; gap: 15px; justify-content: center; margin-bottom: 20px;">
+            <div style="display: flex; gap: 15px; justify-content: center; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
                 <a href="/draw_testimage.html" class="run-btn" style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px; background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">
                     ✏️ Draw Test Image
                 </a>
                 <button class="run-btn" id="runBtn" onclick="runTests()">
                     🚀 Run All Tests
                 </button>
+                
+                <!-- Test Images Counter (compact, right side) -->
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; border-radius: 25px; display: inline-flex; align-items: center; gap: 10px; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">
+                    <span style="font-size: 1.3em;">📁</span>
+                    <div style="display: flex; align-items: baseline; gap: 6px;">
+                        <div style="font-size: 1.5em; font-weight: bold; line-height: 1;" id="testImageCount">
+                            <span class="spinner" style="width: 16px; height: 16px; border-width: 2px; display: inline-block; vertical-align: middle;"></span>
+                        </div>
+                        <div style="font-size: 0.8em; opacity: 0.9;">Tests</div>
+                    </div>
+                </div>
             </div>
             
             <!-- Settings Panel -->
@@ -460,6 +471,36 @@
     </div>
     
     <script>
+        // Load test image count on page load
+        async function loadTestImageCount() {
+            try {
+                const response = await fetch('/api/test-images');
+                const testImages = await response.json();
+                const count = Array.isArray(testImages) ? testImages.length : 0;
+                
+                const countElement = document.getElementById('testImageCount');
+                countElement.textContent = count;
+                
+                // Add color based on count
+                if (count === 0) {
+                    countElement.style.color = '#ffc107';
+                    countElement.parentElement.parentElement.style.background = 'linear-gradient(135deg, #ffc107 0%, #ff9800 100%)';
+                } else if (count < 3) {
+                    countElement.style.color = '#fff';
+                    countElement.parentElement.parentElement.style.background = 'linear-gradient(135deg, #17a2b8 0%, #138496 100%)';
+                } else {
+                    countElement.style.color = '#fff';
+                    countElement.parentElement.parentElement.style.background = 'linear-gradient(135deg, #28a745 0%, #20c997 100%)';
+                }
+            } catch (error) {
+                document.getElementById('testImageCount').textContent = '?';
+                console.error('Error loading test image count:', error);
+            }
+        }
+        
+        // Load count when page loads
+        window.addEventListener('DOMContentLoaded', loadTestImageCount);
+        
         function updateToleranceDisplay() {
             document.getElementById('maxRotationVal').textContent = 
                 document.getElementById('maxRotation').value;
