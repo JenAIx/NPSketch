@@ -275,7 +275,8 @@ class EvaluationService:
                     motion_type=self.registration_motion,
                     max_rotation_degrees=self.max_rotation_degrees
                 )
-                registration_info['used'] = True
+                # Only mark as 'used' if registration was successful
+                registration_info['used'] = registration_info.get('success', False)
                 registration_info['motion_type'] = self.registration_motion
             except Exception as e:
                 # If registration fails, use original

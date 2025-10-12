@@ -8,3 +8,4 @@ python-multipart==0.0.12
 sqlalchemy==2.0.35
 aiofiles==24.1.0
 scipy==1.11.4
+scikit-image==0.22.0

@@ -387,19 +387,14 @@
         
         async function loadFeatures() {
             try {
-                console.log('loadFeatures() called...');
                 const response = await fetch('/api/references');
                 const refs = await response.json();
-                console.log('API Response:', refs);
                 
                 if (refs.length > 0 && refs[0].feature_data) {
                     const data = JSON.parse(refs[0].feature_data);
-                    console.log('Parsed feature_data:', data);
                     features = data.lines || [];
-                    console.log('Loaded features:', features);
                 } else {
                     features = [];
-                    console.log('No feature_data found, features = []');
                 }
                 
                 redrawCanvas();
@@ -557,8 +552,6 @@
         }
         
         function updateUI() {
-            console.log('updateUI called, features.length:', features.length);
-            
             // Update list
             const list = document.getElementById('featuresList');
             list.innerHTML = '';
@@ -610,8 +603,6 @@
             
             // Update finalize button
             document.getElementById('finalizeBtn').disabled = totalCount < 6;
-            
-            console.log('UI updated - Total:', totalCount, 'H:', h, 'V:', v, 'D:', d);
         }
         
         async function clearAllFeatures() {
