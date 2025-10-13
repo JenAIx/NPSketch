@@ -1,300 +1,223 @@
-# Line Detection Optimization Guide
+# Line Detection & Testing Guide
 
 ## Overview
 
-NPSketch provides two complementary optimization approaches for achieving perfect line detection:
+NPSketch v1.0 uses a **manual, iterative approach** for line detection optimization:
 
-### 1. **Grid Search Optimization** (`test_runner.py`)
-Tests multiple parameter combinations for comparison metrics (position, angle, length tolerances).
-
-### 2. **Stepwise Line Detection** (`stepwise_line_optimizer.py`) ⭐
-Optimizes Hough Transform parameters to match expected line counts in test images.
+1. **Manual Reference Definition** - Define ground truth lines interactively
+2. **Test Image Creation** - Draw test images with expected scores
+3. **Iterative Line Detection** - Automatic detection with pixel subtraction
+4. **Automated Testing** - Validate detection accuracy
 
 ---
 
-## Stepwise Line Detection Optimizer
-
-### Concept
-
-The optimizer adjusts line detection parameters until the detected line count matches the expected total from your test images.
-
-**Formula:** `Target Lines = Expected Correct + Expected Extra`
-
-**Examples:**
-- If `Expected: Correct=8, Extra=0` → Optimize until **8 lines** are detected
-- If `Expected: Correct=6, Extra=2` → Optimize until **8 lines** are detected
-- If `Expected: Correct=5, Extra=0, Missing=3` → Optimize until **5 lines** are detected
+## Current Approach: Iterative Detection with Pixel Subtraction
 
 ### How It Works
 
+The new line detection algorithm eliminates the need for constant parameter tuning:
+
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  1. Load test image + expected values                   │
-│  2. Calculate target: correct + extra                   │
-│  3. Detect lines with current parameters                │
-│                                                          │
-│  IF detected > target:                                  │
-│     → Increase threshold (stricter detection)           │
-│                                                          │
-│  IF detected < target:                                  │
-│     → Decrease threshold (more sensitive)               │
-│     → Increase max_line_gap (connect broken lines)      │
-│                                                          │
-│  4. Repeat until detected == target                     │
+│  1. Binary Threshold (127) → Strong black/white         │
+│  2. ITERATION (up to 20 times):                         │
+│     a) Hough Transform detects all lines                │
+│     b) Pick LONGEST line                                │
+│     c) Check for duplicates (angle ±8°, position ±25px) │
+│     d) Draw line on mask with 8px buffer                │
+│     e) DILATE mask (5×5 ellipse, +2-3px)               │
+│     f) SUBTRACT from image → Line removed!              │
+│  3. Repeat until no more lines or 12 lines found        │
+│  4. Final filter: Remove lines < 30px                   │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Parameters Optimized
+### Key Features
 
-| Parameter | Description | Effect |
-|-----------|-------------|--------|
-| `threshold` | Minimum votes required | **Primary control** - Higher = fewer lines |
-| `max_line_gap` | Max gap to connect segments | Connects broken lines |
-| `min_line_length` | Minimum line length | Filters short artifacts |
+- **Multi-Pass Strategy**: 
+  - Pass 1 (Iter 1-10): Strict threshold (15), longer lines (35px)
+  - Pass 2 (Iter 11-20): Relaxed threshold (10), shorter lines (25px)
+  
+- **Longest-First**: Prioritizes major/important lines
+
+- **Pixel Subtraction**: Dilate + Subtract prevents duplicate detection
+
+- **Crossing Detection**: Lines with 80-100° angle difference are both kept (X pattern)
+
+### Current Parameters
+
+```python
+LineDetector(
+    threshold=18,           # Base threshold
+    min_line_length=35,     # Initial min length
+    max_line_gap=35,        # Connect segments
+    final_min_length=30     # Final noise filter
+)
+```
+
+**Why These Work:**
+- Iterative approach is self-correcting
+- Pixel subtraction eliminates most tuning needs
+- Multi-pass catches both strong and weak lines
+- Parameters are stable across different images
 
 ---
 
-## Usage
+## Workflow: Creating & Testing
 
-### Basic Usage
+### Step 1: Define Reference (One-Time Setup)
 
-```bash
-# Run the optimizer
-docker compose exec api python3 /app/stepwise_line_optimizer.py
-```
+1. Go to http://localhost/reference.html
+2. Click two points to define each line
+3. Lines are automatically categorized (H/V/D)
+4. Delete any mistakes
+5. Reference is saved in database
 
-This will:
-1. Load all test images from the database
-2. Optimize parameters for each image individually
-3. Calculate recommended global parameters
-4. Generate an HTML report in `/app/data/test_output/`
+**Ground Truth**: Manual definition ensures 100% accuracy for reference lines.
 
-### Programmatic Usage
+### Step 2: Create Test Images
 
-```python
-from stepwise_line_optimizer import StepwiseLineOptimizer
-
-# Initialize
-optimizer = StepwiseLineOptimizer(use_registration=True)
-
-# Optimize all test images
-results = optimizer.optimize_all_test_images(
-    max_iterations=20,  # Max optimization iterations per image
-    tolerance=0         # 0 = exact match required
-)
-
-# Get recommended parameters
-recommended = results['recommended_parameters']
-print(f"Threshold: {recommended['threshold']}")
-print(f"Min Length: {recommended['min_line_length']}")
-print(f"Max Gap: {recommended['max_line_gap']}")
-
-# Generate HTML report
-optimizer.generate_report(results)
-```
-
-### Optimize Single Image
-
-```python
-# Get test image and reference from database
-test_image = db.query(TestImage).filter(TestImage.test_name == "MyTest").first()
-reference = db.query(ReferenceImage).first()
-
-# Optimize
-result = optimizer.optimize_for_image(
-    test_image=test_image,
-    reference=reference,
-    max_iterations=20,
-    tolerance=0
-)
-
-# Check result
-if result['success']:
-    print(f"✅ Optimized in {result['iterations']} iterations")
-    print(f"Parameters: {result['optimal_parameters']}")
-else:
-    print(f"⚠️ Best difference: {result['final_diff']}")
-```
-
----
-
-## Workflow: Adding New Test Images
-
-### Step 1: Create Test Image
-
-Use the webapp to draw and score a test image:
 1. Go to http://localhost/draw_testimage.html
-2. Draw your test image
-3. Set expected values:
-   - **Correct Lines**: Lines that match the reference
-   - **Extra Lines**: Additional lines you drew
-   - **Missing Lines**: Auto-calculated from reference
-4. Save the test image
+2. Draw your test image (256×256 canvas)
+3. Use rotation buttons (±10°) to create variations
+4. **Manual Scoring**:
+   - **Correct Lines**: How many reference lines you drew
+   - **Extra Lines**: Additional lines not in reference
+   - **Missing Lines**: Auto-calculated
+5. Save with descriptive name
 
-### Step 2: Run Optimization
+**Purpose**: Creates labeled dataset for algorithm validation.
 
-```bash
-docker compose exec api python3 /app/stepwise_line_optimizer.py
-```
+### Step 3: Run Automated Tests
 
-The optimizer will:
-- Analyze your new test image
-- Find parameters that detect exactly `Correct + Extra` lines
-- Update recommendations if needed
+1. Go to http://localhost/run_test.html
+2. See available test image count
+3. Configure settings (optional):
+   - Image Registration: Enable/disable
+   - Line Matching Tolerances
+   - Max Rotation
+4. Click **Run All Tests**
 
-### Step 3: Apply Recommended Parameters
+**Metrics Displayed:**
+- **Test Rating** (Prediction Accuracy): Expected vs Actual detection
+- **Reference Match**: How well lines match reference
+- Individual results with visualizations
 
-If the optimizer suggests new parameters, update `/app/image_processing/line_detector.py`:
+### Step 4: Analyze Results
+
+**Per-Image Results:**
+- Original → Registered → Reference visualization
+- Expected (your scoring) vs Actual (detected)
+- Difference breakdown
+
+**Overall Stats:**
+- Average Test Rating (target: >90%)
+- Perfect Tests (100% match)
+- Success rate
+
+---
+
+## When to Adjust Parameters
+
+### ❌ Don't Adjust If:
+- Test Rating is >90%
+- Most test images are correctly detected
+- Only 1-2 problem cases
+
+### ✅ Consider Adjusting If:
+- Test Rating consistently <80%
+- Many test images have wrong line counts
+- Systematic over/under-detection
+
+### How to Adjust
+
+Edit `api/image_processing/line_detector.py`:
 
 ```python
 def __init__(
     self,
-    rho: float = 1.0,
-    theta: float = np.pi / 180,
-    threshold: int = 75,        # ← Update this
-    min_line_length: int = 65,  # ← Update this
-    max_line_gap: int = 50      # ← Update this
+    threshold=18,           # Higher = fewer lines detected
+    min_line_length=35,     # Higher = ignore shorter lines
+    max_line_gap=35,        # Higher = connect more gaps
+    final_min_length=30     # Higher = stricter final filter
 ):
 ```
 
-### Step 4: Verify
-
-Run tests to ensure 100% accuracy:
+**After Changes:**
 ```bash
-curl -s -X POST "http://localhost/api/test-images/run-tests" | python3 -m json.tool
+docker compose restart api
 ```
+
+Then re-run tests to verify improvement.
 
 ---
 
-## Understanding Results
+## Comparison Tolerance Optimization
 
-### Success Criteria
-
-✅ **Success** = Detected lines == Target lines (within tolerance)  
-⚠️ **Partial** = Close but not exact match after max iterations
-
-### HTML Report Sections
-
-1. **Summary Cards**
-   - Total test images
-   - Successful optimizations
-   - Success rate
-
-2. **Recommended Parameters**
-   - Global parameters that work best across all images
-   - Average of successful optimizations
-
-3. **Individual Results Table**
-   - Per-image optimization results
-   - Final parameters for each image
-   - Iteration count and success status
-
-### Example Output
-
-```
-============================================================
-📊 OPTIMIZATION RESULTS
-============================================================
-✅ Test Drawing2       :  6/ 6 lines (diff: +0, iterations:  1)
-✅ Test Drawing_rotright:  6/ 6 lines (diff: +0, iterations:  1)
-✅ Supper              :  8/ 8 lines (diff: +0, iterations:  1)
-
-✨ Success rate: 3/3 images
-
-💡 RECOMMENDED GLOBAL PARAMETERS:
-   threshold:       75
-   min_line_length: 65
-   max_line_gap:    50
-```
-
----
-
-## Advanced Topics
-
-### Custom Optimization Strategy
-
-You can customize the optimization logic in `optimize_for_image()`:
+### Current Tolerances
 
 ```python
-# Current strategy:
-if detected_lines > target_lines:
-    # Too many - be stricter
-    current_params['threshold'] += max(1, (detected_lines - target_lines) * 2)
-else:
-    # Too few - be more sensitive
-    current_params['threshold'] -= max(1, (target_lines - detected_lines) * 2)
-    current_params['max_line_gap'] += 2
+LineComparator(
+    position_tolerance=120.0,   # Max distance in pixels
+    angle_tolerance=50.0,       # Max angle difference in degrees
+    length_tolerance=0.8,       # Max length difference (ratio)
+    similarity_threshold=0.5    # Min similarity for match
+)
 ```
 
-You might want to:
-- Adjust step sizes for faster/slower convergence
-- Add constraints (e.g., threshold must be between 20-150)
-- Optimize multiple parameters simultaneously
-- Use different strategies for different types of images
+### Real-Time Tuning
 
-### Integration with Grid Search
+You can adjust these in the **Run Tests UI** without code changes:
+1. Expand "Advanced Settings"
+2. Adjust sliders for Position, Angle, Length
+3. Click "Run All Tests" to see immediate impact
 
-Combine both optimization approaches:
+### Grid Search Optimization (Advanced)
 
-1. **First**: Run Stepwise Optimizer for line detection
-2. **Then**: Run Grid Search for comparison tolerances
-3. **Result**: Optimal parameters for entire pipeline
+If you want to systematically optimize tolerances:
 
 ```bash
-# Step 1: Optimize line detection
-docker compose exec api python3 /app/stepwise_line_optimizer.py
-
-# Step 2: Optimize comparison
+# Run grid search
 docker compose exec api python3 /app/test_runner.py
 ```
 
+This will:
+1. Test multiple tolerance combinations
+2. Find parameters with best Test Rating
+3. Generate HTML report in `data/test_output/`
+
+**Note**: This optimizes comparison tolerances, NOT line detection parameters.
+
 ---
 
-## Troubleshooting
+## Understanding Metrics
 
-### Optimizer Can't Reach Target
+### 1. Reference Match (Detection Score)
 
-**Problem:** Max iterations reached without exact match
+**Formula**: `correct_lines / total_reference_lines`
 
-**Possible Causes:**
-1. **Expected values are incorrect**
-   - Review your test image scoring
-   - Check if `correct + extra` makes sense
+**Meaning**: How well detected lines match the reference image.
 
-2. **Image quality issues**
-   - Faint/broken lines may not be detectable
-   - Add preprocessing or adjust image quality
+**Example**:
+- Reference has 8 lines
+- Detected 7 correct, 1 missing, 0 extra
+- Reference Match = 7/8 = 87.5%
 
-3. **Registration artifacts**
-   - Try with `use_registration=False`
-   - Adjust `max_rotation_degrees`
+### 2. Test Rating (Prediction Accuracy)
 
-4. **Parameter range limits**
-   - Threshold is constrained to 20-150
-   - May need to adjust constraints in code
+**Formula**: Compares Expected (manual) vs Actual (detected)
 
-**Solution:** Check the HTML report to see how close the optimizer got, then manually adjust.
+**Meaning**: How well the algorithm predicts what you told it to expect.
 
-### Different Results Each Run
+**Example**:
+- Expected: Correct=7, Missing=1, Extra=0
+- Actual: Correct=7, Missing=1, Extra=0
+- Test Rating = 100% (perfect match!)
 
-**Problem:** Optimizer gives different results on repeated runs
-
-**Causes:**
-- Image registration may vary slightly
-- Random initialization in some CV algorithms
-
-**Solution:** Run multiple times and use average/median of results.
-
-### All Images Need Different Parameters
-
-**Problem:** No single parameter set works for all images
-
-**This is normal!** It means your test images vary significantly. Options:
-
-1. **Accept the average** - Best overall compromise
-2. **Use per-image parameters** - Store optimal params per test
-3. **Refine test images** - Make them more consistent
-4. **Increase tolerance** - Allow ±1 line difference
+**Why Important**: 
+- Measures algorithm reliability
+- Validates manual scoring accuracy
+- Shows if detection is consistent
 
 ---
 
@@ -302,50 +225,194 @@ docker compose exec api python3 /app/test_runner.py
 
 ### ✅ Do's
 
-- **Start with current optimal parameters** (75, 65, 50)
-- **Use diverse test images** - Different line counts, patterns
-- **Review generated HTML reports** - Understand what changed
-- **Run after adding new test images** - Keep parameters optimal
-- **Document your expected values** - Why did you set them?
+- **Create diverse test images** - Different patterns, rotations, missing lines
+- **Score test images carefully** - Accurate expected values are crucial
+- **Run tests after changes** - Always verify improvements
+- **Use registration for rotated images** - Handles misalignment
+- **Review visualizations** - Understand what's being detected
+- **Keep test images clean** - Avoid ambiguous/messy drawings
 
 ### ❌ Don'ts
 
-- **Don't optimize for one image only** - May not generalize
-- **Don't ignore partial successes** - Check what's close enough
-- **Don't change parameters too frequently** - Stability is important
-- **Don't forget to restart API** - After manual parameter changes
-- **Don't skip verification tests** - Always run full test suite
+- **Don't over-optimize** - 90%+ Test Rating is excellent
+- **Don't change parameters frequently** - Stability matters
+- **Don't ignore visualizations** - They show exactly what's detected
+- **Don't create too-easy tests** - Challenge the algorithm
+- **Don't skip verification** - Always run full test suite after changes
+
+---
+
+## Troubleshooting
+
+### Problem: Low Test Rating (<80%)
+
+**Causes:**
+1. Test image scoring is incorrect
+2. Detection parameters need adjustment
+3. Registration is failing
+4. Test images are too different from reference
+
+**Solutions:**
+1. Review test image expected values
+2. Check individual visualizations
+3. Try with/without registration
+4. Create more varied test images
+
+### Problem: Inconsistent Results
+
+**Causes:**
+1. Image registration varies slightly
+2. Lines near detection threshold
+3. Ambiguous line patterns
+
+**Solutions:**
+1. Increase `final_min_length` to filter noise
+2. Adjust comparison tolerances
+3. Make test images more distinct
+
+### Problem: Missing Diagonal Lines
+
+**Causes:**
+1. Diagonal lines fragmented by rotation
+2. Threshold too high
+3. Lines too thin after skeletonization
+
+**Solutions:**
+1. Enable registration (helps alignment)
+2. Lower `threshold` slightly
+3. Check if test image is too faint
+
+### Problem: Too Many Extra Lines
+
+**Causes:**
+1. Noise in image
+2. Threshold too low
+3. Artifacts from registration
+
+**Solutions:**
+1. Increase `threshold`
+2. Increase `min_line_length`
+3. Increase `final_min_length` (filters short artifacts)
+4. Use higher quality test images
+
+---
+
+## Advanced: Iterative Detection Internals
+
+### Overlap Detection Algorithm
+
+```python
+def _overlaps_with_existing(line, existing_lines):
+    # Calculate angle and position
+    angle = atan2(y2-y1, x2-x1) * 180/π
+    mid = ((x1+x2)/2, (y1+y2)/2)
+    
+    for existing_line in existing_lines:
+        angle_diff = abs(angle - existing_angle)
+        
+        # Special: Crossing lines (X pattern)
+        if 80° <= angle_diff <= 100°:
+            continue  # NOT a duplicate!
+        
+        # Check angle and position
+        if angle_diff < 8° AND distance < 25px:
+            return True  # Duplicate!
+    
+    return False
+```
+
+### Pixel Subtraction Process
+
+```python
+def _erase_line_pixels(image, line):
+    # 1. Create mask
+    mask = zeros_like(image)
+    cv2.line(mask, (x1,y1), (x2,y2), 255, thickness=8)
+    
+    # 2. DILATE (expand by 2-3px)
+    kernel = cv2.getStructuringElement(MORPH_ELLIPSE, (5,5))
+    dilated = cv2.dilate(mask, kernel, iterations=1)
+    
+    # 3. SUBTRACT
+    image[dilated > 0] = 0  # Erase completely!
+```
+
+**Why Dilate?**
+- Captures nearby pixels
+- Removes line completely (no artifacts)
+- Prevents re-detection of same line
+
+---
+
+## Migration from Old System
+
+If you're upgrading from a previous version:
+
+### Old System (Deprecated)
+- `stepwise_line_optimizer.py` - ❌ Removed
+- Manual parameter tuning required
+- Separate optimization runs
+
+### New System (Current)
+- Iterative detection with pixel subtraction
+- Manual reference definition
+- Integrated test suite with UI
+- Real-time tolerance adjustment
+
+### Migration Steps
+
+1. **Delete old files** (if present):
+   ```bash
+   rm api/stepwise_line_optimizer.py
+   rm api/optimize_detection.py
+   ```
+
+2. **Use new reference editor**:
+   - Define lines manually at http://localhost/reference.html
+
+3. **Create test images**:
+   - Use http://localhost/draw_testimage.html
+
+4. **Run tests**:
+   - Use http://localhost/run_test.html
+
+No parameter optimization scripts needed!
 
 ---
 
 ## Related Documentation
 
-- [Main README](../README.md) - Project overview
-- [API Documentation](../api/README.md) - API endpoints
-- [Test Runner Guide](./TEST_RUNNER.md) - Grid search optimization
+- [Main README](../README.md) - Complete project overview
+- [API Endpoints](../README.md#-api-endpoints) - REST API documentation
+- [Algorithm Details](../README.md#-algorithms-used) - Technical implementation
 
 ---
 
 ## Changelog
 
-### 2025-10-12 - Initial Release
+### 2025-10-13 - Major Refactor
+- ✅ Implemented iterative detection with pixel subtraction
+- ✅ Manual reference line definition
+- ✅ Integrated test suite with UI
+- ✅ Real-time tolerance adjustment
+- ❌ Removed stepwise optimizer (no longer needed)
+- ❌ Removed separate optimization scripts
+
+### 2025-10-12 - Initial Release (Deprecated)
 - Created Stepwise Line Detection Optimizer
 - Implemented iterative parameter adjustment
-- Added HTML report generation
-- Integrated with existing test infrastructure
 
 ---
 
 ## Support
 
 For questions or issues:
-1. Check the HTML report for detailed diagnostics
-2. Review this documentation
-3. Examine test image expected values
-4. Check API logs: `docker compose logs api`
+1. Check test visualizations at http://localhost/run_test.html
+2. Review individual test results
+3. Examine API logs: `docker compose logs api`
+4. Check this documentation
 
 ---
 
-**Last Updated:** 2025-10-12  
-**Status:** ✅ Production Ready
-
+**Last Updated:** 2025-10-13  
+**Status:** ✅ Current (Iterative Detection Method)
