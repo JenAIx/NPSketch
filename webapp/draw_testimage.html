@@ -405,6 +405,9 @@
                     <button class="tool-btn" onclick="clearCanvas()">
                         🗑️ Clear All
                     </button>
+                    <button class="tool-btn" id="downloadBtn" onclick="downloadCanvas()" disabled>
+                        ⬇️ Download
+                    </button>
                 </div>
             </div>
             
@@ -466,10 +469,12 @@
         let originalCorrectLines = null;
         let originalExtraLines = null;
         let hasChanges = false;
+        let hasContent = false;  // Track if canvas has content
         
         // Initialize canvas
         ctx.fillStyle = 'white';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+        updateDownloadButton();
         
         // Set up line drawing properties
         ctx.lineCap = 'round';
@@ -523,8 +528,10 @@
             lastX = pos.x;
             lastY = pos.y;
             
-            // Mark as changed
+            // Mark as changed and update download button
+            hasContent = true;
             checkForChanges();
+            updateDownloadButton();
         }
         
         function stopDrawing() {
@@ -559,8 +566,10 @@
             ctx.fillStyle = 'white';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             currentRotation = 0;
+            hasContent = false;
             updateRotationDisplay();
             checkForChanges();
+            updateDownloadButton();
         }
         
         // Rotate canvas content
@@ -596,6 +605,7 @@
             // Update display
             updateRotationDisplay();
             checkForChanges();
+            updateDownloadButton();
         }
         
         function updateRotationDisplay() {
@@ -624,6 +634,49 @@
         }
         
         updateBrushPreview();
+        
+        // Update download button state
+        function updateDownloadButton() {
+            const downloadBtn = document.getElementById('downloadBtn');
+            downloadBtn.disabled = !hasContent;
+        }
+        
+        // Download canvas as PNG
+        function downloadCanvas() {
+            // Get current test name or generate one
+            let filename = document.getElementById('testName').value.trim();
+            if (!filename) {
+                filename = generateDefaultName();
+            }
+            
+            // Ensure .png extension
+            if (!filename.toLowerCase().endsWith('.png')) {
+                filename += '.png';
+            }
+            
+            // Convert canvas to blob and download
+            canvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                // Show success message
+                const msg = document.getElementById('successMessage');
+                msg.textContent = `✓ Downloaded: ${filename}`;
+                msg.style.background = '#d1ecf1';
+                msg.style.color = '#0c5460';
+                msg.style.borderLeftColor = '#17a2b8';
+                msg.style.display = 'block';
+                setTimeout(() => {
+                    msg.style.display = 'none';
+                }, 3000);
+            }, 'image/png');
+        }
         
         // Generate default name with timestamp
         function generateDefaultName() {
@@ -705,12 +758,14 @@
             originalCorrectLines = null;
             originalExtraLines = null;
             hasChanges = false;
+            hasContent = false;
             clearCanvas();
             document.getElementById('testName').value = '';
             document.getElementById('correctLines').value = '0';
             document.getElementById('extraLines').value = '0';
             currentRotation = 0;
             updateSaveButton();
+            updateDownloadButton();
         }
         
         function showSuccessMessage(action = 'saved') {
@@ -806,9 +861,11 @@
                     originalCorrectLines = correctLines;
                     originalExtraLines = extraLines;
                     hasChanges = false;
+                    hasContent = true;  // Image is loaded
                     
-                    // Update button to Update mode
+                    // Update buttons
                     updateSaveButton();
+                    updateDownloadButton();
                     
                     // Show success message
                     const msg = document.getElementById('successMessage');
