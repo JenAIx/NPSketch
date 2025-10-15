@@ -63,6 +63,52 @@
             padding-right: 20px;
         }
         
+        .filter-bar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .filter-btn {
+            flex: 1;
+            padding: 8px 12px;
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #666;
+        }
+        
+        .filter-btn:hover {
+            border-color: #667eea;
+            color: #667eea;
+        }
+        
+        .filter-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #667eea;
+        }
+        
+        .filter-count {
+            display: inline-block;
+            margin-left: 4px;
+            padding: 2px 6px;
+            background: rgba(0,0,0,0.1);
+            border-radius: 10px;
+            font-size: 11px;
+        }
+        
+        .filter-btn.active .filter-count {
+            background: rgba(255,255,255,0.3);
+        }
+        
         .eval-item {
             background: #f8f9fa;
             padding: 15px;
@@ -311,6 +357,12 @@
             100% { transform: rotate(360deg); }
         }
         
+        @keyframes fadeOut {
+            0% { opacity: 1; }
+            70% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+        
         .no-evaluations {
             text-align: center;
             padding: 60px 20px;
@@ -484,8 +536,21 @@
         </div>
         
         <div id="content" class="content-grid" style="display: none;">
-            <div class="evaluations-list" id="evalList">
-                <!-- Evaluation items will be inserted here -->
+            <div>
+                <div class="filter-bar">
+                    <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">
+                        📋 All <span class="filter-count" id="countAll">0</span>
+                    </button>
+                    <button class="filter-btn" data-filter="unevaluated" onclick="setFilter('unevaluated')">
+                        ⚠ Unevaluated <span class="filter-count" id="countUnevaluated">0</span>
+                    </button>
+                    <button class="filter-btn" data-filter="evaluated" onclick="setFilter('evaluated')">
+                        ✓ Evaluated <span class="filter-count" id="countEvaluated">0</span>
+                    </button>
+                </div>
+                <div class="evaluations-list" id="evalList">
+                    <!-- Evaluation items will be inserted here -->
+                </div>
             </div>
             
             <div class="detail-view" id="detailView">
@@ -500,6 +565,8 @@
     <script>
         let evaluations = [];
         let selectedEvalId = null;
+        let currentFilter = 'all';
+        let isUnlocked = false;
         
         async function loadEvaluations() {
             try {
@@ -512,6 +579,7 @@
                     document.getElementById('noEvaluations').style.display = 'block';
                 } else {
                     document.getElementById('content').style.display = 'grid';
+                    updateFilterCounts();
                     displayEvaluationsList();
                 }
                 
@@ -521,11 +589,54 @@
             }
         }
         
+        function updateFilterCounts() {
+            const all = evaluations.length;
+            const evaluated = evaluations.filter(e => e.user_evaluated).length;
+            const unevaluated = all - evaluated;
+            
+            document.getElementById('countAll').textContent = all;
+            document.getElementById('countEvaluated').textContent = evaluated;
+            document.getElementById('countUnevaluated').textContent = unevaluated;
+        }
+        
+        function setFilter(filter) {
+            currentFilter = filter;
+            
+            // Update button states
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`[data-filter="${filter}"]`).classList.add('active');
+            
+            // Re-display list with filter
+            displayEvaluationsList();
+        }
+        
         function displayEvaluationsList() {
             const listDiv = document.getElementById('evalList');
             listDiv.innerHTML = '';
             
-            evaluations.forEach(eval => {
+            // Filter evaluations based on current filter
+            let filteredEvals = evaluations;
+            if (currentFilter === 'evaluated') {
+                filteredEvals = evaluations.filter(e => e.user_evaluated);
+            } else if (currentFilter === 'unevaluated') {
+                filteredEvals = evaluations.filter(e => !e.user_evaluated);
+            }
+            
+            // Show message if no results
+            if (filteredEvals.length === 0) {
+                listDiv.innerHTML = `
+                    <div style="text-align: center; padding: 40px 20px; color: #999;">
+                        <div style="font-size: 48px; margin-bottom: 10px;">🔍</div>
+                        <p>No ${currentFilter} evaluations found</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Display filtered evaluations
+            filteredEvals.forEach(eval => {
                 const item = createEvaluationItem(eval);
                 listDiv.appendChild(item);
             });
@@ -552,7 +663,10 @@
             
             div.innerHTML = `
                 <div class="eval-header">
-                    <span class="eval-id">Evaluation #${eval.id} ${statusBadge}</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="eval-id">#${eval.id}</span>
+                        ${statusBadge}
+                    </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span class="eval-score ${scoreClass}">${score.toFixed(0)}%</span>
                         <span class="delete-icon" onclick="deleteEvaluation(${eval.id}, event)" title="Delete">🗑️</span>
@@ -562,8 +676,8 @@
                     <span class="stat-badge">✓ ${eval.correct_lines}</span>
                     <span class="stat-badge">✗ ${eval.missing_lines}</span>
                     <span class="stat-badge">+ ${eval.extra_lines}</span>
+                    <span class="eval-meta" style="margin-top: 0; margin-left: auto;">${dateStr}</span>
                 </div>
-                <div class="eval-meta">${dateStr}</div>
             `;
             
             div.onclick = (e) => {
@@ -577,6 +691,9 @@
         }
         
         async function selectEvaluation(evalId) {
+            // Reset unlock state when switching evaluations
+            isUnlocked = false;
+            
             selectedEvalId = evalId;
             
             // Update list UI
@@ -618,6 +735,7 @@
                     }
                     
                     // Reload list
+                    updateFilterCounts();
                     displayEvaluationsList();
                     
                     // Show message if no evaluations left
@@ -654,11 +772,47 @@
                 const evaluationSectionClass = eval.user_evaluated ? 'evaluation-section evaluated' : 'evaluation-section';
                 const evaluationStatusHtml = eval.user_evaluated
                     ? `
-                        <h3 style="margin: 0 0 10px 0; color: #155724;">✓ User Evaluated</h3>
-                        <p style="margin: 0; font-size: 14px; color: #666;">
-                            Evaluation completed for AI training
-                            ${eval.evaluated_at_timestamp ? `on ${new Date(eval.evaluated_at_timestamp).toLocaleString()}` : ''}
-                        </p>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <h3 style="margin: 0 0 10px 0; color: #155724;">✓ User Evaluated</h3>
+                                <p style="margin: 0; font-size: 14px; color: #666;">
+                                    Evaluation completed for AI training
+                                    ${eval.evaluated_at_timestamp ? `on ${new Date(eval.evaluated_at_timestamp).toLocaleString()}` : ''}
+                                </p>
+                            </div>
+                            <button id="unlockBtn" onclick="unlockEvaluation()" style="
+                                padding: 8px 16px;
+                                background: #ffc107;
+                                color: #333;
+                                border: none;
+                                border-radius: 6px;
+                                font-size: 13px;
+                                font-weight: 600;
+                                cursor: pointer;
+                                transition: all 0.2s;
+                            " onmouseover="this.style.background='#ffb300'" onmouseout="this.style.background='#ffc107'">
+                                🔓 Unlock to Edit
+                            </button>
+                        </div>
+                        <div id="editForm" style="display: none; margin-top: 15px;">
+                            <div class="evaluation-form">
+                                <div class="eval-input-group">
+                                    <label>Correct Lines</label>
+                                    <input type="number" id="evalCorrect" min="0" value="${eval.evaluated_correct}" onchange="autoSaveEvaluation(${eval.id})">
+                                </div>
+                                <div class="eval-input-group">
+                                    <label>Missing Lines</label>
+                                    <input type="number" id="evalMissing" min="0" value="${eval.evaluated_missing}" onchange="autoSaveEvaluation(${eval.id})">
+                                </div>
+                                <div class="eval-input-group">
+                                    <label>Extra Lines</label>
+                                    <input type="number" id="evalExtra" min="0" value="${eval.evaluated_extra}" onchange="autoSaveEvaluation(${eval.id})">
+                                </div>
+                            </div>
+                            <p style="margin-top: 10px; font-size: 12px; color: #666; font-style: italic;">
+                                💾 Changes are saved automatically
+                            </p>
+                        </div>
                     `
                     : `
                         <h3 style="margin: 0 0 10px 0; color: #856404;">⚠ Needs Evaluation</h3>
@@ -777,6 +931,68 @@
             }
         }
         
+        // Unlock evaluation for editing
+        function unlockEvaluation() {
+            isUnlocked = true;
+            
+            // Hide unlock button, show form
+            document.getElementById('unlockBtn').style.display = 'none';
+            document.getElementById('editForm').style.display = 'block';
+            
+            // Focus first input
+            document.getElementById('evalCorrect').focus();
+        }
+        
+        // Auto-save when values change
+        async function autoSaveEvaluation(evalId) {
+            if (!isUnlocked) return;
+            
+            const correctLines = parseInt(document.getElementById('evalCorrect').value);
+            const missingLines = parseInt(document.getElementById('evalMissing').value);
+            const extraLines = parseInt(document.getElementById('evalExtra').value);
+            
+            if (isNaN(correctLines) || isNaN(missingLines) || isNaN(extraLines)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/evaluations/${evalId}/evaluate`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        evaluated_correct: correctLines,
+                        evaluated_missing: missingLines,
+                        evaluated_extra: extraLines
+                    })
+                });
+                
+                if (response.ok) {
+                    const updated = await response.json();
+                    
+                    // Update local evaluations array
+                    const index = evaluations.findIndex(e => e.id === evalId);
+                    if (index !== -1) {
+                        evaluations[index] = updated;
+                    }
+                    
+                    // Visual feedback
+                    const form = document.getElementById('editForm');
+                    const feedback = document.createElement('span');
+                    feedback.textContent = '✓ Saved';
+                    feedback.style.cssText = 'color: #28a745; font-size: 12px; margin-left: 10px; animation: fadeOut 2s forwards;';
+                    form.appendChild(feedback);
+                    
+                    setTimeout(() => feedback.remove(), 2000);
+                } else {
+                    alert('Error saving evaluation');
+                }
+            } catch (error) {
+                console.error('Auto-save error:', error);
+            }
+        }
+        
         // Submit user evaluation
         async function submitEvaluation(evalId) {
             const correctLines = parseInt(document.getElementById('evalCorrect').value);
@@ -811,11 +1027,12 @@
                     }
                     
                     // Refresh displays
+                    updateFilterCounts();
                     displayEvaluationsList();
                     await displayEvaluationDetail(evalId);
                     
-                    // Show success message
-                    alert('✓ Evaluation submitted successfully!');
+                    // No confirmation dialog - just refresh the view
+                    // User will see the "✓ Evaluated" badge and unlocked status
                 } else {
                     alert('Error submitting evaluation');
                 }
