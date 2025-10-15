@@ -336,10 +336,10 @@
         <h1>📤 Upload & Align Drawing</h1>
         
         <!-- Upload Area -->
-        <div class="upload-area" id="uploadArea">
-            <div class="upload-icon">📁</div>
-            <h3>Click to upload or drag and drop</h3>
-            <p style="color: #666; margin-top: 10px;">PNG, JPG, or any image format</p>
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📁</div>
+                <h3>Click to upload or drag and drop</h3>
+                <p style="color: #666; margin-top: 10px;">PNG, JPG, or any image format</p>
             <input type="file" id="fileInput" accept="image/*">
         </div>
         
@@ -358,7 +358,7 @@
                 </div>
                 
                 <div class="canvas-container">
-                    <canvas id="uploadCanvas" width="512" height="512"></canvas>
+                    <canvas id="uploadCanvas" width="256" height="256"></canvas>
                 </div>
                 
                 <div class="controls">
@@ -399,6 +399,39 @@
                             X: <span id="translateX">0</span>px, Y: <span id="translateY">0</span>px
                         </div>
                     </div>
+                    
+                    <!-- Auto Registration -->
+                    <div class="control-group" style="border-top: 2px solid #ddd; padding-top: 15px; margin-top: 15px;">
+                        <label style="font-weight: bold; color: #667eea;">🤖 Auto Match</label>
+                        
+                        <!-- Registration Options -->
+                        <div style="display: flex; gap: 15px; margin-bottom: 10px; font-size: 0.9em;">
+                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                                <input type="checkbox" id="regTranslation" checked>
+                                <span>Position</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                                <input type="checkbox" id="regRotation" checked>
+                                <span>Rotation</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                                <input type="checkbox" id="regScale" checked>
+                                <span>Scale</span>
+                            </label>
+                        </div>
+                        
+                        <!-- Action Buttons -->
+                        <div class="btn-group">
+                            <button class="btn" id="autoMatchBtn" onclick="autoMatch()" style="flex: 1; padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                                ⚡ Auto Match
+                            </button>
+                            <button class="btn-small" id="resetOriginalBtn" onclick="resetToOriginal()" disabled style="padding: 12px;">
+                                ↺ Reset
+                            </button>
+                        </div>
+                        
+                        <div id="regStatus" style="margin-top: 10px; padding: 8px; border-radius: 5px; font-size: 0.85em; display: none;"></div>
+                    </div>
                 </div>
             </div>
             
@@ -413,15 +446,15 @@
                 </div>
                 
                 <div class="canvas-container">
-                    <canvas id="referenceCanvas" width="512" height="512"></canvas>
+                    <canvas id="referenceCanvas" width="256" height="256"></canvas>
                 </div>
                 
                 <div class="controls">
-                    <div class="form-group">
-                        <label for="uploader">Your Name (Optional)</label>
+            <div class="form-group">
+                <label for="uploader">Your Name (Optional)</label>
                         <input type="text" id="uploader" placeholder="Enter your name">
-                    </div>
-                    
+            </div>
+            
                     <button class="btn" id="analyzeBtn" onclick="analyzeDrawing()">🔍 Analyze Drawing</button>
                 </div>
             </div>
@@ -473,6 +506,7 @@
         
         // State
         let uploadedImage = null;
+        let originalUploadedImage = null;  // Store original for reset
         let referenceImage = null;
         let overlayMode = false;
         
@@ -512,23 +546,40 @@
         });
         
         // Handle file upload with B&W conversion
-        function handleFileUpload(file) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const img = new Image();
-                img.onload = () => {
-                    // Update resolution display with original image size
-                    document.getElementById('uploadResolution').textContent = `(${img.width}×${img.height}px)`;
+        async function handleFileUpload(file) {
+            // Show loading message
+            showRegStatus('Normalizing image...', 'info');
+            
+            try {
+                // STEP 1: Send to backend for auto-normalization
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                const response = await fetch('/api/normalize-image', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.status}`);
+                }
+                
+                // Get normalized 256×256 image as blob
+                const blob = await response.blob();
+                const imageUrl = URL.createObjectURL(blob);
+                
+                // Load the normalized image
+                uploadedImage = new Image();
+                uploadedImage.onload = () => {
+                    // Update resolution display (should be 256×256)
+                    document.getElementById('uploadResolution').textContent = `(${uploadedImage.width}×${uploadedImage.height}px)`;
                     
-                    // Convert to B&W and render immediately
-                    const bwImageData = convertToBlackWhite(img);
+                    // Store original for reset
+                    originalUploadedImage = new Image();
+                    originalUploadedImage.src = uploadedImage.src;
                     
-                    // Create image from data URL and render when loaded
-                    uploadedImage = new Image();
-                    uploadedImage.onload = () => {
-                        renderUploadCanvas();
-                    };
-                    uploadedImage.src = bwImageData;
+                    // Render on canvas
+                    renderUploadCanvas();
                     
                     // Load reference image
                     loadReferenceImage();
@@ -536,10 +587,21 @@
                     // Show workspace
                     uploadArea.style.display = 'none';
                     workspace.style.display = 'grid';
+                    
+                    // Reset buttons
+                    document.getElementById('resetOriginalBtn').disabled = true;
+                    
+                    showRegStatus('✅ Image normalized to 256×256!', 'success');
                 };
-                img.src = e.target.result;
-            };
-            reader.readAsDataURL(file);
+                uploadedImage.onerror = () => {
+                    throw new Error('Failed to load normalized image');
+                };
+                uploadedImage.src = imageUrl;
+                
+            } catch (error) {
+                console.error('Normalization error:', error);
+                showRegStatus('❌ Normalization failed: ' + error.message, 'error');
+            }
         }
         
         // Convert image to black & white (returns data URL)
@@ -609,18 +671,26 @@
             
             uploadCtx.save();
             
-            // Clear canvas
+            // Clear canvas (256×256)
             uploadCtx.fillStyle = 'white';
-            uploadCtx.fillRect(0, 0, 512, 512);
+            uploadCtx.fillRect(0, 0, 256, 256);
             
-            // Apply transformations
-            uploadCtx.translate(256 + currentTranslateX, 256 + currentTranslateY);
+            // Backend returns 256×256, canvas is also 256×256 - perfect match!
+            const displayWidth = uploadedImage.width;
+            const displayHeight = uploadedImage.height;
+            
+            // Move to center of canvas (128, 128)
+            uploadCtx.translate(128, 128);
+            
+            // Apply manual transformations (around center)
+            uploadCtx.translate(currentTranslateX, currentTranslateY);
             uploadCtx.rotate(currentRotation * Math.PI / 180);
             uploadCtx.scale(currentScale, currentScale);
-            uploadCtx.translate(-256, -256);
             
-            // Draw image
-            uploadCtx.drawImage(uploadedImage, 0, 0);
+            // Draw image centered (at origin, which is now canvas center)
+            uploadCtx.drawImage(uploadedImage, 
+                -displayWidth / 2, -displayHeight / 2,  // Centered
+                displayWidth, displayHeight);
             
             uploadCtx.restore();
         }
@@ -630,12 +700,12 @@
             if (!referenceImage) return;
             
             refCtx.fillStyle = 'white';
-            refCtx.fillRect(0, 0, 512, 512);
+            refCtx.fillRect(0, 0, 256, 256);
             
-            // Draw reference - centered and scaled to fit
-            const scale = Math.min(512 / referenceImage.width, 512 / referenceImage.height);
-            const x = (512 - referenceImage.width * scale) / 2;
-            const y = (512 - referenceImage.height * scale) / 2;
+            // Draw reference - centered and scaled to fit 256×256
+            const scale = Math.min(256 / referenceImage.width, 256 / referenceImage.height);
+            const x = (256 - referenceImage.width * scale) / 2;
+            const y = (256 - referenceImage.height * scale) / 2;
             refCtx.drawImage(referenceImage, x, y, referenceImage.width * scale, referenceImage.height * scale);
             
             // Draw overlay if enabled
@@ -643,13 +713,15 @@
                 refCtx.save();
                 refCtx.globalAlpha = 0.5;
                 
-                // Apply same transformations as upload canvas
-                refCtx.translate(256 + currentTranslateX, 256 + currentTranslateY);
+                // Apply same transformations as upload canvas (centered at 128, 128)
+                refCtx.translate(128 + currentTranslateX, 128 + currentTranslateY);
                 refCtx.rotate(currentRotation * Math.PI / 180);
                 refCtx.scale(currentScale, currentScale);
-                refCtx.translate(-256, -256);
                 
-                refCtx.drawImage(uploadedImage, 0, 0);
+                // Draw centered
+                refCtx.drawImage(uploadedImage, 
+                    -uploadedImage.width / 2, -uploadedImage.height / 2,
+                    uploadedImage.width, uploadedImage.height);
                 refCtx.restore();
             }
         }
@@ -783,6 +855,147 @@
                 loading.classList.remove('show');
                 analyzeBtn.disabled = false;
             }
+        }
+        
+        // Auto Match - Call API for registration
+        async function autoMatch() {
+            if (!uploadedImage || !originalUploadedImage) {
+                showRegStatus('No image uploaded', 'error');
+                return;
+            }
+            
+            const autoMatchBtn = document.getElementById('autoMatchBtn');
+            const regStatus = document.getElementById('regStatus');
+            
+            // Disable button during processing
+            autoMatchBtn.disabled = true;
+            autoMatchBtn.textContent = '⚡ Processing...';
+            
+            // Show status
+            showRegStatus('🔄 Analyzing and matching...', 'info');
+            
+            try {
+                // Get registration options
+                const enableTranslation = document.getElementById('regTranslation').checked;
+                const enableRotation = document.getElementById('regRotation').checked;
+                const enableScale = document.getElementById('regScale').checked;
+                
+                // IMPORTANT: Render current state with manual transformations
+                // This ensures auto match starts from current manual settings
+                renderUploadCanvas();
+                
+                // Wait a bit for render to complete
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Canvas is already 256×256, directly convert to blob
+                const blob = await new Promise(resolve => {
+                    uploadCanvas.toBlob(resolve, 'image/png');
+                });
+                
+                // Create form data
+                const formData = new FormData();
+                formData.append('file', blob, 'drawing.png');
+                formData.append('enable_translation', enableTranslation);
+                formData.append('enable_rotation', enableRotation);
+                formData.append('enable_scale', enableScale);
+                
+                // Call API
+                const response = await fetch('/api/register-image', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.status}`);
+                }
+                
+                // Get registered image
+                const blob_result = await response.blob();
+                const url = URL.createObjectURL(blob_result);
+                
+                // Load registered image
+                const registeredImg = new Image();
+                registeredImg.onload = () => {
+                    uploadedImage = registeredImg;
+                    
+                    // IMPORTANT: Reset manual transformations after auto match
+                    // The API has already applied all transformations
+                    currentScale = 1.0;
+                    currentRotation = 0;
+                    currentTranslateX = 0;
+                    currentTranslateY = 0;
+                    
+                    // Update UI controls
+                    document.getElementById('scaleSlider').value = 100;
+                    document.getElementById('scaleValue').textContent = '100%';
+                    document.getElementById('rotationSlider').value = 0;
+                    document.getElementById('rotationValue').textContent = '0°';
+                    document.getElementById('translateX').textContent = 0;
+                    document.getElementById('translateY').textContent = 0;
+                    
+                    // Render without further transformations
+                    renderUploadCanvas();
+                    if (overlayMode) renderReferenceCanvas();
+                    URL.revokeObjectURL(url);
+                    
+                    // Enable reset button
+                    document.getElementById('resetOriginalBtn').disabled = false;
+                    
+                    showRegStatus('✅ Auto match completed!', 'success');
+                };
+                registeredImg.src = url;
+                
+            } catch (error) {
+                console.error('Auto match error:', error);
+                showRegStatus('❌ Auto match failed: ' + error.message, 'error');
+            } finally {
+                autoMatchBtn.disabled = false;
+                autoMatchBtn.textContent = '⚡ Auto Match';
+            }
+        }
+        
+        // Reset to original uploaded image
+        function resetToOriginal() {
+            if (!originalUploadedImage) return;
+            
+            uploadedImage = new Image();
+            uploadedImage.onload = () => {
+                renderUploadCanvas();
+                if (overlayMode) renderReferenceCanvas();
+                
+                // Disable reset button
+                document.getElementById('resetOriginalBtn').disabled = true;
+                
+                showRegStatus('↺ Reset to original', 'info');
+            };
+            uploadedImage.src = originalUploadedImage.src;
+        }
+        
+        // Show registration status
+        function showRegStatus(message, type) {
+            const status = document.getElementById('regStatus');
+            status.textContent = message;
+            status.style.display = 'block';
+            
+            // Set colors based on type
+            if (type === 'success') {
+                status.style.background = '#d4edda';
+                status.style.color = '#155724';
+                status.style.borderLeft = '4px solid #28a745';
+            } else if (type === 'error') {
+                status.style.background = '#f8d7da';
+                status.style.color = '#721c24';
+                status.style.borderLeft = '4px solid #dc3545';
+            } else {
+                status.style.background = '#d1ecf1';
+                status.style.color = '#0c5460';
+                status.style.borderLeft = '4px solid #17a2b8';
+            }
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 5000);
         }
         
         // Clear image and return to upload

@@ -19,6 +19,7 @@ from skimage import transform as tf
 from skimage.registration import phase_cross_correlation
 from skimage.transform import warp, SimilarityTransform
 from scipy import ndimage
+from scipy.optimize import minimize, differential_evolution
 
 
 class ImageRegistration:
@@ -71,17 +72,16 @@ class ImageRegistration:
         max_rotation_degrees: float = 30.0
     ) -> Tuple[np.ndarray, Dict]:
         """
-        SIMPLE & ROBUST registration for line drawings.
+        ADVANCED OPTIMIZATION registration using scipy.optimize.
         
         Strategy:
-        1. STRONG binarization (threshold=127 for clear black/white)
-        2. Try ALL rotations (every 2°)
-        3. For each rotation, try small translations (-10 to +10px grid)
-        4. Calculate overlap (Intersection) - simple pixel matching!
-        5. Pick best rotation+translation
-        6. Apply with OpenCV (fast & reliable)
+        1. Binarization (threshold=127 for clear black/white)
+        2. Use Differential Evolution - global optimizer
+        3. Optimize rotation + scale + translation simultaneously
+        4. IoU (Intersection over Union) as objective function
+        5. Apply best transformation
         
-        NO fancy algorithms - just brute force what works!
+        Much faster than brute force and finds optimal solution!
         
         Args:
             source: Source drawing
@@ -129,6 +129,9 @@ class ImageRegistration:
             }
         
         # PRE-SCALE: Normalize drawing size based on bounding box (height AND width)
+        # BUT: Skip if images are already same size (pre-scaled by caller)
+        initial_scale = 1.0
+        
         # Find bounding boxes
         src_coords = np.column_stack(np.where(src_binary > 0))
         ref_coords = np.column_stack(np.where(ref_binary > 0))
@@ -145,78 +148,74 @@ class ImageRegistration:
             scale_w = ref_width / src_width if src_width > 0 else 1.0
             
             # Use MINIMUM to ensure we don't exceed canvas in either dimension
-            initial_scale = min(scale_h, scale_w)
-            initial_scale = np.clip(initial_scale, 0.5, 2.5)  # Allow slightly more scale
+            potential_scale = min(scale_h, scale_w)
             
-            print(f"  🔍 Pre-scaling: src={src_height}x{src_width}px, ref={ref_height}x{ref_width}px")
-            print(f"     → scale_h={scale_h:.2f}x, scale_w={scale_w:.2f}x → using min={initial_scale:.2f}x")
+            print(f"  🔍 Scale check: src={src_height}x{src_width}px, ref={ref_height}x{ref_width}px")
+            print(f"     → scale_h={scale_h:.2f}x, scale_w={scale_w:.2f}x → potential scale={potential_scale:.2f}x")
             
-            # Apply initial scale to BOTH source and src_gray
-            h_scaled = int(src_gray.shape[0] * initial_scale)
-            w_scaled = int(src_gray.shape[1] * initial_scale)
-            
-            # Scale the color/original source image
-            source = cv2.resize(source, (w_scaled, h_scaled), interpolation=cv2.INTER_LINEAR)
-            src_gray = cv2.resize(src_gray, (w_scaled, h_scaled), interpolation=cv2.INTER_LINEAR)
-            
-            # Re-threshold after scaling
-            _, src_binary = cv2.threshold(src_gray, 127, 255, cv2.THRESH_BINARY_INV)
-            src_pixels = np.sum(src_binary > 0)
-            
-            # Center on target canvas instead of resizing (prevents clipping!)
-            if src_gray.shape != ref_gray.shape:
-                # Create white canvas with target size
-                target_h, target_w = ref_gray.shape
+            # SKIP pre-scaling if already similar size (between 0.85 and 1.15)
+            if 0.85 <= potential_scale <= 1.15:
+                print(f"  ✓ Images already similar size, skipping pre-scaling")
+                initial_scale = 1.0
+            else:
+                # Apply pre-scaling only if needed
+                initial_scale = np.clip(potential_scale, 0.5, 2.5)
+                print(f"  🔄 Applying pre-scale: {initial_scale:.2f}x")
                 
-                # Center the scaled image on canvas
-                source = self._center_on_canvas(source, (target_h, target_w), value=255)
-                src_gray = self._center_on_canvas(src_gray, (target_h, target_w), value=255)
+                # Apply initial scale to BOTH source and src_gray
+                h_scaled = int(src_gray.shape[0] * initial_scale)
+                w_scaled = int(src_gray.shape[1] * initial_scale)
                 
+                # Scale the color/original source image
+                source = cv2.resize(source, (w_scaled, h_scaled), interpolation=cv2.INTER_LINEAR)
+                src_gray = cv2.resize(src_gray, (w_scaled, h_scaled), interpolation=cv2.INTER_LINEAR)
+                
+                # Re-threshold after scaling
                 _, src_binary = cv2.threshold(src_gray, 127, 255, cv2.THRESH_BINARY_INV)
                 src_pixels = np.sum(src_binary > 0)
-            
-            print(f"  ✓ After pre-scaling & centering: source={src_pixels} pixels")
-        else:
-            initial_scale = 1.0
+                
+                # Center on target canvas instead of resizing (prevents clipping!)
+                if src_gray.shape != ref_gray.shape:
+                    # Create white canvas with target size
+                    target_h, target_w = ref_gray.shape
+                    
+                    # Center the scaled image on canvas
+                    source = self._center_on_canvas(source, (target_h, target_w), value=255)
+                    src_gray = self._center_on_canvas(src_gray, (target_h, target_w), value=255)
+                    
+                    _, src_binary = cv2.threshold(src_gray, 127, 255, cv2.THRESH_BINARY_INV)
+                    src_pixels = np.sum(src_binary > 0)
+                
+                print(f"  ✓ After pre-scaling & centering: source={src_pixels} pixels")
         
-        print(f"  🔄 Fine-tuning: Rotation ±{max_rotation_degrees}° (step=3°) × Scale 0.75-1.3x (step=0.05)")
-        
-        # Generate angles (every 3 degrees)
-        angles = list(range(0, int(max_rotation_degrees) + 1, 3))
-        angles += [-a for a in angles if a != 0]
-        angles = sorted(angles)
-        
-        # Generate scales (wider range for better accuracy)
-        scales = [round(s, 2) for s in np.arange(0.75, 1.31, 0.05)]
-        
-        best_score = -1
-        best_angle = 0
-        best_scale = 1.0
-        best_tx = 0
-        best_ty = 0
+        print(f"  🎯 SCIPY OPTIMIZATION: Differential Evolution (global optimizer)")
+        print(f"     Search space: rotation ±{max_rotation_degrees}°, scale 0.7-1.4x, translation ±20px")
         
         h, w = src_binary.shape
         center = np.array([w / 2, h / 2])
         
-        total_tests = len(angles) * len(scales)
-        test_count = 0
+        # Define objective function (returns NEGATIVE IoU for minimization)
+        eval_count = [0]  # Mutable counter for function evaluations
         
-        for angle in angles:
-            for scale in scales:
-                # Create SimilarityTransform (rotation + scale around center)
-                # First translate to origin, then rotate+scale, then translate back
-                tform = SimilarityTransform(
-                    scale=scale,
-                    rotation=np.deg2rad(angle),
-                    translation=(0, 0)
-                )
-                
-                # Adjust for rotation/scale around center
-                tform_center = SimilarityTransform(translation=-center)
-                tform_uncenter = SimilarityTransform(translation=center)
-                tform_combined = tform_center + tform + tform_uncenter
-                
-                # Apply transformation
+        def objective(params):
+            """Objective function: negative IoU for minimization"""
+            angle_deg, scale, tx, ty = params
+            eval_count[0] += 1
+            
+            # Create SimilarityTransform
+            tform = SimilarityTransform(
+                scale=scale,
+                rotation=np.deg2rad(angle_deg),
+                translation=(0, 0)
+            )
+            
+            # Adjust for rotation/scale around center
+            tform_center = SimilarityTransform(translation=-center)
+            tform_uncenter = SimilarityTransform(translation=center)
+            tform_combined = tform_center + tform + tform_uncenter
+            
+            # Apply transformation
+            try:
                 transformed = warp(
                     src_binary,
                     tform_combined.inverse,
@@ -227,53 +226,70 @@ class ImageRegistration:
                     preserve_range=True
                 ).astype(np.uint8)
                 
-                # Try small translations (-10 to +10 pixels in steps of 5)
-                best_local_score = -1
-                best_local_tx = 0
-                best_local_ty = 0
+                # Apply translation
+                M_trans = np.float32([[1, 0, tx], [0, 1, ty]])
+                translated = cv2.warpAffine(transformed, M_trans, (w, h),
+                                            flags=cv2.INTER_LINEAR,
+                                            borderMode=cv2.BORDER_CONSTANT,
+                                            borderValue=0)
                 
-                for tx in range(-10, 11, 5):
-                    for ty in range(-10, 11, 5):
-                        # Translate
-                        M_trans = np.float32([[1, 0, tx], [0, 1, ty]])
-                        translated = cv2.warpAffine(transformed, M_trans, (w, h),
-                                                    flags=cv2.INTER_LINEAR,
-                                                    borderMode=cv2.BORDER_CONSTANT,
-                                                    borderValue=0)
-                        
-                        # Calculate INTERSECTION (overlapping black pixels)
-                        intersection = np.sum(np.logical_and(translated > 127, ref_binary > 127))
-                        
-                        # Normalize by smaller image
-                        score = intersection / min(src_pixels, ref_pixels)
-                        
-                        if score > best_local_score:
-                            best_local_score = score
-                            best_local_tx = tx
-                            best_local_ty = ty
+                # Calculate IoU
+                intersection = np.sum((translated > 127) & (ref_binary > 127))
+                union = np.sum((translated > 127) | (ref_binary > 127))
                 
-                if best_local_score > best_score:
-                    best_score = best_local_score
-                    best_angle = angle
-                    best_scale = scale
-                    best_tx = best_local_tx
-                    best_ty = best_local_ty
+                if union > 0:
+                    iou = intersection / union
+                else:
+                    iou = 0
                 
-                test_count += 1
+                # Log progress every 50 evaluations
+                if eval_count[0] % 50 == 0:
+                    print(f"     Eval {eval_count[0]:4d}: angle={angle_deg:+6.2f}°, scale={scale:.3f}x, IoU={iou:.4f}")
                 
-                # Log progress every 20% or when we find a good match
-                if test_count % max(1, total_tests // 5) == 0 or best_local_score > 0.5:
-                    progress = (test_count / total_tests) * 100
-                    print(f"    Progress {progress:.0f}%: angle={angle:+3d}°, scale={scale:.2f}x → score={best_score:.3f}")
+                return -iou  # Negative for minimization
+                
+            except Exception as e:
+                print(f"     ⚠️  Eval error: {e}")
+                return 0  # Worst score
         
-        print(f"  ✅ Best: angle={best_angle}°, scale={best_scale}x, tx={best_tx}, ty={best_ty}, score={best_score:.3f}")
+        # Define parameter bounds: [angle, scale, tx, ty]
+        bounds = [
+            (-max_rotation_degrees, max_rotation_degrees),  # Rotation (degrees)
+            (0.7, 1.4),   # Scale
+            (-20, 20),    # Translation X (pixels)
+            (-20, 20)     # Translation Y (pixels)
+        ]
         
-        if best_score < 0.12:
-            print(f"  ⚠️  Low score ({best_score:.3f} < 0.12), using original")
+        # Run Differential Evolution optimizer
+        print(f"     🚀 Starting optimization...")
+        result = differential_evolution(
+            objective,
+            bounds,
+            strategy='best1bin',  # Good for noisy functions
+            maxiter=80,           # Max generations
+            popsize=12,           # Population size (12*4=48 individuals)
+            tol=0.0001,          # Convergence tolerance
+            atol=0.0001,         # Absolute tolerance
+            seed=42,              # Reproducible
+            workers=1,            # Single-threaded
+            updating='immediate', # Faster convergence
+            polish=True,          # Local refinement (L-BFGS-B)
+            disp=False            # No verbose output
+        )
+        
+        # Extract best parameters
+        best_angle, best_scale, best_tx, best_ty = result.x
+        best_score = -result.fun  # Negate back to positive IoU
+        
+        print(f"  ✅ Best: angle={best_angle:.2f}°, scale={best_scale:.3f}x, tx={best_tx:.1f}, ty={best_ty:.1f}, IoU={best_score:.4f}")
+        
+        # LOWERED threshold from 0.12 to 0.05 for better acceptance
+        if best_score < 0.05:
+            print(f"  ⚠️  Very low IoU ({best_score:.4f} < 0.05), using original")
             return source.copy(), {
-                'method': 'simple_brute_force',
+                'method': 'scipy_differential_evolution',
                 'success': False,
-                'reason': f'Low overlap score ({best_score:.3f})',
+                'reason': f'Very low IoU score ({best_score:.4f} < 0.05)',
                 'translation_x': 0,
                 'translation_y': 0,
                 'rotation_degrees': 0,
@@ -347,16 +363,17 @@ class ImageRegistration:
             print(f"  ✂️ Thinning lines (scale={total_scale:.2f}x)...")
             registered = self._thin_lines(registered)
         
-        print(f"  🎉 Registration successful!")
+        print(f"  🎉 Registration successful! Final transform applied ✓")
         
         return registered, {
-            'method': 'brute_force_with_scale',
+            'method': 'scipy_differential_evolution',
             'success': True,
             'translation_x': float(best_tx),
             'translation_y': float(best_ty),
             'rotation_degrees': float(best_angle),
             'scale': float(total_scale),  # Combined scale
-            'overlap_score': float(best_score)
+            'overlap_score': float(best_score),
+            'initial_scale': float(initial_scale)
         }
     
     def _register_exhaustive_search_OLD(
