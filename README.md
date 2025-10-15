@@ -47,9 +47,12 @@ npsketch/
 │   ├── requirements.txt         # Python dependencies
 │   └── Dockerfile               # API container definition
 ├── webapp/                      # Frontend (served by nginx)
-│   ├── index.html               # Landing page
-│   ├── app.html                 # Main application
-│   └── upload.html              # Upload interface
+│   ├── index.html               # Landing page with stats
+│   ├── upload.html              # Upload & align interface (3-step workflow)
+│   ├── reference.html           # Manual reference line editor
+│   ├── draw_testimage.html      # Test image creation tool
+│   ├── run_test.html            # Automated test runner
+│   └── evaluations.html         # Evaluation viewer & rating
 ├── nginx/                       # Nginx configuration
 │   └── nginx.conf               # Reverse proxy config
 ├── docker-compose.yml           # Container orchestration
@@ -90,10 +93,11 @@ Browser → nginx (Port 80) → Static HTML files (webapp/)
 
 3. **Access the application:**
    - **Landing Page**: http://localhost (stats and overview)
+   - **Upload & Align**: http://localhost/upload.html (upload and process drawings)
    - **Reference Editor**: http://localhost/reference.html (define reference lines manually)
    - **Draw Test Images**: http://localhost/draw_testimage.html (create test dataset)
    - **Run Tests**: http://localhost/run_test.html (automated testing with metrics)
-   - **Evaluations**: http://localhost/evaluations.html (view past evaluations)
+   - **Evaluations**: http://localhost/evaluations.html (view and rate evaluations)
    - **API Documentation**: http://localhost/api/docs (interactive Swagger UI)
 
 4. **Stop the application:**
@@ -170,20 +174,43 @@ On first startup:
 - Tests edge cases (rotations, missing lines, extra strokes)
 - Measures "Prediction Accuracy" (expected vs actual detection)
 
-### 4. Image Upload & Processing (Automated)
+### 4. Image Upload & Processing (3-Step Workflow)
 
-When you upload an image (or run tests):
+**NPSketch provides an intuitive 3-step workflow for image upload and processing:**
 
-**Stage 1: Normalization & Registration**
-1. **Resize**: Image is resized to 256×256 (matches reference)
-2. **Registration** (optional, enabled by default):
-   - **Pre-Scaling**: Calculates optimal scale based on bounding box (min of height/width ratio)
-   - **Centering**: Places image on white canvas to prevent clipping
-   - **Brute-Force Search**: Tests rotations (-30° to +30°, 3° steps) and scales (0.75-1.3x, 0.05 steps)
-   - **Translation Search**: Tests small translations (-10 to +10px, 5px steps)
-   - **Overlap Scoring**: Calculates intersection of black pixels
-   - **Best Match**: Applies transformation with highest overlap score
-   - **Line Thinning**: Uses skeletonization to reduce thick lines to 1px (if scaled >1.1x)
+**STEP 1: Upload & Auto-Normalization (Backend)**
+When you upload an image via `upload.html`:
+1. **Auto-Crop**: Removes white space around the drawing
+2. **Scale to Fit**: Scales object to fill 256×256 canvas (maintains aspect ratio using `min(height_ratio, width_ratio)`)
+3. **Center**: Places scaled drawing centered on white 256×256 canvas
+4. **Display**: Shows normalized image immediately in the workspace
+
+**STEP 2: Manual Adjustments (Frontend)**
+After upload, you can fine-tune the image interactively:
+- **Scale Control** (50-300%): Adjust image size with slider
+- **Rotation Control** (-180° to +180°): Rotate with slider or ±10° buttons
+- **Translation Controls**: Move image with arrow buttons (X/Y in pixels)
+- **Overlay Mode**: Toggle to see your drawing overlaid on reference
+- All adjustments are applied in real-time on the canvas
+
+**STEP 3: Auto Match (Optional, Backend)**
+If "Apply Auto Match after upload" is checked (default):
+- **Image Registration**: Automatically aligns your drawing to the reference
+  - Uses ECC or feature-based registration (ORB, RANSAC)
+  - Applies optimal translation, rotation, and scale
+  - Configurable motion type (Translation/Euclidean/Similarity/Affine)
+  - Limited to ±30° rotation for natural drawings
+- **Line Thinning**: Skeletonizes lines to 1px thickness for consistent detection
+- Manual transformations are reset after auto match completes
+
+**STEP 4: Analysis & Evaluation**
+Click "Analyze Drawing" to:
+- Extract line features from your processed drawing
+- Compare detected lines to reference features
+- Calculate accuracy metrics (correct, missing, extra lines)
+- Generate side-by-side visualization
+- Store results in database
+- Show **Success Banner** with quick link to evaluations page
 
 **Stage 2: Line Detection (Iterative with Pixel Subtraction)**
 1. **Binary Threshold**: Strong black/white separation (threshold=127)
@@ -415,8 +442,11 @@ LineComparator(
 |----------|--------|-------------|
 | `/api/health` | GET | Health check and stats |
 | `/api/upload` | POST | Upload and evaluate image |
+| `/api/normalize-image` | POST | STEP 1: Auto-crop + scale + center to 256×256 |
+| `/api/register-image` | POST | STEP 3: Registration + line thinning to 1px |
 | `/api/evaluations/recent` | GET | List recent evaluations |
 | `/api/evaluations/{id}` | GET | Get specific evaluation |
+| `/api/evaluations/{id}/evaluate` | PUT | Add manual evaluation scores |
 | `/api/references` | GET | List reference images |
 | `/api/references/{id}/image` | GET | Get reference image data |
 | `/api/visualizations/{file}` | GET | Get visualization image |
