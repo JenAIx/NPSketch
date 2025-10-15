@@ -327,6 +327,89 @@
             border-left-color: #f44;
             color: #c33;
         }
+        
+        /* Success Banner */
+        .success-banner {
+            position: fixed;
+            bottom: -100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            border-radius: 12px 12px 0 0;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.2);
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            z-index: 10000;
+            transition: bottom 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            min-width: 400px;
+        }
+        
+        .success-banner.show {
+            bottom: 0;
+        }
+        
+        .success-banner-icon {
+            font-size: 32px;
+            animation: bounce 0.6s ease-in-out;
+        }
+        
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        .success-banner-text {
+            flex: 1;
+        }
+        
+        .success-banner-text h3 {
+            margin: 0 0 5px 0;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        
+        .success-banner-text p {
+            margin: 0;
+            font-size: 13px;
+            opacity: 0.9;
+        }
+        
+        .success-banner-btn {
+            background: white;
+            color: #667eea;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+        }
+        
+        .success-banner-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        
+        .success-banner-close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+        }
+        
+        .success-banner-close:hover {
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
@@ -341,6 +424,17 @@
                 <h3>Click to upload or drag and drop</h3>
                 <p style="color: #666; margin-top: 10px;">PNG, JPG, or any image format</p>
             <input type="file" id="fileInput" accept="image/*">
+        </div>
+        
+        <!-- Auto Match Option (below upload area to avoid triggering file dialog) -->
+        <div id="autoMatchOption" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 2px dashed #ddd;">
+            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px;">
+                <input type="checkbox" id="autoMatchOnUpload" checked style="width: 18px; height: 18px; cursor: pointer;">
+                <span style="font-weight: 600;">⚡ Apply Auto Match after upload</span>
+            </label>
+            <p style="margin: 8px 0 0 28px; font-size: 12px; color: #666;">
+                Automatically applies registration + line thinning to 1px
+            </p>
         </div>
         
         <!-- Workspace (shown after upload) -->
@@ -398,39 +492,6 @@
                         <div style="text-align: center; margin-top: 8px; font-size: 0.85em; color: #666;">
                             X: <span id="translateX">0</span>px, Y: <span id="translateY">0</span>px
                         </div>
-                    </div>
-                    
-                    <!-- Auto Registration -->
-                    <div class="control-group" style="border-top: 2px solid #ddd; padding-top: 15px; margin-top: 15px;">
-                        <label style="font-weight: bold; color: #667eea;">🤖 Auto Match</label>
-                        
-                        <!-- Registration Options -->
-                        <div style="display: flex; gap: 15px; margin-bottom: 10px; font-size: 0.9em;">
-                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                                <input type="checkbox" id="regTranslation" checked>
-                                <span>Position</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                                <input type="checkbox" id="regRotation" checked>
-                                <span>Rotation</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                                <input type="checkbox" id="regScale" checked>
-                                <span>Scale</span>
-                            </label>
-                        </div>
-                        
-                        <!-- Action Buttons -->
-                        <div class="btn-group">
-                            <button class="btn" id="autoMatchBtn" onclick="autoMatch()" style="flex: 1; padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                                ⚡ Auto Match
-                            </button>
-                            <button class="btn-small" id="resetOriginalBtn" onclick="resetToOriginal()" disabled style="padding: 12px;">
-                                ↺ Reset
-                            </button>
-                        </div>
-                        
-                        <div id="regStatus" style="margin-top: 10px; padding: 8px; border-radius: 5px; font-size: 0.85em; display: none;"></div>
                     </div>
                 </div>
             </div>
@@ -584,14 +645,21 @@
                     // Load reference image
                     loadReferenceImage();
                     
-                    // Show workspace
+                    // Show workspace, hide upload area and checkbox
                     uploadArea.style.display = 'none';
+                    document.getElementById('autoMatchOption').style.display = 'none';
                     workspace.style.display = 'grid';
                     
-                    // Reset buttons
-                    document.getElementById('resetOriginalBtn').disabled = true;
-                    
                     showRegStatus('✅ Image normalized to 256×256!', 'success');
+                    
+                    // Check if Auto Match should be applied
+                    const autoMatchEnabled = document.getElementById('autoMatchOnUpload').checked;
+                    if (autoMatchEnabled) {
+                        // Wait a bit for image to be rendered
+                        setTimeout(() => {
+                            autoMatch();
+                        }, 500);
+                    }
                 };
                 uploadedImage.onerror = () => {
                     throw new Error('Failed to load normalized image');
@@ -843,6 +911,8 @@
                     
                     if (data.success && data.evaluation) {
                         showResults(data.evaluation);
+                        // Show success banner
+                        showSuccessBanner(data.evaluation.id || data.evaluation.evaluation_id);
                     } else {
                         showError(data.message || 'Analysis failed');
                     }
@@ -864,21 +934,18 @@
                 return;
             }
             
-            const autoMatchBtn = document.getElementById('autoMatchBtn');
-            const regStatus = document.getElementById('regStatus');
-            
-            // Disable button during processing
-            autoMatchBtn.disabled = true;
-            autoMatchBtn.textContent = '⚡ Processing...';
-            
             // Show status
-            showRegStatus('🔄 Analyzing and matching...', 'info');
+            showRegStatus('⚡ Applying Auto Match...', 'info');
+            
+            // Show spinner
+            const loading = document.getElementById('loading');
+            loading.classList.add('show');
             
             try {
-                // Get registration options
-                const enableTranslation = document.getElementById('regTranslation').checked;
-                const enableRotation = document.getElementById('regRotation').checked;
-                const enableScale = document.getElementById('regScale').checked;
+                // Always enable all transformations
+                const enableTranslation = true;
+                const enableRotation = true;
+                const enableScale = true;
                 
                 // IMPORTANT: Render current state with manual transformations
                 // This ensures auto match starts from current manual settings
@@ -938,9 +1005,6 @@
                     if (overlayMode) renderReferenceCanvas();
                     URL.revokeObjectURL(url);
                     
-                    // Enable reset button
-                    document.getElementById('resetOriginalBtn').disabled = false;
-                    
                     showRegStatus('✅ Auto match completed!', 'success');
                 };
                 registeredImg.src = url;
@@ -949,53 +1013,15 @@
                 console.error('Auto match error:', error);
                 showRegStatus('❌ Auto match failed: ' + error.message, 'error');
             } finally {
-                autoMatchBtn.disabled = false;
-                autoMatchBtn.textContent = '⚡ Auto Match';
+                // Hide spinner
+                loading.classList.remove('show');
             }
         }
         
-        // Reset to original uploaded image
-        function resetToOriginal() {
-            if (!originalUploadedImage) return;
-            
-            uploadedImage = new Image();
-            uploadedImage.onload = () => {
-                renderUploadCanvas();
-                if (overlayMode) renderReferenceCanvas();
-                
-                // Disable reset button
-                document.getElementById('resetOriginalBtn').disabled = true;
-                
-                showRegStatus('↺ Reset to original', 'info');
-            };
-            uploadedImage.src = originalUploadedImage.src;
-        }
-        
-        // Show registration status
+        // Show registration status (no-op now, using spinner instead)
         function showRegStatus(message, type) {
-            const status = document.getElementById('regStatus');
-            status.textContent = message;
-            status.style.display = 'block';
-            
-            // Set colors based on type
-            if (type === 'success') {
-                status.style.background = '#d4edda';
-                status.style.color = '#155724';
-                status.style.borderLeft = '4px solid #28a745';
-            } else if (type === 'error') {
-                status.style.background = '#f8d7da';
-                status.style.color = '#721c24';
-                status.style.borderLeft = '4px solid #dc3545';
-            } else {
-                status.style.background = '#d1ecf1';
-                status.style.color = '#0c5460';
-                status.style.borderLeft = '4px solid #17a2b8';
-            }
-            
-            // Auto-hide after 5 seconds
-            setTimeout(() => {
-                status.style.display = 'none';
-            }, 5000);
+            // Status display removed - using spinner for visual feedback
+            console.log(`[Status] ${type}: ${message}`);
         }
         
         // Clear image and return to upload
@@ -1033,9 +1059,10 @@
             // Reset file input
             fileInput.value = '';
             
-            // Show upload area, hide workspace
+            // Show upload area and checkbox, hide workspace
             workspace.style.display = 'none';
             uploadArea.style.display = 'block';
+            document.getElementById('autoMatchOption').style.display = 'block';
             
             // Hide results if shown
             result.classList.remove('show');
@@ -1047,7 +1074,45 @@
             result.classList.add('error');
             result.classList.add('show');
         }
+        
+        // Show success banner
+        function showSuccessBanner(evaluationId) {
+            const banner = document.getElementById('successBanner');
+            banner.classList.add('show');
+            
+            // Store evaluation ID for the button
+            banner.dataset.evaluationId = evaluationId;
+            
+            // Auto-hide after 10 seconds
+            setTimeout(() => {
+                hideSuccessBanner();
+            }, 10000);
+        }
+        
+        // Hide success banner
+        function hideSuccessBanner() {
+            const banner = document.getElementById('successBanner');
+            banner.classList.remove('show');
+        }
+        
+        // Go to evaluations page
+        function goToEvaluations() {
+            window.location.href = '/evaluations.html';
+        }
     </script>
+    
+    <!-- Success Banner -->
+    <div class="success-banner" id="successBanner">
+        <div class="success-banner-icon">✅</div>
+        <div class="success-banner-text">
+            <h3>Analysis Complete!</h3>
+            <p>Your drawing has been evaluated and saved to the database.</p>
+        </div>
+        <button class="success-banner-btn" onclick="goToEvaluations()">
+            View Evaluations →
+        </button>
+        <button class="success-banner-close" onclick="hideSuccessBanner()">×</button>
+    </div>
 </body>
 </html>
 
