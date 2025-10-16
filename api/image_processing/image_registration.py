@@ -197,6 +197,19 @@ class ImageRegistration:
         # Define objective function (returns NEGATIVE IoU for minimization)
         eval_count = [0]  # Mutable counter for function evaluations
         
+        # Prepare padded binary images for optimization (prevents edge clipping during search)
+        padding_opt = 40  # Smaller padding for optimization (speed vs accuracy)
+        padded_h_opt = h + 2 * padding_opt
+        padded_w_opt = w + 2 * padding_opt
+        
+        padded_src_binary = np.zeros((padded_h_opt, padded_w_opt), dtype=np.uint8)
+        padded_src_binary[padding_opt:padding_opt+h, padding_opt:padding_opt+w] = src_binary
+        
+        padded_ref_binary = np.zeros((padded_h_opt, padded_w_opt), dtype=np.uint8)
+        padded_ref_binary[padding_opt:padding_opt+h, padding_opt:padding_opt+w] = ref_binary
+        
+        padded_center = np.array([padded_w_opt / 2, padded_h_opt / 2])
+        
         def objective(params):
             """Objective function: negative IoU for minimization"""
             angle_deg, scale, tx, ty = params
@@ -209,33 +222,37 @@ class ImageRegistration:
                 translation=(0, 0)
             )
             
-            # Adjust for rotation/scale around center
-            tform_center = SimilarityTransform(translation=-center)
-            tform_uncenter = SimilarityTransform(translation=center)
+            # Adjust for rotation/scale around center (using padded center)
+            tform_center = SimilarityTransform(translation=-padded_center)
+            tform_uncenter = SimilarityTransform(translation=padded_center)
             tform_combined = tform_center + tform + tform_uncenter
             
             # Apply transformation
             try:
+                # Transform on padded canvas
                 transformed = warp(
-                    src_binary,
+                    padded_src_binary,
                     tform_combined.inverse,
-                    output_shape=src_binary.shape,
+                    output_shape=(padded_h_opt, padded_w_opt),
                     order=1,
                     mode='constant',
                     cval=0,
                     preserve_range=True
                 ).astype(np.uint8)
                 
-                # Apply translation
+                # Apply translation (still on padded canvas)
                 M_trans = np.float32([[1, 0, tx], [0, 1, ty]])
-                translated = cv2.warpAffine(transformed, M_trans, (w, h),
+                translated = cv2.warpAffine(transformed, M_trans, (padded_w_opt, padded_h_opt),
                                             flags=cv2.INTER_LINEAR,
                                             borderMode=cv2.BORDER_CONSTANT,
                                             borderValue=0)
                 
-                # Calculate IoU
-                intersection = np.sum((translated > 127) & (ref_binary > 127))
-                union = np.sum((translated > 127) | (ref_binary > 127))
+                # Calculate IoU (compare on original region, not padding)
+                translated_roi = translated[padding_opt:padding_opt+h, padding_opt:padding_opt+w]
+                ref_roi = padded_ref_binary[padding_opt:padding_opt+h, padding_opt:padding_opt+w]
+                
+                intersection = np.sum((translated_roi > 127) & (ref_roi > 127))
+                union = np.sum((translated_roi > 127) | (ref_roi > 127))
                 
                 if union > 0:
                     iou = intersection / union
@@ -300,8 +317,23 @@ class ImageRegistration:
         # Apply transformation to COLOR image
         print(f"  🎨 Applying transformation to color image...")
         
+        # Use LARGER canvas during transformation to prevent clipping!
+        # This is critical: rotation/translation can push content outside bounds
+        padding = 64  # Extra pixels on each side (128 total)
+        padded_h = h + 2 * padding
+        padded_w = w + 2 * padding
+        
+        # Pad the source image with white borders
+        if len(source.shape) == 3:
+            padded_source = np.full((padded_h, padded_w, 3), 255, dtype=np.uint8)
+            padded_source[padding:padding+h, padding:padding+w] = source
+        else:
+            padded_source = np.full((padded_h, padded_w), 255, dtype=np.uint8)
+            padded_source[padding:padding+h, padding:padding+w] = source
+        
         # Step 1: Apply Scale + Rotation around center using SimilarityTransform
-        center_point = np.array([w / 2, h / 2])
+        # Adjust center point for padded image
+        padded_center = np.array([padded_w / 2, padded_h / 2])
         
         # Create transformation WITHOUT translation first
         tform_scale_rot = SimilarityTransform(
@@ -311,18 +343,18 @@ class ImageRegistration:
         )
         
         # Adjust for rotation/scale around center
-        tform_center = SimilarityTransform(translation=-center_point)
-        tform_uncenter = SimilarityTransform(translation=center_point)
+        tform_center = SimilarityTransform(translation=-padded_center)
+        tform_uncenter = SimilarityTransform(translation=padded_center)
         tform_combined = tform_center + tform_scale_rot + tform_uncenter
         
-        # Warp the color image (scale + rotation)
-        if len(source.shape) == 3:
-            temp_registered = np.zeros_like(source)
+        # Warp the color image (scale + rotation) on PADDED canvas
+        if len(padded_source.shape) == 3:
+            temp_registered = np.zeros_like(padded_source)
             for i in range(3):
                 temp_registered[:, :, i] = warp(
-                    source[:, :, i],
+                    padded_source[:, :, i],
                     tform_combined.inverse,
-                    output_shape=source.shape[:2],
+                    output_shape=(padded_h, padded_w),
                     order=1,
                     mode='constant',
                     cval=255,
@@ -331,28 +363,31 @@ class ImageRegistration:
             temp_registered = temp_registered.astype(np.uint8)
         else:
             temp_registered = warp(
-                source,
+                padded_source,
                 tform_combined.inverse,
-                output_shape=source.shape,
+                output_shape=(padded_h, padded_w),
                 order=1,
                 mode='constant',
                 cval=255,
                 preserve_range=True
             ).astype(np.uint8)
         
-        # Step 2: Apply Translation separately
+        # Step 2: Apply Translation separately (still on padded canvas)
         if best_tx != 0 or best_ty != 0:
             M_trans = np.float32([[1, 0, best_tx], [0, 1, best_ty]])
-            registered = cv2.warpAffine(
+            temp_registered = cv2.warpAffine(
                 temp_registered,
                 M_trans,
-                (w, h),
+                (padded_w, padded_h),
                 flags=cv2.INTER_LINEAR,
                 borderMode=cv2.BORDER_CONSTANT,
-                borderValue=(255, 255, 255) if len(source.shape) == 3 else 255
+                borderValue=(255, 255, 255) if len(padded_source.shape) == 3 else 255
             )
-        else:
-            registered = temp_registered
+        
+        # Step 3: Crop back to original size (remove padding)
+        registered = temp_registered[padding:padding+h, padding:padding+w]
+        
+        print(f"  ✓ Transformation applied on padded canvas ({padded_h}×{padded_w}) to preserve edges")
         
         # Clean borders
         registered = self._clean_borders(registered, border_size=5)
@@ -1416,6 +1451,8 @@ class ImageRegistration:
         (which cuts off edges), we place the image centered on a
         white canvas.
         
+        IMPORTANT: Uses proper rounding to avoid losing pixels due to truncation.
+        
         Args:
             image: Image to center
             target_size: (height, width) of target canvas
@@ -1427,12 +1464,17 @@ class ImageRegistration:
         target_h, target_w = target_size
         src_h, src_w = image.shape[:2]
         
-        # If image is larger than target, we need to crop/resize
+        # If image is larger than target, we need to scale down to fit
         if src_h > target_h or src_w > target_w:
-            # Scale down to fit
+            # Scale down to fit - use min to ensure it fits in both dimensions
             scale = min(target_h / src_h, target_w / src_w)
-            new_h = int(src_h * scale)
-            new_w = int(src_w * scale)
+            
+            # Use round() instead of int() to avoid truncation errors
+            # Ensure we don't exceed target dimensions
+            new_h = min(round(src_h * scale), target_h)
+            new_w = min(round(src_w * scale), target_w)
+            
+            # Resize with high-quality interpolation
             image = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
             src_h, src_w = new_h, new_w
         
@@ -1442,12 +1484,20 @@ class ImageRegistration:
         else:
             canvas = np.full((target_h, target_w), value, dtype=image.dtype)
         
-        # Calculate centered position
+        # Calculate centered position - use floor division
         y_offset = (target_h - src_h) // 2
         x_offset = (target_w - src_w) // 2
         
-        # Place image on canvas
-        canvas[y_offset:y_offset+src_h, x_offset:x_offset+src_w] = image
+        # Ensure we don't exceed canvas boundaries (safety check)
+        y_end = min(y_offset + src_h, target_h)
+        x_end = min(x_offset + src_w, target_w)
+        
+        # Adjust source dimensions if needed (should rarely happen)
+        actual_h = y_end - y_offset
+        actual_w = x_end - x_offset
+        
+        # Place image on canvas - use only the portion that fits
+        canvas[y_offset:y_end, x_offset:x_end] = image[:actual_h, :actual_w]
         
         return canvas
     

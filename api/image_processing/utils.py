@@ -31,6 +31,8 @@ def normalize_image(image: np.ndarray, target_size: Tuple[int, int] = (256, 256)
     """
     Normalize image to standard size while maintaining aspect ratio.
     
+    Uses proper rounding to avoid pixel loss during scaling.
+    
     Args:
         image: Input image as numpy array
         target_size: Target size as (width, height)
@@ -43,7 +45,11 @@ def normalize_image(image: np.ndarray, target_size: Tuple[int, int] = (256, 256)
     
     # Calculate scaling factor to fit within target size
     scale = min(target_w / w, target_h / h)
-    new_w, new_h = int(w * scale), int(h * scale)
+    
+    # Use round() instead of int() to avoid truncation and pixel loss
+    # Ensure we don't exceed target dimensions
+    new_w = min(round(w * scale), target_w)
+    new_h = min(round(h * scale), target_h)
     
     # Resize image
     resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
@@ -54,7 +60,14 @@ def normalize_image(image: np.ndarray, target_size: Tuple[int, int] = (256, 256)
     # Center the image on canvas
     y_offset = (target_h - new_h) // 2
     x_offset = (target_w - new_w) // 2
-    canvas[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = resized
+    
+    # Ensure we stay within canvas boundaries (safety check)
+    y_end = min(y_offset + new_h, target_h)
+    x_end = min(x_offset + new_w, target_w)
+    actual_h = y_end - y_offset
+    actual_w = x_end - x_offset
+    
+    canvas[y_offset:y_end, x_offset:x_end] = resized[:actual_h, :actual_w]
     
     return canvas
 

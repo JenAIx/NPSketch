@@ -188,11 +188,13 @@ async def normalize_image(
             scale = min(scale_h, scale_w)  # MIN = fits in both directions!
             scale = np.clip(scale, 0.1, 10.0)  # Safety limits
             
-            scaled_h = int(up_h * scale)
-            scaled_w = int(up_w * scale)
+            # Use round() instead of int() to avoid truncation and pixel loss
+            # Ensure we don't exceed canvas dimensions
+            scaled_h = min(round(up_h * scale), ref_h)
+            scaled_w = min(round(up_w * scale), ref_w)
             scaled = cv2.resize(cropped, (scaled_w, scaled_h), interpolation=cv2.INTER_LINEAR)
             print(f"  2️⃣  Scaled to fit canvas: {up_h}×{up_w} × {scale:.2f} = {scaled_h}×{scaled_w}")
-            print(f"     (scale_h={scale_h:.2f}, scale_w={scale_w:.2f} → using min={scale:.2f})")
+            print(f"     (scale_h={scale_h:.2f}, scale_w={scale_w:.2f} → using min={scale:.2f}, rounded to preserve content)")
             
             # 3. CENTER on 256×256 canvas
             result = np.ones((ref_h, ref_w, 3), dtype=np.uint8) * 255
