@@ -511,6 +511,11 @@
             </div>
             
                     <button class="btn" id="analyzeBtn" onclick="analyzeDrawing()">🔍 Analyze Drawing</button>
+                    
+                    <!-- Evaluate button - shown after successful analysis -->
+                    <a href="/evaluations.html?filter=unevaluated" class="btn" id="evaluateBtn" style="display: none; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); margin-top: 10px; text-decoration: none; text-align: center;">
+                        ✓ View in Evaluations
+                    </a>
                 </div>
             </div>
         </div>
@@ -549,6 +554,7 @@
         const referenceCanvas = document.getElementById('referenceCanvas');
         const canvasLoading = document.getElementById('canvasLoading');
         const spinnerText = document.getElementById('spinnerText');
+        const evaluateBtn = document.getElementById('evaluateBtn');
         const result = document.getElementById('result');
         
         // Canvas contexts
@@ -932,6 +938,11 @@
                     
                     if (data.success && data.evaluation) {
                         showResults(data.evaluation);
+                        
+                        // Show evaluate button only if NOT a duplicate
+                        if (!isDuplicate) {
+                            evaluateBtn.style.display = 'block';
+                        }
                     } else {
                         showError(data.message || 'Analysis failed');
                     }
@@ -1063,6 +1074,9 @@
             currentRotation = 0;
             currentTranslateX = 0;
             currentTranslateY = 0;
+            
+            // Hide evaluate button
+            evaluateBtn.style.display = 'none';
             
             // Reset controls
             document.getElementById('scaleSlider').value = 100;

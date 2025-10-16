@@ -568,6 +568,16 @@
         let currentFilter = 'all';
         let isUnlocked = false;
         
+        // Check URL parameters for filter
+        function getInitialFilter() {
+            const params = new URLSearchParams(window.location.search);
+            const filter = params.get('filter');
+            if (filter === 'unevaluated' || filter === 'evaluated') {
+                return filter;
+            }
+            return 'all';
+        }
+        
         async function loadEvaluations() {
             try {
                 const response = await fetch('/api/evaluations/recent?limit=100');
@@ -580,7 +590,10 @@
                 } else {
                     document.getElementById('content').style.display = 'grid';
                     updateFilterCounts();
-                    displayEvaluationsList();
+                    
+                    // Apply initial filter from URL
+                    currentFilter = getInitialFilter();
+                    setFilter(currentFilter);
                 }
                 
             } catch (error) {

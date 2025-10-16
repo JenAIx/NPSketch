@@ -34,7 +34,14 @@ npsketch/
 │   ├── visualizations/          # Generated comparison images
 │   └── .gitignore               # Ignore DB & visualizations
 ├── api/                          # FastAPI Backend
-│   ├── main.py                  # Main application with endpoints
+│   ├── main.py                  # Main application (startup, health, router includes)
+│   ├── routers/                 # Modular API endpoints
+│   │   ├── __init__.py          # Router exports
+│   │   ├── admin.py             # Administrative endpoints (migrations)
+│   │   ├── upload.py            # Image upload and processing endpoints
+│   │   ├── evaluations.py       # Evaluation management endpoints
+│   │   ├── references.py        # Reference image management endpoints
+│   │   └── test_images.py       # Test image management and testing endpoints
 │   ├── database.py              # SQLAlchemy models and setup
 │   ├── models.py                # Pydantic request/response models
 │   ├── image_processing/        # Image processing library
@@ -184,6 +191,10 @@ When you upload an image via `upload.html`:
 2. **Scale to Fit**: Scales object to fill 256×256 canvas (maintains aspect ratio using `min(height_ratio, width_ratio)`)
 3. **Center**: Places scaled drawing centered on white 256×256 canvas
 4. **Display**: Shows normalized image immediately in the workspace
+5. **Duplicate Detection**: Checks if image already exists using SHA256 hash
+   - Compares against original uploaded files in database
+   - Shows warning banner if duplicate detected
+   - Analysis continues but duplicate evaluations are marked
 
 **STEP 2: Manual Adjustments (Frontend)**
 After upload, you can fine-tune the image interactively:
@@ -210,7 +221,14 @@ Click "Analyze Drawing" to:
 - Calculate accuracy metrics (correct, missing, extra lines)
 - Generate side-by-side visualization
 - Store results in database
-- Show **Success Banner** with quick link to evaluations page
+- Show **"View in Evaluations"** button (green) to navigate to evaluations page
+- Button automatically filters to show "Unevaluated" entries
+
+**UX Enhancements:**
+- Spinner overlay on canvas during processing (upload and analysis)
+- "Analyze Drawing" button disabled while processing
+- Real-time feedback with status messages
+- Duplicate warning banner with detailed information
 
 **Stage 2: Line Detection (Iterative with Pixel Subtraction)**
 1. **Binary Threshold**: Strong black/white separation (threshold=127)
@@ -348,7 +366,10 @@ Visualizations are stored in `data/visualizations/` and accessible through the A
 
 3. **uploaded_images**
    - Stores uploaded drawings for live evaluation
-   - Fields: id, filename, image_data (BLOB), processed_image_data (BLOB), uploader, uploaded_at
+   - Fields: id, filename, image_data (BLOB), processed_image_data (BLOB), image_hash (SHA256), uploader, uploaded_at
+   - `image_data`: Original uploaded file (before normalization)
+   - `processed_image_data`: Normalized 256×256 image
+   - `image_hash`: SHA256 hash of original file for duplicate detection
 
 4. **extracted_features**
    - Stores automatically detected line features
@@ -441,15 +462,18 @@ LineComparator(
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/health` | GET | Health check and stats |
-| `/api/upload` | POST | Upload and evaluate image |
+| `/api/upload` | POST | Upload and evaluate image (with duplicate detection) |
+| `/api/check-duplicate` | POST | Check if image already exists (SHA256 hash) |
 | `/api/normalize-image` | POST | STEP 1: Auto-crop + scale + center to 256×256 |
 | `/api/register-image` | POST | STEP 3: Registration + line thinning to 1px |
 | `/api/evaluations/recent` | GET | List recent evaluations |
 | `/api/evaluations/{id}` | GET | Get specific evaluation |
+| `/api/evaluations/{id}` | DELETE | Delete evaluation (cascades to uploaded_images) |
 | `/api/evaluations/{id}/evaluate` | PUT | Add manual evaluation scores |
 | `/api/references` | GET | List reference images |
 | `/api/references/{id}/image` | GET | Get reference image data |
 | `/api/visualizations/{file}` | GET | Get visualization image |
+| `/api/admin/migrate-add-image-hash` | POST | Admin: Add image_hash column and populate |
 | `/api/docs` | GET | Interactive API documentation |
 
 ### Example: Evaluate Test Image
@@ -532,6 +556,25 @@ Draw the "House of Nikolaus" pattern:
    ```
 
 4. **Access at:** http://localhost:8000/api/docs
+
+### Modular API Architecture
+
+The API is organized into focused router modules for better maintainability:
+
+```python
+# api/routers/
+├── admin.py        # Database migrations, system admin
+├── upload.py       # Image upload, duplicate check, normalization, registration  
+├── evaluations.py  # Evaluation CRUD, user feedback
+├── references.py   # Reference management, manual feature editing
+└── test_images.py  # Test image management, automated testing
+```
+
+Each router handles a specific domain, making the codebase more:
+- **Maintainable**: Easy to locate and modify functionality
+- **Scalable**: New features can be added to appropriate modules
+- **Testable**: Individual routers can be tested in isolation
+- **Readable**: Clear separation of concerns
 
 ### Adding New Reference Images
 
@@ -623,6 +666,17 @@ The `data/` directory is mounted as a volume, ensuring:
 
 ---
 
+## ✅ Recent Improvements
+
+- [x] **Duplicate Detection**: SHA256 hash-based duplicate checking
+- [x] **Smart Data Storage**: Original and processed images stored separately
+- [x] **Cascading Deletes**: Deleting evaluations cleans up orphaned data
+- [x] **Enhanced UX**: Spinner overlays, button states, status feedback
+- [x] **Evaluations Filtering**: Direct link to unevaluated entries
+- [x] **Admin Tools**: Migration endpoints for database updates
+- [x] **Modular API Architecture**: Refactored main.py (1323→75 lines) into focused router modules
+- [x] **Clean Code Structure**: Organized endpoints by domain (admin, upload, evaluations, references, test_images)
+
 ## 🚧 Future Enhancements
 
 - [ ] Neural network for tolerating drawing variations
@@ -647,7 +701,7 @@ MIT License - feel free to use and modify for your projects.
 
 ## 👤 Author
 
-**ste**  
+**Stefan Brodoehl**  
 Date: October 2025  
 Version: 1.0
 

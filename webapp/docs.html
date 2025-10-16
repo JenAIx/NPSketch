@@ -126,7 +126,14 @@
 │   ├── visualizations/          # Generated comparison images
 │   └── .gitignore               # Ignore DB & visualizations
 ├── api/                          # FastAPI Backend
-│   ├── main.py                  # Main application with endpoints
+│   ├── main.py                  # Main application (startup, health, router includes)
+│   ├── routers/                 # Modular API endpoints
+│   │   ├── __init__.py          # Router exports
+│   │   ├── admin.py             # Administrative endpoints (migrations)
+│   │   ├── upload.py            # Image upload and processing endpoints
+│   │   ├── evaluations.py       # Evaluation management endpoints
+│   │   ├── references.py        # Reference image management endpoints
+│   │   └── test_images.py       # Test image management and testing endpoints
 │   ├── database.py              # SQLAlchemy models and setup
 │   ├── models.py                # Pydantic request/response models
 │   ├── image_processing/        # Image processing library
@@ -139,12 +146,14 @@
 │   ├── requirements.txt         # Python dependencies
 │   └── Dockerfile               # API container definition
 ├── webapp/                      # Frontend (served by nginx)
-│   ├── index.html               # Landing page
-│   ├── app.html                 # Main application
-│   ├── upload.html              # Upload interface
-│   ├── reference.html           # Reference image viewer
-│   ├── evaluations.html         # Evaluations browser
-│   └── draw_testimage.html      # Test image creator
+│   ├── index.html               # Landing page with stats
+│   ├── upload.html              # Upload & align interface (3-step workflow)
+│   ├── reference.html           # Manual reference line editor
+│   ├── draw_testimage.html      # Test image creation tool
+│   ├── run_test.html            # Automated test runner
+│   ├── evaluations.html         # Evaluation viewer & rating
+│   ├── admin.html               # Database migration admin page
+│   └── docs.html                # This documentation page
 ├── nginx/                       # Nginx configuration
 │   └── nginx.conf               # Reverse proxy config
 ├── docker-compose.yml           # Container orchestration
@@ -180,13 +189,14 @@
                 </li>
                 <li><strong>Access the application:</strong>
                     <ul>
-                        <li><strong>Landing Page</strong>: <a href="http://localhost">http://localhost</a></li>
-                        <li><strong>Main Application</strong>: <a href="/app.html">http://localhost/app.html</a></li>
-                        <li><strong>Upload Interface</strong>: <a href="/upload.html">http://localhost/upload.html</a></li>
-                        <li><strong>Reference Image</strong>: <a href="/reference.html">http://localhost/reference.html</a></li>
-                        <li><strong>Evaluations</strong>: <a href="/evaluations.html">http://localhost/evaluations.html</a></li>
-                        <li><strong>Draw Test Image</strong>: <a href="/draw_testimage.html">http://localhost/draw_testimage.html</a></li>
-                        <li><strong>API Documentation</strong>: <a href="http://localhost/api/docs" target="_blank">http://localhost/api/docs</a></li>
+                        <li><strong>Landing Page</strong>: <a href="/">http://localhost</a> (stats and overview)</li>
+                        <li><strong>Upload & Align</strong>: <a href="/upload.html">http://localhost/upload.html</a> (upload and process drawings)</li>
+                        <li><strong>Reference Editor</strong>: <a href="/reference.html">http://localhost/reference.html</a> (define reference lines manually)</li>
+                        <li><strong>Draw Test Images</strong>: <a href="/draw_testimage.html">http://localhost/draw_testimage.html</a> (create test dataset)</li>
+                        <li><strong>Run Tests</strong>: <a href="/run_test.html">http://localhost/run_test.html</a> (automated testing with metrics)</li>
+                        <li><strong>Evaluations</strong>: <a href="/evaluations.html">http://localhost/evaluations.html</a> (view and rate evaluations)</li>
+                        <li><strong>Admin Tools</strong>: <a href="/admin.html">http://localhost/admin.html</a> (database migrations)</li>
+                        <li><strong>API Documentation</strong>: <a href="/api/docs" target="_blank">http://localhost/api/docs</a> (interactive Swagger UI)</li>
                     </ul>
                 </li>
                 <li><strong>Stop the application:</strong>
@@ -211,13 +221,24 @@
             <h3>2. Image Upload & Processing</h3>
             <p>When you upload an image:</p>
             <ol>
+                <li><strong>Duplicate Detection</strong>: SHA256 hash checks if image already exists</li>
                 <li><strong>Normalization</strong>: Image is resized to 256×256 with aspect ratio preservation and padding</li>
-                <li><strong>Preprocessing</strong>: Converted to grayscale, Gaussian blur applied, adaptive thresholding</li>
+                <li><strong>Manual Adjustments</strong>: Scale, rotate, and translate image interactively</li>
+                <li><strong>Auto Registration</strong>: Optional automatic alignment to reference image</li>
                 <li><strong>Line Detection</strong>: Probabilistic Hough Transform detects line segments</li>
                 <li><strong>Line Merging</strong>: Similar lines are merged to reduce duplicates</li>
                 <li><strong>Feature Extraction</strong>: Lines, angles, and lengths are extracted and stored</li>
-                <li><strong>Storage</strong>: Original and processed images stored in database</li>
+                <li><strong>Storage</strong>: Original and processed images stored separately in database</li>
             </ol>
+            
+            <h4>User Experience Features</h4>
+            <ul>
+                <li><strong>Spinner Overlay</strong>: Visual feedback during processing (overlaid on canvas)</li>
+                <li><strong>Button States</strong>: "Analyze Drawing" button disabled while processing</li>
+                <li><strong>Duplicate Warning</strong>: Banner shown if image already exists in database</li>
+                <li><strong>"View in Evaluations" Button</strong>: Direct link to evaluations page after successful analysis</li>
+                <li><strong>Smart Filtering</strong>: Evaluations page opens with "Unevaluated" filter active</li>
+            </ul>
             
             <h3>3. Comparison & Evaluation</h3>
             <p>The system compares detected lines to reference lines using:</p>
@@ -293,7 +314,22 @@
                     <tr>
                         <td><code>/api/upload</code></td>
                         <td>POST</td>
-                        <td>Upload and evaluate image</td>
+                        <td>Upload and evaluate image (with duplicate detection)</td>
+                    </tr>
+                    <tr>
+                        <td><code>/api/check-duplicate</code></td>
+                        <td>POST</td>
+                        <td>Check if image already exists (SHA256 hash)</td>
+                    </tr>
+                    <tr>
+                        <td><code>/api/normalize-image</code></td>
+                        <td>POST</td>
+                        <td>Auto-crop, scale, and center image to 256×256</td>
+                    </tr>
+                    <tr>
+                        <td><code>/api/register-image</code></td>
+                        <td>POST</td>
+                        <td>Automatically align image to reference</td>
                     </tr>
                     <tr>
                         <td><code>/api/evaluations/recent</code></td>
@@ -304,6 +340,16 @@
                         <td><code>/api/evaluations/{id}</code></td>
                         <td>GET</td>
                         <td>Get specific evaluation</td>
+                    </tr>
+                    <tr>
+                        <td><code>/api/evaluations/{id}</code></td>
+                        <td>DELETE</td>
+                        <td>Delete evaluation (cascades to uploaded_images)</td>
+                    </tr>
+                    <tr>
+                        <td><code>/api/evaluations/{id}/evaluate</code></td>
+                        <td>PUT</td>
+                        <td>Add manual evaluation scores</td>
                     </tr>
                     <tr>
                         <td><code>/api/references</code></td>
@@ -366,9 +412,8 @@
             
             <h3>Volumes</h3>
             <ul>
-                <li><code>./api:/app:rw</code> - API code (hot-reload enabled)</li>
+                <li><code>./api:/app:rw</code> - API code with modular routers (hot-reload enabled)</li>
                 <li><code>./data:/app/data:rw</code> - Persistent data (database & visualizations)</li>
-                <li><code>./templates:/app/templates:ro</code> - Reference image template</li>
                 <li><code>./webapp:/usr/share/nginx/html:ro</code> - Frontend files</li>
                 <li><code>./nginx/nginx.conf:/etc/nginx/nginx.conf:ro</code> - Nginx configuration</li>
             </ul>
@@ -390,6 +435,38 @@ docker compose up --build -d
             
             <hr>
             
+            <h2>🏗️ Modular API Architecture</h2>
+            
+            <h3>Router Organization</h3>
+            <p>The API is organized into focused router modules for better maintainability:</p>
+            
+            <pre><code># api/routers/
+├── admin.py        # Database migrations, system admin
+├── upload.py       # Image upload, duplicate check, normalization, registration  
+├── evaluations.py  # Evaluation CRUD, user feedback
+├── references.py   # Reference management, manual feature editing
+└── test_images.py  # Test image management, automated testing</code></pre>
+            
+            <h3>Benefits</h3>
+            <ul>
+                <li><strong>Maintainable</strong>: Easy to locate and modify functionality</li>
+                <li><strong>Scalable</strong>: New features can be added to appropriate modules</li>
+                <li><strong>Testable</strong>: Individual routers can be tested in isolation</li>
+                <li><strong>Readable</strong>: Clear separation of concerns</li>
+                <li><strong>Size Reduction</strong>: main.py reduced from 1323 to 75 lines (95% smaller)</li>
+            </ul>
+            
+            <h3>Endpoint Distribution</h3>
+            <ul>
+                <li><code>/api/admin/*</code> → <strong>admin.py</strong></li>
+                <li><code>/api/upload</code>, <code>/api/check-duplicate</code>, <code>/api/normalize-image</code>, <code>/api/register-image</code> → <strong>upload.py</strong></li>
+                <li><code>/api/evaluations/*</code> → <strong>evaluations.py</strong></li>
+                <li><code>/api/references/*</code>, <code>/api/reference/*</code> → <strong>references.py</strong></li>
+                <li><code>/api/test-images/*</code> → <strong>test_images.py</strong></li>
+            </ul>
+            
+            <hr>
+            
             <h2>🔍 Algorithms Used</h2>
             
             <h3>Line Detection</h3>
@@ -400,13 +477,14 @@ docker compose up --build -d
                 <li><strong>Line Merging Algorithm</strong>: Consolidates similar lines based on position and angle</li>
             </ul>
             
-            <h3>Comparison Algorithm</h3>
+            <h3>Comparison Algorithm (Hungarian Method)</h3>
             <ul>
-                <li><strong>Euclidean Distance</strong>: For position matching (line midpoints)</li>
-                <li><strong>Angular Distance</strong>: For orientation matching (line angles)</li>
-                <li><strong>Length Ratio</strong>: For size matching (relative lengths)</li>
-                <li><strong>Weighted Similarity</strong>: Combines all metrics with configurable weights</li>
-                <li><strong>Greedy Matching</strong>: Finds best matches between detected and reference lines</li>
+                <li><strong>Multi-Metric Similarity</strong>: Combines position, angle, and length</li>
+                <li><strong>Hungarian Algorithm</strong>: Optimal bipartite matching for line assignment</li>
+                <li><strong>Cost Matrix</strong>: Precomputes similarity for all line pairs</li>
+                <li><strong>Global Optimization</strong>: Finds best overall assignment (not greedy)</li>
+                <li><strong>Length Filtering</strong>: Ignores extra lines &lt;30px (noise reduction)</li>
+                <li><strong>Weighted Similarity</strong>: Position (40%), Angle (30%), Length (30%)</li>
             </ul>
             
             <hr>
@@ -415,19 +493,32 @@ docker compose up --build -d
             
             <h3>Tables</h3>
             <ol>
-                <li><strong>reference_images</strong> - Reference templates and features</li>
-                <li><strong>uploaded_images</strong> - User-uploaded drawings</li>
+                <li><strong>reference_images</strong> - Reference templates and manually defined features</li>
+                <li><strong>uploaded_images</strong> - User-uploaded drawings with duplicate detection
+                    <ul>
+                        <li><code>image_data</code>: Original uploaded file (before normalization)</li>
+                        <li><code>processed_image_data</code>: Normalized 256×256 image</li>
+                        <li><code>image_hash</code>: SHA256 hash for duplicate detection</li>
+                    </ul>
+                </li>
                 <li><strong>extracted_features</strong> - Detected line features</li>
-                <li><strong>evaluation_results</strong> - Comparison results and scores</li>
-                <li><strong>test_images</strong> - Manual test images with expected scores</li>
+                <li><strong>evaluation_results</strong> - Comparison results and scores with optional user evaluation</li>
+                <li><strong>test_images</strong> - Manual test images with expected scores for validation</li>
             </ol>
             
             <p>Database file: <code>data/npsketch.db</code> (SQLite)</p>
             
+            <h3>Data Integrity</h3>
+            <ul>
+                <li><strong>Cascading Deletes</strong>: Deleting an evaluation cleans up associated images if no other evaluations reference them</li>
+                <li><strong>Duplicate Prevention</strong>: SHA256 hashing prevents storing identical images multiple times</li>
+                <li><strong>Separate Storage</strong>: Original and processed images stored independently for accurate comparisons</li>
+            </ul>
+            
             <hr>
             
             <h2>👤 Author</h2>
-            <p><strong>ste</strong><br>
+            <p><strong>Stefan Brodoehl</strong><br>
             Date: October 2025<br>
             Version: 1.0</p>
             
