@@ -51,6 +51,28 @@
         
         .links {
             display: flex;
+            flex-direction: column;
+            gap: 30px;
+            margin-top: 10px;
+        }
+        
+        .button-group {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .button-group-label {
+            font-size: 0.85em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #999;
+            margin-bottom: 5px;
+        }
+        
+        .button-row {
+            display: flex;
             gap: 15px;
             justify-content: center;
             flex-wrap: wrap;
@@ -58,27 +80,46 @@
         
         .btn {
             display: inline-block;
-            padding: 15px 30px;
+            padding: 18px 35px;
             background: #667eea;
             color: white;
             text-decoration: none;
-            border-radius: 8px;
+            border-radius: 10px;
             transition: all 0.3s;
-            font-weight: 500;
+            font-weight: 600;
+            font-size: 1.05em;
+            min-width: 200px;
         }
         
         .btn:hover {
             background: #5568d3;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.5);
         }
         
-        .btn-secondary {
-            background: #764ba2;
+        .btn-admin {
+            background: linear-gradient(135deg, #868e96 0%, #6c757d 100%);
+            font-size: 0.95em;
+            padding: 15px 30px;
+            opacity: 0.9;
         }
         
-        .btn-secondary:hover {
-            background: #653d8e;
+        .btn-admin:hover {
+            background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+            opacity: 1;
+            box-shadow: 0 6px 15px rgba(108, 117, 125, 0.4);
+        }
+        
+        .btn-docs {
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+            padding: 12px 25px;
+            font-size: 0.9em;
+            min-width: auto;
+        }
+        
+        .btn-docs:hover {
+            background: linear-gradient(135deg, #653d8e 0%, #5568d3 100%);
+            box-shadow: 0 5px 15px rgba(118, 75, 162, 0.4);
         }
         
         .status {
@@ -213,11 +254,28 @@
         </p>
         
         <div class="links">
-            <a href="/upload.html" class="btn">Upload Drawing</a>
-            <a href="/reference.html" class="btn">Reference Image</a>
-            <a href="/evaluations.html" class="btn">Evaluations</a>
-            <a href="/run_test.html" class="btn">Run Tests</a>
-            <a href="/docs.html" class="btn btn-secondary">Documentation</a>
+            <!-- Main User Functions -->
+            <div class="button-group">
+                <div class="button-group-label">📱 Main Functions</div>
+                <div class="button-row">
+                    <a href="/upload.html" class="btn">📤 Upload Drawing</a>
+                    <a href="/evaluations.html" class="btn">📊 Evaluations</a>
+                </div>
+            </div>
+            
+            <!-- Advanced / Admin Functions -->
+            <div class="button-group">
+                <div class="button-group-label">⚙️ Advanced / Admin</div>
+                <div class="button-row">
+                    <a href="/reference.html" class="btn btn-admin">🎯 Reference Image</a>
+                    <a href="/run_test.html" class="btn btn-admin">🧪 Run Tests</a>
+                </div>
+            </div>
+            
+            <!-- Documentation -->
+            <div style="margin-top: 10px;">
+                <a href="/docs.html" class="btn btn-docs">📚 Documentation</a>
+            </div>
         </div>
         
         <div class="status">
