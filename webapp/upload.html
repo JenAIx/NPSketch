@@ -66,6 +66,25 @@
             aspect-ratio: 1;
         }
         
+        .canvas-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.95);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            z-index: 100;
+            border-radius: 6px;
+        }
+        
+        .canvas-overlay.show {
+            display: flex;
+        }
+        
         canvas {
             width: 100%;
             height: 100%;
@@ -286,24 +305,20 @@
             box-shadow: 0 5px 15px rgba(0,0,0,0.2);
         }
         
-        .loading {
-            display: none;
-            text-align: center;
-            padding: 20px;
-        }
-        
-        .loading.show {
-            display: block;
-        }
-        
         .spinner {
             border: 4px solid #f3f3f3;
             border-top: 4px solid #667eea;
             border-radius: 50%;
-            width: 50px;
-            height: 50px;
+            width: 60px;
+            height: 60px;
             animation: spin 1s linear infinite;
-            margin: 20px auto;
+            margin-bottom: 15px;
+        }
+        
+        .spinner-text {
+            color: #667eea;
+            font-weight: 600;
+            font-size: 0.95em;
         }
         
         @keyframes spin {
@@ -328,87 +343,49 @@
             color: #c33;
         }
         
-        /* Success Banner */
-        .success-banner {
-            position: fixed;
-            bottom: -100px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        /* Duplicate Warning Banner */
+        .duplicate-warning {
+            display: none;
+            margin: 20px 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #ff9800 0%, #ff6b00 100%);
             color: white;
-            padding: 20px 30px;
-            border-radius: 12px 12px 0 0;
-            box-shadow: 0 -4px 20px rgba(0,0,0,0.2);
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(255, 152, 0, 0.3);
+            animation: slideDown 0.4s ease-out;
+        }
+        
+        .duplicate-warning.show {
+            display: block;
+        }
+        
+        .duplicate-warning h3 {
+            margin: 0 0 10px 0;
+            font-size: 1.2em;
             display: flex;
             align-items: center;
-            gap: 20px;
-            z-index: 10000;
-            transition: bottom 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-            min-width: 400px;
+            gap: 10px;
         }
         
-        .success-banner.show {
-            bottom: 0;
+        .duplicate-warning p {
+            margin: 5px 0;
+            opacity: 0.95;
+            font-size: 0.95em;
         }
         
-        .success-banner-icon {
-            font-size: 32px;
-            animation: bounce 0.6s ease-in-out;
-        }
-        
-        @keyframes bounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-        }
-        
-        .success-banner-text {
-            flex: 1;
-        }
-        
-        .success-banner-text h3 {
-            margin: 0 0 5px 0;
-            font-size: 16px;
+        .duplicate-warning strong {
             font-weight: 600;
         }
         
-        .success-banner-text p {
-            margin: 0;
-            font-size: 13px;
-            opacity: 0.9;
-        }
-        
-        .success-banner-btn {
-            background: white;
-            color: #667eea;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-size: 14px;
-        }
-        
-        .success-banner-btn:hover {
-            transform: scale(1.05);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        }
-        
-        .success-banner-close {
-            background: none;
-            border: none;
-            color: white;
-            font-size: 24px;
-            cursor: pointer;
-            opacity: 0.7;
-            transition: opacity 0.2s;
-            padding: 0;
-            width: 30px;
-            height: 30px;
-        }
-        
-        .success-banner-close:hover {
-            opacity: 1;
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
     </style>
 </head>
@@ -437,6 +414,18 @@
             </p>
         </div>
         
+        <!-- Duplicate Warning (shown when duplicate detected) -->
+        <div class="duplicate-warning" id="duplicateWarning">
+            <h3>⚠️ Duplicate Image Detected</h3>
+            <p>This image already exists in the database:</p>
+            <p><strong>Original upload:</strong> <span id="duplicateDate"></span></p>
+            <p><strong>Uploaded by:</strong> <span id="duplicateUploader"></span></p>
+            <p style="margin-top: 15px;">
+                ℹ️ You can still analyze this image, but it <strong>will not be stored again</strong> to avoid duplicates.
+                The existing evaluation results will be displayed below.
+            </p>
+        </div>
+        
         <!-- Workspace (shown after upload) -->
         <div class="workspace" id="workspace" style="display: none;">
             <!-- Left Panel: Upload Image with Controls -->
@@ -453,6 +442,11 @@
                 
                 <div class="canvas-container">
                     <canvas id="uploadCanvas" width="256" height="256"></canvas>
+                    <!-- Loading overlay on canvas -->
+                    <div class="canvas-overlay" id="canvasLoading">
+                        <div class="spinner"></div>
+                        <div class="spinner-text" id="spinnerText">Processing...</div>
+                    </div>
                 </div>
                 
                 <div class="controls">
@@ -521,11 +515,6 @@
             </div>
         </div>
         
-        <div class="loading" id="loading">
-            <div class="spinner"></div>
-            <p>Analyzing your drawing...</p>
-        </div>
-        
         <div class="result" id="result">
             <h2>Analysis Results</h2>
             <div class="metrics">
@@ -558,7 +547,8 @@
         const workspace = document.getElementById('workspace');
         const uploadCanvas = document.getElementById('uploadCanvas');
         const referenceCanvas = document.getElementById('referenceCanvas');
-        const loading = document.getElementById('loading');
+        const canvasLoading = document.getElementById('canvasLoading');
+        const spinnerText = document.getElementById('spinnerText');
         const result = document.getElementById('result');
         
         // Canvas contexts
@@ -568,8 +558,12 @@
         // State
         let uploadedImage = null;
         let originalUploadedImage = null;  // Store original for reset
+        let originalFileBlob = null;  // Store ORIGINAL uploaded file (before normalization)
+        let originalFileName = null;  // Store original filename
         let referenceImage = null;
         let overlayMode = false;
+        let isDuplicate = false;  // Track if current image is a duplicate
+        let duplicateInfo = null;  // Store duplicate info
         
         // Transform parameters
         let currentScale = 1.0;
@@ -612,6 +606,10 @@
             showRegStatus('Normalizing image...', 'info');
             
             try {
+                // IMPORTANT: Store the ORIGINAL file and filename before normalization
+                originalFileBlob = file;
+                originalFileName = file.name || 'drawing.png';
+                
                 // STEP 1: Send to backend for auto-normalization
                 const formData = new FormData();
                 formData.append('file', file);
@@ -628,6 +626,34 @@
                 // Get normalized 256×256 image as blob
                 const blob = await response.blob();
                 const imageUrl = URL.createObjectURL(blob);
+                
+                // STEP 2: Check if this is a duplicate (based on ORIGINAL file)
+                showRegStatus('Checking for duplicates...', 'info');
+                const dupFormData = new FormData();
+                dupFormData.append('file', blob, 'normalized.png');
+                // Send ORIGINAL file for hash calculation (true duplicate detection)
+                if (originalFileBlob) {
+                    dupFormData.append('original_file', originalFileBlob, originalFileBlob.name || 'original.png');
+                }
+                
+                const dupResponse = await fetch('/api/check-duplicate', {
+                    method: 'POST',
+                    body: dupFormData
+                });
+                
+                if (dupResponse.ok) {
+                    const dupData = await dupResponse.json();
+                    isDuplicate = dupData.is_duplicate;
+                    duplicateInfo = dupData;
+                    
+                    if (isDuplicate) {
+                        showDuplicateWarning(dupData);
+                    }
+                } else {
+                    // If check fails, continue anyway
+                    console.warn('Duplicate check failed, continuing...');
+                    isDuplicate = false;
+                }
                 
                 // Load the normalized image
                 uploadedImage = new Image();
@@ -670,6 +696,25 @@
                 console.error('Normalization error:', error);
                 showRegStatus('❌ Normalization failed: ' + error.message, 'error');
             }
+        }
+        
+        // Show duplicate warning
+        function showDuplicateWarning(dupData) {
+            const warningDiv = document.getElementById('duplicateWarning');
+            const uploadDate = new Date(dupData.uploaded_at);
+            const dateStr = uploadDate.toLocaleString();
+            
+            document.getElementById('duplicateDate').textContent = dateStr;
+            document.getElementById('duplicateUploader').textContent = 
+                dupData.uploader || 'Anonymous';
+            
+            warningDiv.classList.add('show');
+        }
+        
+        // Hide duplicate warning
+        function hideDuplicateWarning() {
+            const warningDiv = document.getElementById('duplicateWarning');
+            warningDiv.classList.remove('show');
         }
         
         // Load reference image from API
@@ -858,14 +903,23 @@
         async function analyzeDrawing() {
             const analyzeBtn = document.getElementById('analyzeBtn');
             analyzeBtn.disabled = true;
-            loading.classList.add('show');
+            canvasLoading.classList.add('show');
+            spinnerText.textContent = 'Analyzing your drawing...';
             result.classList.remove('show');
             
             try {
-                // Export transformed image
-                uploadCanvas.toBlob(async (blob) => {
+                // Export transformed image (processed)
+                uploadCanvas.toBlob(async (processedBlob) => {
                     const formData = new FormData();
-                    formData.append('file', blob, 'aligned_drawing.png');
+                    
+                    // Send BOTH original and processed images
+                    // Original: The file uploaded by user (before normalization)
+                    // Processed: The canvas image (after normalization + user adjustments)
+                    if (originalFileBlob) {
+                        formData.append('original_file', originalFileBlob, originalFileName || 'original.png');
+                    }
+                    // Use original filename for the processed file too
+                    formData.append('file', processedBlob, originalFileName || 'drawing.png');
                     formData.append('uploader', document.getElementById('uploader').value || 'Anonymous');
                     formData.append('reference_name', 'default_reference');
                     
@@ -878,18 +932,16 @@
                     
                     if (data.success && data.evaluation) {
                         showResults(data.evaluation);
-                        // Show success banner
-                        showSuccessBanner(data.evaluation.id || data.evaluation.evaluation_id);
                     } else {
                         showError(data.message || 'Analysis failed');
                     }
                     
-                    loading.classList.remove('show');
+                    canvasLoading.classList.remove('show');
                     analyzeBtn.disabled = false;
                 }, 'image/png');
             } catch (error) {
                 showError('Network error: ' + error.message);
-                loading.classList.remove('show');
+                canvasLoading.classList.remove('show');
                 analyzeBtn.disabled = false;
             }
         }
@@ -901,12 +953,16 @@
                 return;
             }
             
+            // Disable analyze button during auto match
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            analyzeBtn.disabled = true;
+            
             // Show status
             showRegStatus('⚡ Applying Auto Match...', 'info');
             
-            // Show spinner
-            const loading = document.getElementById('loading');
-            loading.classList.add('show');
+            // Show spinner overlay
+            canvasLoading.classList.add('show');
+            spinnerText.textContent = 'Applying Auto Match...';
             
             try {
                 // Always enable all transformations
@@ -980,8 +1036,10 @@
                 console.error('Auto match error:', error);
                 showRegStatus('❌ Auto match failed: ' + error.message, 'error');
             } finally {
-                // Hide spinner
-                loading.classList.remove('show');
+                // Hide spinner and re-enable button
+                canvasLoading.classList.remove('show');
+                const analyzeBtn = document.getElementById('analyzeBtn');
+                analyzeBtn.disabled = false;
             }
         }
         
@@ -995,8 +1053,12 @@
         function clearImage() {
             // Reset state
             uploadedImage = null;
+            originalFileBlob = null;  // Clear original file
+            originalFileName = null;  // Clear original filename
             referenceImage = null;
             overlayMode = false;
+            isDuplicate = false;
+            duplicateInfo = null;
             currentScale = 1.0;
             currentRotation = 0;
             currentTranslateX = 0;
@@ -1031,7 +1093,8 @@
             uploadArea.style.display = 'block';
             document.getElementById('autoMatchOption').style.display = 'block';
             
-            // Hide results if shown
+            // Hide duplicate warning and results if shown
+            hideDuplicateWarning();
             result.classList.remove('show');
         }
         
@@ -1042,44 +1105,7 @@
             result.classList.add('show');
         }
         
-        // Show success banner
-        function showSuccessBanner(evaluationId) {
-            const banner = document.getElementById('successBanner');
-            banner.classList.add('show');
-            
-            // Store evaluation ID for the button
-            banner.dataset.evaluationId = evaluationId;
-            
-            // Auto-hide after 10 seconds
-            setTimeout(() => {
-                hideSuccessBanner();
-            }, 10000);
-        }
-        
-        // Hide success banner
-        function hideSuccessBanner() {
-            const banner = document.getElementById('successBanner');
-            banner.classList.remove('show');
-        }
-        
-        // Go to evaluations page
-        function goToEvaluations() {
-            window.location.href = '/evaluations.html';
-        }
     </script>
-    
-    <!-- Success Banner -->
-    <div class="success-banner" id="successBanner">
-        <div class="success-banner-icon">✅</div>
-        <div class="success-banner-text">
-            <h3>Analysis Complete!</h3>
-            <p>Your drawing has been evaluated and saved to the database.</p>
-        </div>
-        <button class="success-banner-btn" onclick="goToEvaluations()">
-            View Evaluations →
-        </button>
-        <button class="success-banner-close" onclick="hideSuccessBanner()">×</button>
-    </div>
 </body>
 </html>
 

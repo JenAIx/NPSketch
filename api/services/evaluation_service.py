@@ -6,6 +6,7 @@ comparing them to references, and storing results.
 """
 
 import os
+import hashlib
 from sqlalchemy.orm import Session
 from typing import Optional
 import numpy as np
@@ -57,29 +58,59 @@ class EvaluationService:
         image_bytes: bytes,
         filename: str,
         reference_name: str = "default_reference",
-        uploader: Optional[str] = None
+        uploader: Optional[str] = None,
+        original_image_bytes: Optional[bytes] = None
     ) -> tuple[UploadedImage, EvaluationResult]:
         """
         Process an uploaded image and evaluate it against a reference.
         
         Args:
-            image_bytes: Image data as bytes
+            image_bytes: Processed/normalized image data as bytes (for analysis)
             filename: Original filename
             reference_name: Name of the reference to compare against
             uploader: Optional uploader identifier
+            original_image_bytes: Optional original image bytes (before normalization) for hash & storage
             
         Returns:
             Tuple of (UploadedImage, EvaluationResult)
         """
-        # Load and normalize image
+        # Load and normalize image for analysis
         image = load_image_from_bytes(image_bytes)
         normalized = normalize_image(image)
+        processed_bytes = image_to_bytes(normalized)
         
-        # Store uploaded image
+        # Calculate hash from ORIGINAL file if provided, otherwise from processed
+        # This ensures duplicate detection works on actual user uploads, not normalized versions
+        if original_image_bytes:
+            # Hash the ORIGINAL file content
+            image_hash = hashlib.sha256(original_image_bytes).hexdigest()
+            storage_original = original_image_bytes  # Store original
+        else:
+            # Fallback: hash the processed image
+            image_hash = hashlib.sha256(processed_bytes).hexdigest()
+            storage_original = image_bytes  # Store what we received
+        
+        # Check if this image already exists (by hash of ORIGINAL)
+        existing = self.db.query(UploadedImage).filter(
+            UploadedImage.image_hash == image_hash
+        ).first()
+        
+        if existing:
+            # Image already exists, return existing evaluation instead of creating new one
+            # This prevents duplicate storage
+            existing_evaluation = self.db.query(EvaluationResult).filter(
+                EvaluationResult.image_id == existing.id
+            ).order_by(EvaluationResult.evaluated_at.desc()).first()
+            
+            if existing_evaluation:
+                return existing, existing_evaluation
+        
+        # Store uploaded image (only if it's new)
         uploaded_image = UploadedImage(
             filename=filename,
-            image_data=image_bytes,
-            processed_image_data=image_to_bytes(normalized),
+            image_data=storage_original,      # Store ORIGINAL image
+            processed_image_data=processed_bytes,  # Store normalized 256x256
+            image_hash=image_hash,            # Hash of ORIGINAL image
             uploader=uploader
         )
         self.db.add(uploaded_image)

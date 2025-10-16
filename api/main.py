@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from typing import List
 import os
 
-from database import init_database, get_db, ReferenceImage, TestImage
+from database import init_database, get_db, ReferenceImage, TestImage, UploadedImage
 from models import (
     UploadResponse,
     HealthResponse,
@@ -80,18 +80,168 @@ async def health_check(db: Session = Depends(get_db)):
     )
 
 
+@app.post("/api/admin/migrate-add-image-hash")
+async def migrate_add_image_hash(db: Session = Depends(get_db)):
+    """
+    Run database migration to add image_hash column.
+    This is a one-time migration for duplicate detection.
+    
+    Returns:
+        Migration status and statistics
+    """
+    import hashlib
+    from sqlalchemy import text
+    
+    try:
+        column_added = False
+        index_created = False
+        
+        # Try to add column (will fail if it already exists)
+        try:
+            db.execute(text(
+                "ALTER TABLE uploaded_images ADD COLUMN image_hash VARCHAR(64)"
+            ))
+            db.commit()
+            column_added = True
+        except Exception as e:
+            # Column probably already exists
+            db.rollback()
+            if "duplicate column name" not in str(e).lower():
+                # Re-raise if it's not a duplicate column error
+                raise
+        
+        # Create index (IF NOT EXISTS handles existing index)
+        try:
+            db.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_uploaded_images_image_hash "
+                "ON uploaded_images (image_hash)"
+            ))
+            db.commit()
+            index_created = True
+        except Exception:
+            db.rollback()
+        
+        # Calculate hashes for existing images without hashes
+        images = db.query(UploadedImage).filter(
+            (UploadedImage.image_hash == None) | (UploadedImage.image_hash == "")
+        ).all()
+        
+        updated_count = 0
+        for image in images:
+            if image.processed_image_data:
+                hash_value = hashlib.sha256(image.processed_image_data).hexdigest()
+                image.image_hash = hash_value
+                updated_count += 1
+        
+        db.commit()
+        
+        # Statistics
+        total = db.query(UploadedImage).count()
+        with_hash = db.query(UploadedImage).filter(
+            UploadedImage.image_hash != None
+        ).count()
+        
+        # Check for duplicates
+        duplicates_query = text("""
+            SELECT image_hash, COUNT(*) as count
+            FROM uploaded_images
+            WHERE image_hash IS NOT NULL
+            GROUP BY image_hash
+            HAVING COUNT(*) > 1
+        """)
+        duplicates = db.execute(duplicates_query).fetchall()
+        
+        return {
+            "success": True,
+            "column_added": column_added,
+            "index_created": index_created,
+            "images_updated": updated_count,
+            "statistics": {
+                "total_images": total,
+                "with_hash": with_hash,
+                "without_hash": total - with_hash,
+                "duplicate_groups": len(duplicates)
+            },
+            "duplicates": [
+                {"hash": dup[0][:16] + "...", "count": dup[1]} 
+                for dup in duplicates
+            ]
+        }
+        
+    except Exception as e:
+        db.rollback()
+        import traceback
+        error_detail = f"Migration failed: {str(e)}\n{traceback.format_exc()}"
+        print(error_detail)  # Log to console
+        raise HTTPException(status_code=500, detail=f"Migration failed: {str(e)}")
+
+
+@app.post("/api/check-duplicate")
+async def check_duplicate(
+    file: UploadFile = File(...),
+    original_file: UploadFile = File(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Check if an image already exists in the database (by content hash of ORIGINAL).
+    Returns duplicate info without storing the image.
+    
+    Args:
+        file: Normalized image file to check
+        original_file: Optional original file (before normalization) for hash calculation
+        db: Database session
+        
+    Returns:
+        Dict with 'is_duplicate' flag and optional 'existing_id'
+    """
+    import hashlib
+    
+    try:
+        # Calculate hash from ORIGINAL file if provided
+        if original_file:
+            original_content = await original_file.read()
+            image_hash = hashlib.sha256(original_content).hexdigest()
+        else:
+            # Fallback: hash the file we received
+            content = await file.read()
+            image_hash = hashlib.sha256(content).hexdigest()
+        
+        # Check if exists
+        existing = db.query(UploadedImage).filter(
+            UploadedImage.image_hash == image_hash
+        ).first()
+        
+        if existing:
+            return {
+                "is_duplicate": True,
+                "existing_id": existing.id,
+                "existing_filename": existing.filename,
+                "uploaded_at": existing.uploaded_at.isoformat(),
+                "uploader": existing.uploader
+            }
+        else:
+            return {
+                "is_duplicate": False
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Check failed: {str(e)}")
+
+
 @app.post("/api/upload", response_model=UploadResponse)
 async def upload_image(
     file: UploadFile = File(...),
-    uploader: str = None,
-    reference_name: str = "default_reference",
+    original_file: UploadFile = File(None),  # Optional: original file before normalization
+    uploader: str = Form(None),
+    reference_name: str = Form("default_reference"),
     db: Session = Depends(get_db)
 ):
     """
     Upload and evaluate a hand-drawn image.
     
     Args:
-        file: Image file to upload
+        file: Processed/normalized image file to analyze
+        original_file: Optional original file (before normalization) for hash calculation
         uploader: Optional uploader identifier
         reference_name: Name of reference to compare against
         db: Database session
@@ -100,16 +250,22 @@ async def upload_image(
         Upload result with evaluation metrics
     """
     try:
-        # Read file content
-        content = await file.read()
+        # Read processed file content (for analysis)
+        processed_content = await file.read()
+        
+        # Read original file content (for hash and storage)
+        original_content = None
+        if original_file:
+            original_content = await original_file.read()
         
         # Process and evaluate
         eval_service = EvaluationService(db)
         uploaded_image, evaluation = eval_service.process_upload(
-            content,
+            processed_content,
             file.filename,
             reference_name,
-            uploader
+            uploader,
+            original_image_bytes=original_content  # Pass original for hash calculation
         )
         
         return UploadResponse(
@@ -410,7 +566,7 @@ async def delete_evaluation(
     db: Session = Depends(get_db)
 ):
     """
-    Delete an evaluation result.
+    Delete an evaluation result and associated uploaded image.
     
     Args:
         eval_id: Evaluation ID to delete
@@ -419,13 +575,15 @@ async def delete_evaluation(
     Returns:
         Success message
     """
-    from database import EvaluationResult
+    from database import EvaluationResult, ExtractedFeature
     
     # Find evaluation
     evaluation = db.query(EvaluationResult).filter(EvaluationResult.id == eval_id).first()
     
     if not evaluation:
         raise HTTPException(status_code=404, detail="Evaluation not found")
+    
+    image_id = evaluation.image_id
     
     # Delete visualization file if it exists
     if evaluation.visualization_path:
@@ -436,11 +594,37 @@ async def delete_evaluation(
             except Exception as e:
                 print(f"Warning: Could not delete visualization file: {e}")
     
-    # Delete from database
+    # Delete evaluation
     db.delete(evaluation)
+    
+    # Check if this image has any other evaluations
+    other_evaluations = db.query(EvaluationResult).filter(
+        EvaluationResult.image_id == image_id,
+        EvaluationResult.id != eval_id
+    ).count()
+    
+    # If no other evaluations exist for this image, delete the image and features
+    if other_evaluations == 0:
+        # Delete extracted features
+        db.query(ExtractedFeature).filter(
+            ExtractedFeature.image_id == image_id
+        ).delete()
+        
+        # Delete uploaded image
+        uploaded_image = db.query(UploadedImage).filter(
+            UploadedImage.id == image_id
+        ).first()
+        
+        if uploaded_image:
+            db.delete(uploaded_image)
+    
     db.commit()
     
-    return {"message": "Evaluation deleted successfully", "id": eval_id}
+    return {
+        "message": "Evaluation deleted successfully", 
+        "id": eval_id,
+        "image_deleted": other_evaluations == 0
+    }
 
 
 @app.put("/api/evaluations/{eval_id}/evaluate", response_model=EvaluationResultResponse)

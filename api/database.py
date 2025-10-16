@@ -59,6 +59,7 @@ class UploadedImage(Base):
         filename: Original filename
         image_data: Original uploaded image
         processed_image_data: Preprocessed/normalized image
+        image_hash: SHA256 hash of processed image (for duplicate detection)
         uploader: Optional uploader identifier
         uploaded_at: Timestamp of upload
     """
@@ -68,6 +69,7 @@ class UploadedImage(Base):
     filename = Column(String)
     image_data = Column(LargeBinary)
     processed_image_data = Column(LargeBinary)
+    image_hash = Column(String(64), index=True, nullable=True)  # SHA256 hash for duplicate detection
     uploader = Column(String, nullable=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
     
