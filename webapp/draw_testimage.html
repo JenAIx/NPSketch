@@ -55,6 +55,12 @@
             gap: 30px;
         }
         
+        .left-column {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+        
         .canvas-section {
             background: #f8f9fa;
             padding: 20px;
@@ -191,12 +197,6 @@
             border-radius: 50%;
         }
         
-        .sidebar {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-        
         .score-form {
             background: #f8f9fa;
             padding: 20px;
@@ -241,6 +241,64 @@
             font-weight: bold;
         }
         
+        .lines-input-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: space-between;
+        }
+        
+        .lines-input-row input {
+            flex: 1;
+            min-width: 0;
+            font-size: 18px;
+            padding: 8px;
+        }
+        
+        .lines-input-row input:disabled {
+            cursor: not-allowed;
+            opacity: 0.8;
+        }
+        
+        /* Color coding for line inputs */
+        #correctLines {
+            border-color: #28a745;
+            background: #f8fff9;
+        }
+        
+        #correctLines:focus {
+            border-color: #28a745;
+            box-shadow: 0 0 5px rgba(40, 167, 69, 0.3);
+        }
+        
+        #missingLines {
+            border-color: #dc3545;
+            background: #fef8f8;
+        }
+        
+        #extraLines {
+            border-color: #ffc107;
+            background: #fffef8;
+        }
+        
+        #extraLines:focus {
+            border-color: #ffc107;
+            box-shadow: 0 0 5px rgba(255, 193, 7, 0.3);
+        }
+        
+        .separator {
+            font-size: 18px;
+            font-weight: bold;
+            color: #667eea;
+            user-select: none;
+            flex-shrink: 0;
+        }
+        
+        .lines-help {
+            margin-top: 5px;
+            text-align: center;
+        }
+        
         .save-btn {
             width: 100%;
             padding: 15px;
@@ -267,8 +325,37 @@
             background: #f8f9fa;
             padding: 20px;
             border-radius: 10px;
-            max-height: 500px;
+            height: calc(100vh - 200px);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .list-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #dee2e6;
+        }
+        
+        .image-counter {
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .virtual-list-container {
+            flex: 1;
             overflow-y: auto;
+            position: relative;
+        }
+        
+        .virtual-list-content {
+            position: relative;
         }
         
         .list-title {
@@ -361,6 +448,15 @@
         @media (max-width: 1024px) {
             .main-grid {
                 grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            
+            .test-images-list {
+                height: 400px;
+            }
+            
+            .left-column {
+                gap: 20px;
             }
         }
     </style>
@@ -377,41 +473,41 @@
         </div>
         
         <div class="main-grid">
-            <div class="canvas-section">
-                <div class="canvas-wrapper">
-                    <button class="rotate-btn" onclick="rotateCanvas(-10)" title="Rotate 10° left">↶</button>
-                    <div style="position: relative;">
-                        <canvas id="drawCanvas" width="256" height="256"></canvas>
-                        <div class="rotation-display" id="rotationDisplay">0°</div>
+            <div class="left-column">
+                <div class="canvas-section">
+                    <div class="canvas-wrapper">
+                        <button class="rotate-btn" onclick="rotateCanvas(-10)" title="Rotate 10° left">↶</button>
+                        <div style="position: relative;">
+                            <canvas id="drawCanvas" width="256" height="256"></canvas>
+                            <div class="rotation-display" id="rotationDisplay">0°</div>
+                        </div>
+                        <button class="rotate-btn" onclick="rotateCanvas(10)" title="Rotate 10° right">↷</button>
                     </div>
-                    <button class="rotate-btn" onclick="rotateCanvas(10)" title="Rotate 10° right">↷</button>
+                    
+                    <div class="brush-size">
+                        <label>Brush Size:</label>
+                        <input type="range" id="brushSize" min="1" max="10" value="3">
+                        <div class="brush-preview">
+                            <div class="brush-dot" id="brushPreview"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="tools">
+                        <button class="tool-btn active" id="drawBtn" onclick="setMode('draw')">
+                            ✏️ Draw
+                        </button>
+                        <button class="tool-btn" id="eraseBtn" onclick="setMode('erase')">
+                            🧹 Erase
+                        </button>
+                        <button class="tool-btn" onclick="clearCanvas()">
+                            🗑️ Clear All
+                        </button>
+                        <button class="tool-btn" id="downloadBtn" onclick="downloadCanvas()" disabled>
+                            ⬇️ Download
+                        </button>
+                    </div>
                 </div>
                 
-                <div class="brush-size">
-                    <label>Brush Size:</label>
-                    <input type="range" id="brushSize" min="1" max="10" value="3">
-                    <div class="brush-preview">
-                        <div class="brush-dot" id="brushPreview"></div>
-                    </div>
-                </div>
-                
-                <div class="tools">
-                    <button class="tool-btn active" id="drawBtn" onclick="setMode('draw')">
-                        ✏️ Draw
-                    </button>
-                    <button class="tool-btn" id="eraseBtn" onclick="setMode('erase')">
-                        🧹 Erase
-                    </button>
-                    <button class="tool-btn" onclick="clearCanvas()">
-                        🗑️ Clear All
-                    </button>
-                    <button class="tool-btn" id="downloadBtn" onclick="downloadCanvas()" disabled>
-                        ⬇️ Download
-                    </button>
-                </div>
-            </div>
-            
-            <div class="sidebar">
                 <div class="score-form">
                     <div class="form-title">📊 Manual Scoring</div>
                     
@@ -421,18 +517,21 @@
                     </div>
                     
                     <div class="form-group">
-                        <label>Correct Lines (of <span id="totalRefLines">8</span>)</label>
-                        <input type="number" id="correctLines" min="0" max="8" value="0">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Missing Lines <span style="color: #999; font-size: 0.9em;">(auto-calculated)</span></label>
-                        <input type="number" id="missingLines" min="0" value="8" disabled style="background: #e9ecef; cursor: not-allowed;">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Extra Lines</label>
-                        <input type="number" id="extraLines" min="0" value="0">
+                        <label>Lines: Correct / Missing / Extra (of <span id="totalRefLines">8</span> total)</label>
+                        <div class="lines-input-row">
+                            <input type="number" id="correctLines" min="0" max="8" value="0" placeholder="0" title="Correct lines (green)">
+                            <span class="separator">/</span>
+                            <input type="number" id="missingLines" min="0" value="8" disabled placeholder="8" title="Missing lines (red) - auto-calculated">
+                            <span class="separator">/</span>
+                            <input type="number" id="extraLines" min="0" value="0" placeholder="0" title="Extra lines (yellow)">
+                        </div>
+                        <div class="lines-help">
+                            <span style="color: #999; font-size: 0.85em;">
+                                <span style="color: #28a745;">●</span> Correct 
+                                <span style="color: #dc3545;">●</span> Missing (auto) 
+                                <span style="color: #ffc107;">●</span> Extra
+                            </span>
+                        </div>
                     </div>
                     
                     <button class="save-btn" id="saveBtn" onclick="saveOrUpdateTestImage()">
@@ -442,11 +541,18 @@
                         ⚠️ Clicking Update will overwrite the original image!
                     </div>
                 </div>
-                
-                <div class="test-images-list">
+            </div>
+            
+            <div class="test-images-list">
+                <div class="list-header">
                     <div class="list-title">📋 Test Images</div>
-                    <div id="testImagesList">
-                        <div class="empty-list">Loading...</div>
+                    <div class="image-counter" id="imageCounter">0</div>
+                </div>
+                <div class="virtual-list-container" id="virtualListContainer">
+                    <div class="virtual-list-content" id="virtualListContent">
+                        <div id="testImagesList">
+                            <div class="empty-list">Loading...</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -780,55 +886,115 @@
             }, 3000);
         }
         
-        // Load test images
+        // Virtual scrolling variables
+        let allTestImages = [];
+        const ITEM_HEIGHT = 80; // Approximate height of each test item
+        let containerHeight = 0;
+        let visibleCount = 0;
+        let startIndex = 0;
+        
+        // Load test images with virtual scrolling
         async function loadTestImages() {
             try {
                 const response = await fetch('/api/test-images');
-                const testImages = await response.json();
+                allTestImages = await response.json();
+                
+                // Update counter
+                const counter = document.getElementById('imageCounter');
+                counter.textContent = allTestImages.length;
                 
                 const listDiv = document.getElementById('testImagesList');
                 
-                if (testImages.length === 0) {
+                if (allTestImages.length === 0) {
                     listDiv.innerHTML = '<div class="empty-list">No test images yet</div>';
                     return;
                 }
                 
-                listDiv.innerHTML = '';
-                testImages.forEach(test => {
-                    const item = document.createElement('div');
-                    item.className = 'test-item';
-                    
-                    const date = new Date(test.created_at);
-                    const dateStr = date.toLocaleDateString();
-                    
-                    item.innerHTML = `
-                        <div class="test-item-header">
-                            <span class="test-id">#${test.id} - ${test.test_name}</span>
-                            <div class="test-meta">
-                                <span style="font-size: 12px; color: #999;">${dateStr}</span>
-                                <span class="delete-icon" onclick="deleteTestImage(${test.id}, event)" title="Delete">🗑️</span>
-                            </div>
-                        </div>
-                        <div class="test-stats">
-                            <span class="stat-item">✓ ${test.expected_correct}</span>
-                            <span class="stat-item">✗ ${test.expected_missing}</span>
-                            <span class="stat-item">+ ${test.expected_extra}</span>
-                        </div>
-                    `;
-                    
-                    // Load test image on click
-                    item.addEventListener('click', (e) => {
-                        // Don't trigger if clicking on delete icon
-                        if (!e.target.closest('.delete-icon')) {
-                            loadTestImage(test.id, test.test_name, test.expected_correct, test.expected_missing, test.expected_extra);
-                        }
-                    });
-                    
-                    listDiv.appendChild(item);
-                });
+                // Initialize virtual scrolling
+                initVirtualScroll();
+                
             } catch (error) {
                 document.getElementById('testImagesList').innerHTML = 
                     '<div class="empty-list">Error loading test images</div>';
+                document.getElementById('imageCounter').textContent = '0';
+            }
+        }
+        
+        // Initialize virtual scrolling
+        function initVirtualScroll() {
+            const container = document.getElementById('virtualListContainer');
+            const content = document.getElementById('virtualListContent');
+            const listDiv = document.getElementById('testImagesList');
+            
+            containerHeight = container.clientHeight;
+            visibleCount = Math.ceil(containerHeight / ITEM_HEIGHT) + 2; // Add buffer
+            
+            // Set total height for scrollbar
+            content.style.height = (allTestImages.length * ITEM_HEIGHT) + 'px';
+            
+            // Initial render
+            renderVisibleItems();
+            
+            // Add scroll listener
+            container.addEventListener('scroll', handleScroll);
+        }
+        
+        // Handle scroll events for virtual scrolling
+        function handleScroll() {
+            const container = document.getElementById('virtualListContainer');
+            const scrollTop = container.scrollTop;
+            const newStartIndex = Math.floor(scrollTop / ITEM_HEIGHT);
+            
+            if (newStartIndex !== startIndex) {
+                startIndex = newStartIndex;
+                renderVisibleItems();
+            }
+        }
+        
+        // Render only visible items
+        function renderVisibleItems() {
+            const listDiv = document.getElementById('testImagesList');
+            const endIndex = Math.min(startIndex + visibleCount, allTestImages.length);
+            
+            // Clear current items
+            listDiv.innerHTML = '';
+            
+            // Set offset for positioning
+            listDiv.style.paddingTop = (startIndex * ITEM_HEIGHT) + 'px';
+            listDiv.style.paddingBottom = ((allTestImages.length - endIndex) * ITEM_HEIGHT) + 'px';
+            
+            // Render visible items
+            for (let i = startIndex; i < endIndex; i++) {
+                const test = allTestImages[i];
+                const item = document.createElement('div');
+                item.className = 'test-item';
+                item.style.height = ITEM_HEIGHT + 'px';
+                
+                const date = new Date(test.created_at);
+                const dateStr = date.toLocaleDateString();
+                
+                item.innerHTML = `
+                    <div class="test-item-header">
+                        <span class="test-id">#${test.id} - ${test.test_name}</span>
+                        <div class="test-meta">
+                            <span style="font-size: 12px; color: #999;">${dateStr}</span>
+                            <span class="delete-icon" onclick="deleteTestImage(${test.id}, event)" title="Delete">🗑️</span>
+                        </div>
+                    </div>
+                    <div class="test-stats">
+                        <span class="stat-item">Lines: <span style="color: #28a745; font-weight: bold;">${test.expected_correct}</span> / <span style="color: #dc3545; font-weight: bold;">${test.expected_missing}</span> / <span style="color: #ffc107; font-weight: bold;">${test.expected_extra}</span></span>
+                    </div>
+                `;
+                
+                // Load test image on click
+                item.addEventListener('click', (e) => {
+                    // Don't trigger if clicking on delete icon
+                    if (!e.target.closest('.delete-icon')) {
+                        loadTestImage(test.id, test.test_name, test.expected_correct, test.expected_missing, test.expected_extra);
+                    }
+                });
+                
+                listDiv.appendChild(item);
             }
         }
         
@@ -979,7 +1145,13 @@
                 });
                 
                 if (response.ok) {
+                    // Reload test images to update the list and counter
                     loadTestImages();
+                    
+                    // If we deleted the currently loaded image, reset the form
+                    if (loadedTestId === testId) {
+                        resetForm();
+                    }
                     
                     const msg = document.getElementById('successMessage');
                     msg.textContent = '✓ Test image deleted successfully!';
@@ -1022,6 +1194,15 @@
                 console.error('Error loading reference info:', error);
             }
         }
+        
+        // Handle window resize for virtual scrolling
+        window.addEventListener('resize', () => {
+            if (allTestImages.length > 0) {
+                setTimeout(() => {
+                    initVirtualScroll();
+                }, 100); // Small delay to ensure layout is updated
+            }
+        });
         
         // Load test images and reference info on page load
         loadTestImages();
