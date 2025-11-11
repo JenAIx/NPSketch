@@ -130,7 +130,7 @@ async def normalize_image(
     db: Session = Depends(get_db)
 ):
     """
-    STEP 1: Simple normalization - Auto-crop + Scale + Center to 256×256
+    STEP 1: Simple normalization - Auto-crop + Scale + Center to 568×274
     No registration, no thinning - just prepare the image
     """
     import cv2
@@ -139,7 +139,7 @@ async def normalize_image(
     
     try:
         print("=" * 60)
-        print("🔄 STEP 1: NORMALIZE IMAGE TO 256×256")
+        print("🔄 STEP 1: NORMALIZE IMAGE TO 568×274")
         print("=" * 60)
         
         # Read uploaded file
@@ -177,7 +177,7 @@ async def normalize_image(
             cropped = img[up_min_y:up_max_y+1, up_min_x:up_max_x+1]
             print(f"  1️⃣  Cropped: {img.shape[:2]} → {cropped.shape[:2]}")
             
-            # 2. SCALE to FIT 256×256 canvas (max width OR height)
+            # 2. SCALE to FIT 568×274 canvas (max width OR height)
             up_h, up_w = cropped.shape[:2]
             
             # Calculate scale to fit canvas (use MIN to ensure it fits!)
@@ -194,7 +194,7 @@ async def normalize_image(
             print(f"  2️⃣  Scaled to fit canvas: {up_h}×{up_w} × {scale:.2f} = {scaled_h}×{scaled_w}")
             print(f"     (scale_h={scale_h:.2f}, scale_w={scale_w:.2f} → using min={scale:.2f}, rounded to preserve content)")
             
-            # 3. CENTER on 256×256 canvas
+            # 3. CENTER on 568×274 canvas
             result = np.ones((ref_h, ref_w, 3), dtype=np.uint8) * 255
             
             # With min() scaling, object should always fit - but check anyway
@@ -247,7 +247,7 @@ async def register_image(
 ):
     """
     STEP 3: Auto Match - Apply registration + line detection + thin to 1px
-    Input: Already normalized 256×256 image from frontend
+    Input: Already normalized 568×274 image from frontend
     Output: Registered + thinned 1px lines
     """
     import cv2
@@ -262,7 +262,7 @@ async def register_image(
         print("=" * 60)
         print(f"  Options: translation={enable_translation}, rotation={enable_rotation}, scale={enable_scale}")
         
-        # Read uploaded file (should already be 256×256 normalized from frontend)
+        # Read uploaded file (should already be 568×274 normalized from frontend)
         content = await file.read()
         nparr = np.frombuffer(content, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -270,7 +270,7 @@ async def register_image(
         if img is None:
             raise HTTPException(status_code=400, detail="Invalid image file")
         
-        print(f"  ✓ Input image: {img.shape} (should be 256×256)")
+        print(f"  ✓ Input image: {img.shape} (should be 568×274)")
         
         # Get reference image
         reference_service = ReferenceService(db)

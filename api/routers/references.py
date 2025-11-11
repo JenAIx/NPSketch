@@ -215,7 +215,7 @@ async def add_reference_feature(
             'lines': [],
             'line_angles': [],
             'line_lengths': [],
-            'image_shape': [256, 256],
+            'image_shape': [568, 274],
             'line_counts': {'horizontal': 0, 'vertical': 0, 'diagonal': 0, 'total': 0}
         }
     
@@ -324,7 +324,7 @@ async def clear_reference_features(db: Session = Depends(get_db)):
         'lines': [],
         'line_angles': [],
         'line_lengths': [],
-        'image_shape': [256, 256],
+        'image_shape': [568, 274],
         'line_counts': {'horizontal': 0, 'vertical': 0, 'diagonal': 0, 'total': 0}
     }
     
