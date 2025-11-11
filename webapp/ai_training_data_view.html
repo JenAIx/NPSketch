@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPSketch - View Training Data</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        
+        .section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .section h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+        
+        /* Stats Dashboard */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            border: 2px solid #e9ecef;
+        }
+        
+        .stat-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .stat-label {
+            color: #666;
+            margin-top: 8px;
+            font-size: 0.95em;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+        
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+        }
+        
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 0.9em;
+        }
+        
+        /* Data Table */
+        .data-table {
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .data-row {
+            display: grid;
+            grid-template-columns: 60px 150px 100px 100px 150px 1fr 120px;
+            padding: 12px 15px;
+            border-bottom: 1px solid #e9ecef;
+            cursor: pointer;
+            transition: background 0.2s;
+            align-items: center;
+        }
+        
+        .data-row:hover:not(.header) {
+            background: #f8f9fa;
+        }
+        
+        .data-row.header {
+            background: #667eea;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        
+        .data-row.header .data-cell {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            user-select: none;
+        }
+        
+        .data-row.header .data-cell:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .sort-icon {
+            font-size: 0.8em;
+            opacity: 0.5;
+        }
+        
+        .sort-icon.active {
+            opacity: 1;
+        }
+        
+        .data-cell {
+            font-size: 0.9em;
+            color: #495057;
+        }
+        
+        .data-row.header .data-cell {
+            color: white;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        
+        .badge.mat {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .badge.ocs {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .badge.copy {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .badge.recall {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+        
+        .empty-state-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+        }
+        
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        
+        .modal.show {
+            display: flex;
+        }
+        
+        .modal-content {
+            max-width: 1200px;
+            width: 100%;
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .modal-close {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #dc3545;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            font-size: 1.5em;
+            cursor: pointer;
+            color: white;
+        }
+        
+        .modal-close:hover {
+            background: #c82333;
+        }
+        
+        .modal-header h2 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .modal-images {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .modal-image-section {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        
+        .modal-image-section h3 {
+            color: #495057;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+        
+        .modal-image-section h4 {
+            color: #666;
+            font-size: 0.95em;
+            margin-bottom: 8px;
+        }
+        
+        .modal-image-section img {
+            width: 100%;
+            border-radius: 6px;
+            background: white;
+            padding: 10px;
+        }
+        
+        .image-meta {
+            margin-top: 10px;
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        .image-meta p {
+            margin: 5px 0;
+        }
+        
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .pagination button {
+            padding: 8px 16px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .pagination span {
+            color: #666;
+            font-weight: 600;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .alert.show {
+            display: block;
+        }
+        
+        .alert.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .alert.success {
+            background: #d4edda;
+            color: #155724;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/index.html" class="back-link">← Back to Home</a>
+        
+        <h1>📊 View Training Data</h1>
+        <p class="subtitle">Browse and manage uploaded AI training images</p>
+        
+        <div class="alert" id="alert"></div>
+        
+        <!-- Statistics Dashboard -->
+        <div class="stats-grid" id="statsGrid">
+            <div class="stat-card">
+                <div class="stat-value" id="totalImages">-</div>
+                <div class="stat-label">Total Images</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="matCount">-</div>
+                <div class="stat-label">MAT Drawings</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="ocsCount">-</div>
+                <div class="stat-label">OCS Ratings</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="patientCount">-</div>
+                <div class="stat-label">Patients</div>
+            </div>
+        </div>
+        
+        <!-- Data Table -->
+        <div class="section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; gap: 20px;">
+                <h2 style="margin: 0;">Training Data Images</h2>
+                <div style="display: flex; gap: 10px; flex: 1; max-width: 600px; align-items: center;">
+                    <div id="resultCount" style="background: #667eea; color: white; padding: 8px 16px; border-radius: 20px; font-weight: 600; font-size: 0.9em; white-space: nowrap;">
+                        0 items
+                    </div>
+                    <input type="text" 
+                           id="searchInput" 
+                           placeholder="🔍 Search ID, Patient, Task, Source, Date..." 
+                           style="flex: 1; padding: 10px; border: 2px solid #dee2e6; border-radius: 6px; font-size: 0.95em;"
+                           oninput="searchData()">
+                    <button class="btn btn-secondary btn-small" onclick="clearSearch()" style="white-space: nowrap;">Clear</button>
+                </div>
+                <a href="/ai_training_data_upload.html" class="btn btn-small" style="white-space: nowrap;">➕ Add New Data</a>
+            </div>
+            
+            <div class="data-table">
+                <div class="data-row header">
+                    <div class="data-cell" onclick="sortBy('id')">
+                        <span>ID</span>
+                        <span class="sort-icon" id="sort-id">↕</span>
+                    </div>
+                    <div class="data-cell" onclick="sortBy('patient')">
+                        <span>Patient</span>
+                        <span class="sort-icon" id="sort-patient">↕</span>
+                    </div>
+                    <div class="data-cell" onclick="sortBy('task')">
+                        <span>Task</span>
+                        <span class="sort-icon" id="sort-task">↕</span>
+                    </div>
+                    <div class="data-cell" onclick="sortBy('source')">
+                        <span>Source</span>
+                        <span class="sort-icon" id="sort-source">↕</span>
+                    </div>
+                    <div class="data-cell" onclick="sortBy('resolution')">
+                        <span>Resolution</span>
+                        <span class="sort-icon" id="sort-resolution">↕</span>
+                    </div>
+                    <div class="data-cell" onclick="sortBy('filename')">
+                        <span>Original File</span>
+                        <span class="sort-icon" id="sort-filename">↕</span>
+                    </div>
+                    <div class="data-cell" onclick="sortBy('date')">
+                        <span>Date</span>
+                        <span class="sort-icon" id="sort-date">↕</span>
+                    </div>
+                </div>
+                <div id="dataRows"></div>
+            </div>
+            
+            <div class="pagination">
+                <button onclick="changePage(-1)" id="prevBtn">← Previous</button>
+                <span id="pageInfo">Page 1</span>
+                <button onclick="changePage(1)" id="nextBtn">Next →</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Preview Modal -->
+    <div class="modal" id="previewModal" onclick="closeModal()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <button class="modal-close" onclick="closeModal()">×</button>
+            <div class="modal-header">
+                <h2 id="modalTitle"></h2>
+                <p style="color: #666;" id="modalSubtitle"></p>
+            </div>
+            <div class="modal-images" id="modalImages"></div>
+        </div>
+    </div>
+    
+    <script>
+        let existingData = [];
+        let allData = [];  // Store all loaded data for client-side search
+        let currentPage = 0;
+        let totalPages = 0;
+        const pageSize = 50;
+        let searchTerm = '';
+        let sortColumn = 'id';
+        let sortDirection = 'desc';  // 'asc' or 'desc'
+        
+        async function loadData() {
+            try {
+                // Load all data for client-side search and filtering (limit to 1000)
+                let url = `/api/training-data-images?limit=1000&offset=0`;
+                
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                allData = data.images;  // Store all data for search
+                existingData = filterBySearch(allData);
+                
+                // Apply current sort
+                sortData();
+                
+                totalPages = Math.ceil(existingData.length / pageSize);
+                
+                await updateStatistics();
+                updateResultCount();
+                updateSortIcons();
+                renderDataTable(getPaginatedData());
+                updatePagination();
+                
+            } catch (error) {
+                showAlert('error', `Error loading data: ${error.message}`);
+            }
+        }
+        
+        async function updateStatistics() {
+            try {
+                const response = await fetch('/api/training-data-images?limit=10000');
+                const data = await response.json();
+                
+                const matCount = data.images.filter(img => img.source_format === 'MAT').length;
+                const ocsCount = data.images.filter(img => img.source_format === 'OCS').length;
+                const patients = new Set(data.images.map(img => img.patient_id)).size;
+                
+                document.getElementById('totalImages').textContent = data.total;
+                document.getElementById('matCount').textContent = matCount;
+                document.getElementById('ocsCount').textContent = ocsCount;
+                document.getElementById('patientCount').textContent = patients;
+            } catch (error) {
+                console.error('Error loading statistics:', error);
+            }
+        }
+        
+        function filterBySearch(images) {
+            if (!searchTerm || searchTerm.trim() === '') {
+                return images;
+            }
+            
+            const term = searchTerm.toLowerCase();
+            
+            return images.filter(img => {
+                // Search across: ID, Patient, Task, Source, Original filename, Date
+                const id = img.id.toString();
+                const patient = img.patient_id.toLowerCase();
+                const task = img.task_type.toLowerCase();
+                const source = img.source_format.toLowerCase();
+                const filename = img.original_filename.toLowerCase();
+                const date = new Date(img.uploaded_at).toLocaleDateString().toLowerCase();
+                
+                return id.includes(term) ||
+                       patient.includes(term) ||
+                       task.includes(term) ||
+                       source.includes(term) ||
+                       filename.includes(term) ||
+                       date.includes(term);
+            });
+        }
+        
+        function getPaginatedData() {
+            const start = currentPage * pageSize;
+            const end = start + pageSize;
+            return existingData.slice(start, end);
+        }
+        
+        function updateResultCount() {
+            const count = existingData.length;
+            const countElement = document.getElementById('resultCount');
+            countElement.textContent = `${count} ${count === 1 ? 'item' : 'items'}`;
+            
+            // Change color if filtered
+            if (searchTerm && searchTerm.trim() !== '') {
+                countElement.style.background = '#28a745';  // Green when searching
+            } else {
+                countElement.style.background = '#667eea';  // Default blue
+            }
+        }
+        
+        function searchData() {
+            searchTerm = document.getElementById('searchInput').value;
+            currentPage = 0;  // Reset to first page on search
+            existingData = filterBySearch(allData);
+            totalPages = Math.ceil(existingData.length / pageSize);
+            updateResultCount();
+            renderDataTable(getPaginatedData());
+            updatePagination();
+        }
+        
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            searchData();
+        }
+        
+        function sortData() {
+            // Sort existingData based on current sortColumn and sortDirection
+            existingData.sort((a, b) => {
+                let valA, valB;
+                
+                switch(sortColumn) {
+                    case 'id':
+                        valA = a.id;
+                        valB = b.id;
+                        break;
+                    case 'patient':
+                        valA = a.patient_id.toLowerCase();
+                        valB = b.patient_id.toLowerCase();
+                        break;
+                    case 'task':
+                        valA = a.task_type.toLowerCase();
+                        valB = b.task_type.toLowerCase();
+                        break;
+                    case 'source':
+                        valA = a.source_format.toLowerCase();
+                        valB = b.source_format.toLowerCase();
+                        break;
+                    case 'resolution':
+                        valA = a.width * a.height;
+                        valB = b.width * b.height;
+                        break;
+                    case 'filename':
+                        valA = a.original_filename.toLowerCase();
+                        valB = b.original_filename.toLowerCase();
+                        break;
+                    case 'date':
+                        valA = new Date(a.uploaded_at).getTime();
+                        valB = new Date(b.uploaded_at).getTime();
+                        break;
+                    default:
+                        return 0;
+                }
+                
+                // Compare
+                let comparison = 0;
+                if (valA < valB) comparison = -1;
+                if (valA > valB) comparison = 1;
+                
+                // Apply direction
+                return sortDirection === 'asc' ? comparison : -comparison;
+            });
+        }
+        
+        function sortBy(column) {
+            // Toggle direction if same column, otherwise default to desc
+            if (sortColumn === column) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortColumn = column;
+                sortDirection = 'desc';
+            }
+            
+            // Sort and update UI
+            sortData();
+            updateSortIcons();
+            currentPage = 0;  // Reset to first page
+            renderDataTable(getPaginatedData());
+            updatePagination();
+        }
+        
+        function updateSortIcons() {
+            // Reset all icons
+            document.querySelectorAll('.sort-icon').forEach(icon => {
+                icon.classList.remove('active');
+                icon.textContent = '↕';
+            });
+            
+            // Set active icon
+            const activeIcon = document.getElementById(`sort-${sortColumn}`);
+            if (activeIcon) {
+                activeIcon.classList.add('active');
+                activeIcon.textContent = sortDirection === 'asc' ? '↑' : '↓';
+            }
+        }
+        
+        function renderDataTable(images) {
+            const container = document.getElementById('dataRows');
+            
+            if (images.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <h3>No training data found</h3>
+                        <p>Upload some files to get started</p>
+                        <a href="/ai_training_data_upload.html" class="btn" style="display: inline-block; margin-top: 20px;">➕ Add New Data</a>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = images.map((img, pageIndex) => {
+                // Find real index in existingData for correct preview
+                const realIndex = existingData.findIndex(item => item.id === img.id);
+                
+                const date = new Date(img.uploaded_at).toLocaleDateString();
+                const shortFilename = img.original_filename.length > 30 
+                    ? img.original_filename.substring(0, 27) + '...' 
+                    : img.original_filename;
+                
+                return `
+                    <div class="data-row" onclick="showPreview(${realIndex})">
+                        <div class="data-cell">${img.id}</div>
+                        <div class="data-cell">${img.patient_id}</div>
+                        <div class="data-cell"><span class="badge ${img.task_type.toLowerCase()}">${img.task_type}</span></div>
+                        <div class="data-cell"><span class="badge ${img.source_format.toLowerCase()}">${img.source_format}</span></div>
+                        <div class="data-cell">${img.width}×${img.height}</div>
+                        <div class="data-cell" style="font-size: 0.8em;" title="${img.original_filename}">${shortFilename}</div>
+                        <div class="data-cell">${date}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function showPreview(index) {
+            const img = existingData[index];
+            const modal = document.getElementById('previewModal');
+            const modalImages = document.getElementById('modalImages');
+            
+            document.getElementById('modalTitle').textContent = `${img.patient_id} - ${img.task_type}`;
+            document.getElementById('modalSubtitle').textContent = 
+                `Source: ${img.source_format} | Original: ${img.original_filename}`;
+            
+            // For both MAT and OCS: Show Original + Processed
+            // MAT: API extracts unoptimized drawing on-the-fly
+            // OCS: API returns actual original PNG
+            const sourceLabel = img.source_format === 'MAT' 
+                ? '📊 Original Drawing (from .mat)' 
+                : '📷 Original Uploaded';
+            
+            const sourceDesc = img.source_format === 'MAT'
+                ? 'Unoptimized drawing from MATLAB file'
+                : 'Human rating with red pixels';
+            
+            const isMAT = img.source_format === 'MAT';
+            
+            // Add cache buster to force reload
+            const cacheBuster = Date.now();
+            
+            modalImages.innerHTML = `
+                <div class="modal-image-section">
+                    <h3>${sourceLabel}</h3>
+                    <img src="/api/training-data-image/${img.id}/original?v=${cacheBuster}" alt="Original">
+                    <p style="color: #999; font-size: 0.85em; margin-top: 5px; text-align: center;">
+                        ${isMAT ? 'Unoptimized, original thickness' : 'With red pixels and grid'}
+                    </p>
+                    <div class="image-meta">
+                        <p><strong>Image ID:</strong> ${img.id}</p>
+                        <p><strong>Patient:</strong> ${img.patient_id}</p>
+                        <p><strong>Task:</strong> ${img.task_type}</p>
+                        <p><strong>Source:</strong> ${sourceDesc}</p>
+                    </div>
+                </div>
+                
+                <div class="modal-image-section">
+                    <h3>✨ Optimized (CNN-Ready)</h3>
+                    <img src="/api/training-data-image/${img.id}/processed?v=${cacheBuster}" 
+                         alt="Processed" 
+                         style="border: 2px solid #28a745;">
+                    <p style="color: #28a745; font-size: 0.85em; margin-top: 5px; text-align: center;">
+                        Auto-cropped, normalized, CNN-ready
+                    </p>
+                    <div class="image-meta">
+                        <p><strong>Resolution:</strong> ${img.width}×${img.height}px</p>
+                        <p><strong>Line Thickness:</strong> 2.00px (normalized)</p>
+                        <p><strong>Format:</strong> Black-on-white PNG</p>
+                        <p><strong>Auto-cropped:</strong> 5px padding</p>
+                    </div>
+                </div>
+            `;
+            
+            modal.classList.add('show');
+        }
+        
+        function closeModal() {
+            document.getElementById('previewModal').classList.remove('show');
+        }
+        
+        function updatePagination() {
+            document.getElementById('pageInfo').textContent = `Page ${currentPage + 1} of ${totalPages || 1}`;
+            document.getElementById('prevBtn').disabled = currentPage === 0;
+            document.getElementById('nextBtn').disabled = currentPage >= totalPages - 1 || totalPages === 0;
+        }
+        
+        function changePage(delta) {
+            currentPage += delta;
+            if (currentPage < 0) currentPage = 0;
+            if (currentPage >= totalPages) currentPage = totalPages - 1;
+            
+            // Re-render with new page (no need to reload from API)
+            renderDataTable(getPaginatedData());
+            updatePagination();
+        }
+        
+        
+        function showAlert(type, message) {
+            const alert = document.getElementById('alert');
+            alert.className = `alert ${type} show`;
+            alert.textContent = message;
+            setTimeout(() => alert.classList.remove('show'), 8000);
+        }
+        
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+        
+        // Load data on page load
+        loadData();
+    </script>
+</body>
+</html>
+

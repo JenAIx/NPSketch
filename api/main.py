@@ -26,7 +26,8 @@ from routers import (
     upload_router,
     evaluations_router,
     references_router,
-    test_images_router
+    test_images_router,
+    training_data_router
 )
 
 # Initialize FastAPI app
@@ -45,6 +46,7 @@ app.include_router(upload_router)
 app.include_router(evaluations_router)
 app.include_router(references_router)
 app.include_router(test_images_router)
+app.include_router(training_data_router)
 
 
 @app.on_event("startup")

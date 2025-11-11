@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPSketch - Upload Training Data</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        
+        .section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .section h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+        
+        .format-selector {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        
+        .format-option {
+            padding: 20px;
+            border: 2px solid #ddd;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+        }
+        
+        .format-option:hover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+        
+        .format-option.selected {
+            border-color: #667eea;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+        }
+        
+        .format-option h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.2em;
+        }
+        
+        .format-option p {
+            color: #666;
+            font-size: 0.9em;
+            line-height: 1.5;
+        }
+        
+        .format-icon {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .upload-area {
+            border: 3px dashed #ccc;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 20px;
+        }
+        
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+        
+        .upload-area.dragover {
+            border-color: #667eea;
+            background: #e8f0fe;
+        }
+        
+        .upload-icon {
+            font-size: 3em;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+        
+        .file-info {
+            color: #666;
+            margin-top: 15px;
+            font-size: 0.95em;
+        }
+        
+        .btn {
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+        
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 30px;
+        }
+        
+        .loading.show {
+            display: block;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .alert.show {
+            display: block;
+        }
+        
+        .alert.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .alert.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .file-list {
+            margin-top: 15px;
+        }
+        
+        .file-item {
+            background: white;
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .file-item-name {
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .file-item-size {
+            color: #666;
+            font-size: 0.85em;
+        }
+        
+        .file-item-remove {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+        }
+        
+        .file-item-remove:hover {
+            background: #c82333;
+        }
+        
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }
+        
+        .info-box ul {
+            margin: 10px 0 0 20px;
+            color: #0c5460;
+        }
+        
+        .info-box li {
+            margin: 5px 0;
+        }
+        
+        .results {
+            display: none;
+            margin-top: 30px;
+        }
+        
+        .results.show {
+            display: block;
+        }
+        
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .results-stats {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .stat-badge {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.9em;
+        }
+        
+        .stat-badge.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .stat-badge.duplicate {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .stat-badge.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .stat-badge.info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .result-list {
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .result-item {
+            border-bottom: 1px solid #e9ecef;
+            padding: 15px 20px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .result-item:hover {
+            background: #f8f9fa;
+        }
+        
+        .result-item:last-child {
+            border-bottom: none;
+        }
+        
+        .result-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .result-item-filename {
+            font-weight: 600;
+            color: #333;
+            font-size: 0.95em;
+        }
+        
+        .result-item-status {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        
+        .result-item-status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .result-item-status.duplicate {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .result-item-status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .result-item-body {
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        .result-item-images {
+            margin-top: 8px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .result-image-badge {
+            background: #e9ecef;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            color: #495057;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        
+        .modal.show {
+            display: flex;
+        }
+        
+        .modal-content {
+            max-width: 1200px;
+            width: 100%;
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: relative;
+        }
+        
+        .modal-close {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #dc3545;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            font-size: 1.5em;
+            cursor: pointer;
+            color: white;
+        }
+        
+        .modal-close:hover {
+            background: #c82333;
+        }
+        
+        .modal-header h2 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .modal-images {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .modal-image-section {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        
+        .modal-image-section h3 {
+            color: #495057;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+        
+        .modal-image-section h4 {
+            color: #666;
+            font-size: 0.95em;
+            margin-bottom: 8px;
+        }
+        
+        .modal-image-section img {
+            width: 100%;
+            border-radius: 6px;
+            background: white;
+            padding: 10px;
+        }
+        
+        .image-meta {
+            margin-top: 10px;
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        .image-meta p {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/ai_training_data_view.html" class="back-link">← Back to View Data</a>
+        
+        <h1>➕ Upload Training Data</h1>
+        <p class="subtitle">Process new MAT files or OCS images for AI training</p>
+        
+        <div class="alert" id="alert"></div>
+        
+        <!-- Format Selection -->
+        <div class="section">
+            <h2>Step 1: Select Data Format</h2>
+            <div class="format-selector">
+                <div class="format-option" id="formatMAT" onclick="selectFormat('mat')">
+                    <div class="format-icon">📊</div>
+                    <h3>MATLAB .mat Files</h3>
+                    <p>Machine tablet recordings from neuropsychological assessments</p>
+                    <p style="margin-top: 10px;"><small>Extracts: COPY drawn, RECALL drawn (2 images per file)</small></p>
+                </div>
+                
+                <div class="format-option" id="formatOCS" onclick="selectFormat('ocs')">
+                    <div class="format-icon">🎨</div>
+                    <h3>OCS PNG/JPG Images</h3>
+                    <p>Human expert ratings with red-pixel annotations</p>
+                    <p style="margin-top: 10px;"><small>Extracts: COPY or RECALL rating (1 image per file)</small></p>
+                </div>
+            </div>
+            
+            <div class="info-box" id="formatInfo" style="display: none;">
+                <p><strong>Processing Details:</strong></p>
+                <ul id="formatDetails"></ul>
+            </div>
+        </div>
+        
+        <!-- File Upload -->
+        <div class="section" style="display: none;" id="uploadSection">
+            <h2>Step 2: Upload Files</h2>
+            
+            <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                <div class="upload-icon">📁</div>
+                <h3>Click to browse or drag & drop files</h3>
+                <p class="file-info" id="fileInfo">No files selected</p>
+            </div>
+            
+            <input type="file" id="fileInput" multiple accept="" style="display: none;">
+            
+            <div class="file-list" id="fileList"></div>
+            
+            <button class="btn" id="processBtn" onclick="processFiles()" disabled>
+                🚀 Process & Save to Database
+            </button>
+            
+            <button class="btn btn-secondary" onclick="clearFiles()" style="margin-left: 10px;">
+                Clear All
+            </button>
+        </div>
+        
+        <!-- Processing Status -->
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p id="loadingText">Processing files and saving to database...</p>
+        </div>
+        
+        <!-- Upload Results -->
+        <div class="results" id="results">
+            <div class="results-header">
+                <h2>📦 Upload Results</h2>
+                <div class="results-stats" id="resultsStats"></div>
+            </div>
+            
+            <div class="result-list" id="resultList"></div>
+            
+            <div style="margin-top: 20px; text-align: center;">
+                <a href="/ai_training_data_view.html" class="btn">📊 View All Training Data</a>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Preview Modal -->
+    <div class="modal" id="previewModal" onclick="closeModal()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <button class="modal-close" onclick="closeModal()">×</button>
+            <div class="modal-header">
+                <h2 id="modalTitle"></h2>
+                <p style="color: #666;" id="modalSubtitle"></p>
+            </div>
+            <div class="modal-images" id="modalImages"></div>
+        </div>
+    </div>
+    
+    <script>
+        let selectedFormat = null;
+        let selectedFiles = [];
+        let processingResults = null;
+        
+        function selectFormat(format) {
+            selectedFormat = format;
+            
+            document.getElementById('formatMAT').classList.toggle('selected', format === 'mat');
+            document.getElementById('formatOCS').classList.toggle('selected', format === 'ocs');
+            
+            document.getElementById('uploadSection').style.display = 'block';
+            
+            const fileInput = document.getElementById('fileInput');
+            if (format === 'mat') {
+                fileInput.accept = '.mat';
+            } else {
+                fileInput.accept = '.png,.jpg,.jpeg';
+            }
+            
+            const formatInfo = document.getElementById('formatInfo');
+            const formatDetails = document.getElementById('formatDetails');
+            formatInfo.style.display = 'block';
+            
+            if (format === 'mat') {
+                formatDetails.innerHTML = `
+                    <li>Resolution: 568×274 pixels (landscape)</li>
+                    <li>Line thickness: 2.00px (normalized)</li>
+                    <li>Auto-cropping: Enabled (5px padding)</li>
+                    <li>Output per file: 2 images (COPY, RECALL only - no REFERENCE)</li>
+                    <li>Storage: Original .mat + 2 processed PNGs</li>
+                    <li>Duplicate check: Per extracted image (COPY and RECALL are separate)</li>
+                `;
+            } else {
+                formatDetails.innerHTML = `
+                    <li>Resolution: 568×274 pixels (landscape)</li>
+                    <li>Line thickness: 2.00px (normalized)</li>
+                    <li>Red pixel extraction: R≥200, G≤100, B≤100</li>
+                    <li>Output per file: 1 image (COPY or RECALL)</li>
+                    <li>Storage: Original PNG + processed PNG</li>
+                    <li>Duplicate check: Per original file</li>
+                `;
+            }
+            
+            clearFiles();
+        }
+        
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+        
+        function handleFileSelect(e) {
+            const files = Array.from(e.target.files);
+            addFiles(files);
+        }
+        
+        function addFiles(files) {
+            files.forEach(file => {
+                if (selectedFormat === 'mat' && !file.name.endsWith('.mat')) {
+                    showAlert('error', `Invalid: ${file.name}. Select .mat files.`);
+                    return;
+                }
+                if (selectedFormat === 'ocs' && !file.name.match(/\.(png|jpg|jpeg)$/i)) {
+                    showAlert('error', `Invalid: ${file.name}. Select PNG/JPG files.`);
+                    return;
+                }
+                
+                selectedFiles.push(file);
+            });
+            
+            updateFileList();
+            updateProcessButton();
+        }
+        
+        function updateFileList() {
+            const fileList = document.getElementById('fileList');
+            const fileInfo = document.getElementById('fileInfo');
+            
+            if (selectedFiles.length === 0) {
+                fileList.innerHTML = '';
+                fileInfo.textContent = 'No files selected';
+                return;
+            }
+            
+            fileInfo.textContent = `${selectedFiles.length} file(s) selected`;
+            
+            fileList.innerHTML = selectedFiles.map((file, index) => `
+                <div class="file-item">
+                    <div>
+                        <div class="file-item-name">${file.name}</div>
+                        <div class="file-item-size">${formatFileSize(file.size)}</div>
+                    </div>
+                    <button class="file-item-remove" onclick="removeFile(${index})">Remove</button>
+                </div>
+            `).join('');
+        }
+        
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            updateFileList();
+            updateProcessButton();
+        }
+        
+        function clearFiles() {
+            selectedFiles = [];
+            document.getElementById('fileInput').value = '';
+            updateFileList();
+            updateProcessButton();
+            hideResults();
+        }
+        
+        function updateProcessButton() {
+            document.getElementById('processBtn').disabled = selectedFiles.length === 0;
+        }
+        
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+        
+        // Drag & drop
+        const uploadArea = document.getElementById('uploadArea');
+        
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = Array.from(e.dataTransfer.files);
+            addFiles(files);
+        });
+        
+        // Process files
+        async function processFiles() {
+            if (!selectedFormat || selectedFiles.length === 0) return;
+            
+            document.getElementById('loading').classList.add('show');
+            document.getElementById('processBtn').disabled = true;
+            hideAlert();
+            hideResults();
+            
+            const formData = new FormData();
+            formData.append('format', selectedFormat);
+            
+            selectedFiles.forEach(file => {
+                formData.append('files', file);
+            });
+            
+            try {
+                const response = await fetch('/api/extract-training-data', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    processingResults = data;
+                    showResults();
+                    
+                    const stats = data.statistics;
+                    showAlert('success', 
+                        `Processed ${stats.total_files} file(s): ` +
+                        `${stats.success} success, ${stats.duplicates} duplicates, ${stats.errors} errors. ` +
+                        `Total ${stats.total_images_extracted} images saved to database.`
+                    );
+                } else {
+                    throw new Error(data.error || 'Processing failed');
+                }
+            } catch (error) {
+                showAlert('error', `Error: ${error.message}`);
+            } finally {
+                document.getElementById('loading').classList.remove('show');
+                document.getElementById('processBtn').disabled = false;
+            }
+        }
+        
+        function showResults() {
+            const results = document.getElementById('results');
+            const statsContainer = document.getElementById('resultsStats');
+            const listContainer = document.getElementById('resultList');
+            
+            results.classList.add('show');
+            
+            const stats = processingResults.statistics;
+            
+            statsContainer.innerHTML = `
+                <div class="stat-badge info">Total: ${stats.total_files}</div>
+                <div class="stat-badge success">Success: ${stats.success}</div>
+                <div class="stat-badge duplicate">Duplicates: ${stats.duplicates}</div>
+                <div class="stat-badge error">Errors: ${stats.errors}</div>
+                <div class="stat-badge info">Images: ${stats.total_images_extracted}</div>
+            `;
+            
+            listContainer.innerHTML = processingResults.results.map((result, index) => {
+                const statusClass = result.status;
+                const statusText = result.status.charAt(0).toUpperCase() + result.status.slice(1);
+                
+                let bodyHtml = `<div class="result-item-body">${result.message}</div>`;
+                
+                if (result.extracted_images && result.extracted_images.length > 0) {
+                    bodyHtml += `<div class="result-item-images">`;
+                    result.extracted_images.forEach(img => {
+                        bodyHtml += `<span class="result-image-badge">${img.patient_id} - ${img.task_type}</span>`;
+                    });
+                    bodyHtml += `</div>`;
+                }
+                
+                return `
+                    <div class="result-item" onclick="showPreview(${index})">
+                        <div class="result-item-header">
+                            <div class="result-item-filename">${result.original_filename}</div>
+                            <div class="result-item-status ${statusClass}">${statusText}</div>
+                        </div>
+                        ${bodyHtml}
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function hideResults() {
+            document.getElementById('results').classList.remove('show');
+        }
+        
+        function showPreview(index) {
+            const result = processingResults.results[index];
+            const modal = document.getElementById('previewModal');
+            const modalImages = document.getElementById('modalImages');
+            
+            document.getElementById('modalTitle').textContent = result.original_filename;
+            document.getElementById('modalSubtitle').textContent = 
+                `Status: ${result.status} | ${result.message}`;
+            
+            if (result.status === 'success' && result.extracted_images && result.extracted_images.length > 0) {
+                // For both MAT and OCS: Show Original + Processed as images
+                // MAT: API extracts reference image on-the-fly
+                // OCS: API returns actual original PNG
+                const isMAT = selectedFormat === 'mat';
+                
+                modalImages.innerHTML = result.extracted_images.map(img => {
+                    const sourceLabel = isMAT 
+                        ? '📊 Original Drawing (from .mat)' 
+                        : '📷 Original Uploaded';
+                    
+                    return `
+                        <div class="modal-image-section">
+                            <h3>${img.patient_id} - ${img.task_type}</h3>
+                            
+                            <div style="margin-bottom: 15px;">
+                                <h4>${sourceLabel}</h4>
+                                <img src="/api/training-data-image/${img.id}/original" 
+                                     alt="Original"
+                                     style="border: 2px solid #dee2e6;">
+                                <p style="color: #999; font-size: 0.85em; margin-top: 5px; text-align: center;">
+                                    ${isMAT ? 'Unoptimized, original thickness' : 'With red pixels and grid'}
+                                </p>
+                            </div>
+                            
+                            <div>
+                                <h4>✨ Optimized (568×274, 2px lines):</h4>
+                                <img src="/api/training-data-image/${img.id}/processed" 
+                                     alt="Processed"
+                                     style="border: 2px solid #28a745;">
+                                <p style="color: #28a745; font-size: 0.85em; margin-top: 5px; text-align: center;">
+                                    Auto-cropped, normalized, CNN-ready
+                                </p>
+                            </div>
+                            
+                            <div class="image-meta">
+                                <p><strong>ID:</strong> ${img.id}</p>
+                                <p><strong>Patient:</strong> ${img.patient_id}</p>
+                                <p><strong>Task:</strong> ${img.task_type}</p>
+                                <p><strong>Resolution:</strong> ${img.width}×${img.height}px</p>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                modalImages.innerHTML = `
+                    <div class="modal-image-section">
+                        <p style="color: #666;">No processed images available.</p>
+                        <p style="color: #666; margin-top: 10px;">${result.message}</p>
+                    </div>
+                `;
+            }
+            
+            modal.classList.add('show');
+        }
+        
+        function closeModal() {
+            document.getElementById('previewModal').classList.remove('show');
+        }
+        
+        function showAlert(type, message) {
+            const alert = document.getElementById('alert');
+            alert.className = `alert ${type} show`;
+            alert.textContent = message;
+            setTimeout(() => alert.classList.remove('show'), 8000);
+        }
+        
+        function hideAlert() {
+            document.getElementById('alert').classList.remove('show');
+        }
+        
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+    </script>
+</body>
+</html>

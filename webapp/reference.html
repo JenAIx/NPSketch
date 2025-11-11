@@ -47,8 +47,8 @@
         
         .canvas-wrapper {
             position: relative;
-            width: 256px;
-            height: 256px;
+            width: 568px;
+            height: 274px;
             margin: 0 auto;
             border: 3px solid #667eea;
             cursor: crosshair;
@@ -280,7 +280,7 @@
             <div class="canvas-section">
                 <div class="canvas-wrapper">
                     <img id="referenceImage" />
-                    <canvas id="canvas" width="256" height="256"></canvas>
+                    <canvas id="canvas" width="568" height="274"></canvas>
                 </div>
                 
                 <div class="counter">
@@ -433,8 +433,8 @@
             if (!createMode) return;
             
             const rect = canvas.getBoundingClientRect();
-            const x = Math.round((e.clientX - rect.left) * (256 / rect.width));
-            const y = Math.round((e.clientY - rect.top) * (256 / rect.height));
+            const x = Math.round((e.clientX - rect.left) * (568 / rect.width));
+            const y = Math.round((e.clientY - rect.top) * (274 / rect.height));
             
             if (!firstPoint) {
                 firstPoint = {x, y};

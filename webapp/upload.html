@@ -63,7 +63,7 @@
             border: 2px solid #ddd;
             border-radius: 8px;
             overflow: hidden;
-            aspect-ratio: 1;
+            aspect-ratio: 568 / 274;
         }
         
         .canvas-overlay {
@@ -441,7 +441,7 @@
                 </div>
                 
                 <div class="canvas-container">
-                    <canvas id="uploadCanvas" width="256" height="256"></canvas>
+                    <canvas id="uploadCanvas" width="568" height="274"></canvas>
                     <!-- Loading overlay on canvas -->
                     <div class="canvas-overlay" id="canvasLoading">
                         <div class="spinner"></div>
@@ -501,7 +501,7 @@
                 </div>
                 
                 <div class="canvas-container">
-                    <canvas id="referenceCanvas" width="256" height="256"></canvas>
+                    <canvas id="referenceCanvas" width="568" height="274"></canvas>
                 </div>
                 
                 <div class="controls">
@@ -629,7 +629,7 @@
                     throw new Error(`API error: ${response.status}`);
                 }
                 
-                // Get normalized 256×256 image as blob
+                // Get normalized 568×274 image as blob
                 const blob = await response.blob();
                 const imageUrl = URL.createObjectURL(blob);
                 

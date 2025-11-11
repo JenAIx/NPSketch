@@ -177,6 +177,41 @@ class TestImage(Base):
         return f"<TestImage(id={self.id}, name='{self.test_name}')>"
 
 
+class TrainingDataImage(Base):
+    """
+    Stores AI training data images extracted from MAT files or OCS images.
+    
+    Attributes:
+        id: Primary key
+        patient_id: Patient identifier (e.g., PC56, Park_16, TEAMK299)
+        task_type: Type of task (COPY, RECALL, REFERENCE)
+        source_format: Source format (MAT, OCS)
+        original_filename: Original uploaded filename
+        original_file_data: Original uploaded file (before extraction)
+        processed_image_data: Extracted and normalized image (568×274, 2px lines)
+        image_hash: SHA256 hash of original file for duplicate detection
+        extraction_metadata: JSON with extraction details (width, height, line_thickness, etc.)
+        session_id: Upload session identifier
+        uploaded_at: Timestamp of upload
+    """
+    __tablename__ = "training_data_images"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(String, index=True)  # e.g., PC56, Park_16
+    task_type = Column(String, index=True)  # COPY, RECALL, REFERENCE
+    source_format = Column(String, index=True)  # MAT, OCS
+    original_filename = Column(String)
+    original_file_data = Column(LargeBinary)  # Original uploaded file
+    processed_image_data = Column(LargeBinary)  # Extracted 568×274 image
+    image_hash = Column(String(64), index=True)  # SHA256 for duplicate detection
+    extraction_metadata = Column(String, nullable=True)  # JSON string
+    session_id = Column(String, index=True)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    
+    def __repr__(self):
+        return f"<TrainingDataImage(id={self.id}, patient={self.patient_id}, task={self.task_type})>"
+
+
 def init_database():
     """
     Initialize the database by creating all tables.
