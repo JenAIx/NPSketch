@@ -130,7 +130,7 @@
         
         .data-row {
             display: grid;
-            grid-template-columns: 60px 150px 100px 100px 150px 1fr 120px;
+            grid-template-columns: 60px 150px 100px 100px 100px 1fr 120px 100px;
             padding: 12px 15px;
             border-bottom: 1px solid #e9ecef;
             cursor: pointer;
@@ -206,6 +206,17 @@
             color: #721c24;
         }
         
+        .badge.has-features {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .badge.missing-features {
+            background: #f8d7da;
+            color: #721c24;
+            font-weight: 700;
+        }
+        
         .empty-state {
             text-align: center;
             padding: 60px 20px;
@@ -271,10 +282,16 @@
         }
         
         .modal-images {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .modal-images-row {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
             gap: 20px;
-            margin-top: 20px;
         }
         
         .modal-image-section {
@@ -310,6 +327,67 @@
         
         .image-meta p {
             margin: 5px 0;
+        }
+        
+        .feature-editor {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        
+        .feature-editor h3 {
+            color: #856404;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+        
+        .feature-list {
+            background: white;
+            border-radius: 6px;
+            padding: 10px;
+            margin: 15px 0;
+        }
+        
+        .feature-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        .feature-item:last-child {
+            border-bottom: none;
+        }
+        
+        .feature-key {
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        .feature-value {
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        .feature-input-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .feature-input-group input {
+            flex: 1;
+            padding: 8px;
+            border: 2px solid #dee2e6;
+            border-radius: 4px;
+        }
+        
+        .feature-input-group input:focus {
+            outline: none;
+            border-color: #667eea;
         }
         
         .pagination {
@@ -392,12 +470,16 @@
         
         <!-- Data Table -->
         <div class="section">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; gap: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; gap: 20px; flex-wrap: wrap;">
                 <h2 style="margin: 0;">Training Data Images</h2>
-                <div style="display: flex; gap: 10px; flex: 1; max-width: 600px; align-items: center;">
+                <div style="display: flex; gap: 10px; flex: 1; max-width: 700px; align-items: center;">
                     <div id="resultCount" style="background: #667eea; color: white; padding: 8px 16px; border-radius: 20px; font-weight: 600; font-size: 0.9em; white-space: nowrap;">
                         0 items
                     </div>
+                    <label style="display: flex; align-items: center; gap: 6px; background: #fff3cd; padding: 6px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; font-size: 0.9em;">
+                        <input type="checkbox" id="filterMissing" onchange="searchData()" style="cursor: pointer;">
+                        <span style="color: #856404; font-weight: 600;">Only Missing</span>
+                    </label>
                     <input type="text" 
                            id="searchInput" 
                            placeholder="🔍 Search ID, Patient, Task, Source, Date..." 
@@ -437,6 +519,10 @@
                     <div class="data-cell" onclick="sortBy('date')">
                         <span>Date</span>
                         <span class="sort-icon" id="sort-date">↕</span>
+                    </div>
+                    <div class="data-cell" onclick="sortBy('features')">
+                        <span>Features</span>
+                        <span class="sort-icon" id="sort-features">↕</span>
                     </div>
                 </div>
                 <div id="dataRows"></div>
@@ -518,28 +604,37 @@
         }
         
         function filterBySearch(images) {
-            if (!searchTerm || searchTerm.trim() === '') {
-                return images;
+            let filtered = images;
+            
+            // Filter by "Only Missing" checkbox
+            const onlyMissing = document.getElementById('filterMissing').checked;
+            if (onlyMissing) {
+                filtered = filtered.filter(img => !img.has_features);
             }
             
-            const term = searchTerm.toLowerCase();
-            
-            return images.filter(img => {
-                // Search across: ID, Patient, Task, Source, Original filename, Date
-                const id = img.id.toString();
-                const patient = img.patient_id.toLowerCase();
-                const task = img.task_type.toLowerCase();
-                const source = img.source_format.toLowerCase();
-                const filename = img.original_filename.toLowerCase();
-                const date = new Date(img.uploaded_at).toLocaleDateString().toLowerCase();
+            // Filter by search term
+            if (searchTerm && searchTerm.trim() !== '') {
+                const term = searchTerm.toLowerCase();
                 
-                return id.includes(term) ||
-                       patient.includes(term) ||
-                       task.includes(term) ||
-                       source.includes(term) ||
-                       filename.includes(term) ||
-                       date.includes(term);
-            });
+                filtered = filtered.filter(img => {
+                    // Search across: ID, Patient, Task, Source, Original filename, Date
+                    const id = img.id.toString();
+                    const patient = img.patient_id.toLowerCase();
+                    const task = img.task_type.toLowerCase();
+                    const source = img.source_format.toLowerCase();
+                    const filename = img.original_filename.toLowerCase();
+                    const date = new Date(img.uploaded_at).toLocaleDateString().toLowerCase();
+                    
+                    return id.includes(term) ||
+                           patient.includes(term) ||
+                           task.includes(term) ||
+                           source.includes(term) ||
+                           filename.includes(term) ||
+                           date.includes(term);
+                });
+            }
+            
+            return filtered;
         }
         
         function getPaginatedData() {
@@ -573,6 +668,7 @@
         
         function clearSearch() {
             document.getElementById('searchInput').value = '';
+            document.getElementById('filterMissing').checked = false;
             searchData();
         }
         
@@ -609,6 +705,10 @@
                     case 'date':
                         valA = new Date(a.uploaded_at).getTime();
                         valB = new Date(b.uploaded_at).getTime();
+                        break;
+                    case 'features':
+                        valA = a.has_features ? 1 : 0;
+                        valB = b.has_features ? 1 : 0;
                         break;
                     default:
                         return 0;
@@ -680,6 +780,10 @@
                     ? img.original_filename.substring(0, 27) + '...' 
                     : img.original_filename;
                 
+                const featuresBadge = img.has_features 
+                    ? '<span class="badge has-features">✓ Set</span>'
+                    : '<span class="badge missing-features">MISSING</span>';
+                
                 return `
                     <div class="data-row" onclick="showPreview(${realIndex})">
                         <div class="data-cell">${img.id}</div>
@@ -689,12 +793,13 @@
                         <div class="data-cell">${img.width}×${img.height}</div>
                         <div class="data-cell" style="font-size: 0.8em;" title="${img.original_filename}">${shortFilename}</div>
                         <div class="data-cell">${date}</div>
+                        <div class="data-cell">${featuresBadge}</div>
                     </div>
                 `;
             }).join('');
         }
         
-        function showPreview(index) {
+        async function showPreview(index) {
             const img = existingData[index];
             const modal = document.getElementById('previewModal');
             const modalImages = document.getElementById('modalImages');
@@ -702,6 +807,16 @@
             document.getElementById('modalTitle').textContent = `${img.patient_id} - ${img.task_type}`;
             document.getElementById('modalSubtitle').textContent = 
                 `Source: ${img.source_format} | Original: ${img.original_filename}`;
+            
+            // Load features
+            let featuresData = {};
+            try {
+                const response = await fetch(`/api/training-data-image/${img.id}/features`);
+                const data = await response.json();
+                featuresData = data.features || {};
+            } catch (error) {
+                console.error('Error loading features:', error);
+            }
             
             // For both MAT and OCS: Show Original + Processed
             // MAT: API extracts unoptimized drawing on-the-fly
@@ -719,39 +834,155 @@
             // Add cache buster to force reload
             const cacheBuster = Date.now();
             
-            modalImages.innerHTML = `
-                <div class="modal-image-section">
-                    <h3>${sourceLabel}</h3>
-                    <img src="/api/training-data-image/${img.id}/original?v=${cacheBuster}" alt="Original">
-                    <p style="color: #999; font-size: 0.85em; margin-top: 5px; text-align: center;">
-                        ${isMAT ? 'Unoptimized, original thickness' : 'With red pixels and grid'}
-                    </p>
-                    <div class="image-meta">
-                        <p><strong>Image ID:</strong> ${img.id}</p>
-                        <p><strong>Patient:</strong> ${img.patient_id}</p>
-                        <p><strong>Task:</strong> ${img.task_type}</p>
-                        <p><strong>Source:</strong> ${sourceDesc}</p>
+            const imagesHtml = `
+                <div class="modal-images-row">
+                    <div class="modal-image-section">
+                        <h3>${sourceLabel}</h3>
+                        <img src="/api/training-data-image/${img.id}/original?v=${cacheBuster}" alt="Original">
+                        <p style="color: #999; font-size: 0.85em; margin-top: 5px; text-align: center;">
+                            ${isMAT ? 'Unoptimized, original thickness' : 'With red pixels and grid'}
+                        </p>
+                        <div class="image-meta">
+                            <p><strong>Image ID:</strong> ${img.id}</p>
+                            <p><strong>Patient:</strong> ${img.patient_id}</p>
+                            <p><strong>Task:</strong> ${img.task_type}</p>
+                            <p><strong>Source:</strong> ${sourceDesc}</p>
+                        </div>
                     </div>
-                </div>
-                
-                <div class="modal-image-section">
-                    <h3>✨ Optimized (CNN-Ready)</h3>
-                    <img src="/api/training-data-image/${img.id}/processed?v=${cacheBuster}" 
-                         alt="Processed" 
-                         style="border: 2px solid #28a745;">
-                    <p style="color: #28a745; font-size: 0.85em; margin-top: 5px; text-align: center;">
-                        Auto-cropped, normalized, CNN-ready
-                    </p>
-                    <div class="image-meta">
-                        <p><strong>Resolution:</strong> ${img.width}×${img.height}px</p>
-                        <p><strong>Line Thickness:</strong> 2.00px (normalized)</p>
-                        <p><strong>Format:</strong> Black-on-white PNG</p>
-                        <p><strong>Auto-cropped:</strong> 5px padding</p>
+                    
+                    <div class="modal-image-section">
+                        <h3>✨ Optimized (CNN-Ready)</h3>
+                        <img src="/api/training-data-image/${img.id}/processed?v=${cacheBuster}" 
+                             alt="Processed" 
+                             style="border: 2px solid #28a745;">
+                        <p style="color: #28a745; font-size: 0.85em; margin-top: 5px; text-align: center;">
+                            Auto-cropped, normalized, CNN-ready
+                        </p>
+                        <div class="image-meta">
+                            <p><strong>Resolution:</strong> ${img.width}×${img.height}px</p>
+                            <p><strong>Line Thickness:</strong> 2.00px (normalized)</p>
+                            <p><strong>Format:</strong> Black-on-white PNG</p>
+                            <p><strong>Auto-cropped:</strong> 5px padding</p>
+                        </div>
                     </div>
                 </div>
             `;
             
+            // Add Feature Editor Section
+            const featuresList = Object.keys(featuresData).length > 0
+                ? Object.entries(featuresData).map(([key, value]) => {
+                    // Escape for HTML display
+                    const safeKey = key.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                    return `
+                        <div class="feature-item">
+                            <span class="feature-key">${safeKey}</span>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <span class="feature-value">${value}</span>
+                                <button class="delete-feature-btn" 
+                                        data-image-id="${img.id}" 
+                                        data-feature-key="${safeKey}" 
+                                        style="background: #dc3545; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.85em;">×</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('')
+                : '<p style="color: #999; text-align: center; padding: 10px;">No features set yet</p>';
+            
+            const featureEditor = `
+                <div class="feature-editor" data-current-image-id="${img.id}">
+                    <h3>🏷️ Features & Labels (for CNN Training)</h3>
+                    <div class="feature-list" id="featuresList">
+                        ${featuresList}
+                    </div>
+                    <div class="feature-input-group">
+                        <input type="text" id="featureKey" placeholder="Feature name (e.g., quality_score)" />
+                        <input type="number" id="featureValue" placeholder="Numeric value (e.g., 0.85)" step="any" />
+                        <button class="btn btn-small add-feature-btn" style="white-space: nowrap;">+ Add</button>
+                    </div>
+                </div>
+            `;
+            
+            modalImages.innerHTML = imagesHtml + featureEditor;
+            
+            // Add event listeners for feature buttons (event delegation)
+            setTimeout(() => {
+                // Add feature button
+                const addBtn = document.querySelector('.add-feature-btn');
+                if (addBtn) {
+                    addBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        await addFeature(img.id);
+                    });
+                }
+                
+                // Delete feature buttons
+                document.querySelectorAll('.delete-feature-btn').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const imageId = parseInt(btn.getAttribute('data-image-id'));
+                        const featureKey = btn.getAttribute('data-feature-key');
+                        await deleteFeature(imageId, featureKey);
+                    });
+                });
+            }, 0);
+            
             modal.classList.add('show');
+        }
+        
+        async function addFeature(imageId) {
+            const key = document.getElementById('featureKey').value.trim();
+            const value = parseFloat(document.getElementById('featureValue').value);
+            
+            if (!key || isNaN(value)) {
+                alert('Please enter both feature name and numeric value');
+                return;
+            }
+            
+            // Get current features
+            const response = await fetch(`/api/training-data-image/${imageId}/features`);
+            const data = await response.json();
+            const features = data.features || {};
+            
+            // Add new feature
+            features[key] = value;
+            
+            // Save
+            await fetch(`/api/training-data-image/${imageId}/features`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(features)
+            });
+            
+            // Reload data and re-open modal
+            await loadData();
+            const newIndex = existingData.findIndex(img => img.id === imageId);
+            if (newIndex >= 0) {
+                showPreview(newIndex);
+            }
+        }
+        
+        async function deleteFeature(imageId, featureKey) {
+            // Get current features
+            const response = await fetch(`/api/training-data-image/${imageId}/features`);
+            const data = await response.json();
+            const features = data.features || {};
+            
+            // Delete feature
+            delete features[featureKey];
+            
+            // Save
+            await fetch(`/api/training-data-image/${imageId}/features`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(features)
+            });
+            
+            // Reload data and re-open modal
+            await loadData();
+            const newIndex = existingData.findIndex(img => img.id === imageId);
+            if (newIndex >= 0) {
+                showPreview(newIndex);
+            }
         }
         
         function closeModal() {

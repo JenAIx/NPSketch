@@ -415,6 +415,8 @@ async def get_training_data_images(
     results = []
     for img in images:
         metadata = json.loads(img.extraction_metadata) if img.extraction_metadata else {}
+        has_features = bool(img.features_data and img.features_data != '{}' and img.features_data != 'null')
+        
         results.append({
             "id": img.id,
             "patient_id": img.patient_id,
@@ -424,7 +426,8 @@ async def get_training_data_images(
             "width": metadata.get("width"),
             "height": metadata.get("height"),
             "uploaded_at": img.uploaded_at.isoformat(),
-            "session_id": img.session_id
+            "session_id": img.session_id,
+            "has_features": has_features
         })
     
     return {
@@ -576,6 +579,62 @@ async def delete_training_data_image(image_id: int, db: Session = Depends(get_db
         raise HTTPException(status_code=404, detail="Image not found")
     
     db.delete(img)
+    db.commit()
+    
+    return {"success": True}
+
+
+@router.get("/training-data-image/{image_id}/features")
+async def get_training_data_features(image_id: int, db: Session = Depends(get_db)):
+    """Get features/labels for a training data image."""
+    img = db.query(TrainingDataImage).filter(TrainingDataImage.id == image_id).first()
+    if not img:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    if img.features_data:
+        features = json.loads(img.features_data)
+    else:
+        features = {}
+    
+    return {
+        "image_id": img.id,
+        "patient_id": img.patient_id,
+        "task_type": img.task_type,
+        "features": features,
+        "has_features": bool(img.features_data and img.features_data != '{}')
+    }
+
+
+@router.post("/training-data-image/{image_id}/features")
+async def update_training_data_features(
+    image_id: int,
+    features: dict,
+    db: Session = Depends(get_db)
+):
+    """Update features/labels for a training data image."""
+    img = db.query(TrainingDataImage).filter(TrainingDataImage.id == image_id).first()
+    if not img:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    # Store features as JSON
+    img.features_data = json.dumps(features)
+    db.commit()
+    
+    return {
+        "success": True,
+        "image_id": img.id,
+        "features": features
+    }
+
+
+@router.delete("/training-data-image/{image_id}/features")
+async def delete_training_data_features(image_id: int, db: Session = Depends(get_db)):
+    """Delete all features/labels for a training data image."""
+    img = db.query(TrainingDataImage).filter(TrainingDataImage.id == image_id).first()
+    if not img:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    img.features_data = None
     db.commit()
     
     return {"success": True}

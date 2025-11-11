@@ -205,6 +205,7 @@ class TrainingDataImage(Base):
     processed_image_data = Column(LargeBinary)  # Extracted 568×274 image
     image_hash = Column(String(64), index=True)  # SHA256 for duplicate detection
     extraction_metadata = Column(String, nullable=True)  # JSON string
+    features_data = Column(String, nullable=True)  # JSON string with classification labels/features for CNN training
     session_id = Column(String, index=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
     
