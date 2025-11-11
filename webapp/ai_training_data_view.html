@@ -468,6 +468,22 @@
             </div>
         </div>
         
+        <!-- Bulk Features Section -->
+        <div class="section">
+            <h2>📊 Bulk Feature Management</h2>
+            <p style="color: #666; margin-bottom: 15px;">Download template, fill in features, and upload to update multiple entries at once.</p>
+            <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                <a href="/api/training-data-features-template" class="btn btn-small" download>
+                    📥 Download CSV Template
+                </a>
+                <button class="btn btn-small" onclick="document.getElementById('csvFileInput').click()" style="background: #28a745;">
+                    📤 Upload Feature Table
+                </button>
+                <input type="file" id="csvFileInput" accept=".csv" style="display: none;" onchange="uploadFeatureCSV()">
+            </div>
+            <div id="csvUploadResult" style="margin-top: 15px;"></div>
+        </div>
+        
         <!-- Data Table -->
         <div class="section">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; gap: 20px; flex-wrap: wrap;">
@@ -1005,6 +1021,66 @@
             updatePagination();
         }
         
+        
+        async function uploadFeatureCSV() {
+            const fileInput = document.getElementById('csvFileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) return;
+            
+            const resultDiv = document.getElementById('csvUploadResult');
+            resultDiv.innerHTML = '<div style="text-align: center; padding: 20px;"><div class="spinner"></div><p>Processing CSV...</p></div>';
+            
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                const response = await fetch('/api/training-data-features-upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <div style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 15px; border-radius: 6px;">
+                            <strong>✅ Upload Successful!</strong>
+                            <p style="margin: 10px 0 0 0;">
+                                Updated: ${data.updated} | Skipped: ${data.skipped} | Total: ${data.total_rows}
+                            </p>
+                            ${data.errors.length > 0 ? `
+                                <details style="margin-top: 10px;">
+                                    <summary style="cursor: pointer;">Errors (${data.errors.length})</summary>
+                                    <ul style="margin: 10px 0 0 20px;">
+                                        ${data.errors.map(err => `<li>${err}</li>`).join('')}
+                                    </ul>
+                                </details>
+                            ` : ''}
+                        </div>
+                    `;
+                    
+                    // Reload data
+                    await loadData();
+                    
+                    // Auto-hide after 5 seconds
+                    setTimeout(() => {
+                        resultDiv.innerHTML = '';
+                    }, 8000);
+                } else {
+                    throw new Error('Upload failed');
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div style="background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 15px; border-radius: 6px;">
+                        <strong>❌ Upload Failed</strong>
+                        <p style="margin: 10px 0 0 0;">${error.message}</p>
+                    </div>
+                `;
+            } finally {
+                fileInput.value = '';
+            }
+        }
         
         function showAlert(type, message) {
             const alert = document.getElementById('alert');

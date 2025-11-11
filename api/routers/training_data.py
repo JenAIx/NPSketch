@@ -9,7 +9,7 @@ Stores original + processed data in database with duplicate detection.
 """
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.orm import Session
 from typing import List
 import os
@@ -25,6 +25,7 @@ import numpy as np
 import io
 import scipy.io
 from PIL import Image
+import csv
 
 from database import get_db, TrainingDataImage
 
@@ -638,6 +639,163 @@ async def delete_training_data_features(image_id: int, db: Session = Depends(get
     db.commit()
     
     return {"success": True}
+
+
+@router.get("/training-data-features-template")
+async def download_features_template(db: Session = Depends(get_db)):
+    """
+    Generate CSV template with all training data entries for bulk feature upload.
+    
+    Returns:
+        CSV file with columns: Patient, Task, Total_Score, Data_Quality
+    """
+    images = db.query(TrainingDataImage).order_by(
+        TrainingDataImage.patient_id, 
+        TrainingDataImage.task_type
+    ).all()
+    
+    # Create CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow(['Patient', 'Task', 'Total_Score', 'Data_Quality'])
+    
+    # Rows - add existing features if present
+    for img in images:
+        features = {}
+        if img.features_data:
+            try:
+                features = json.loads(img.features_data)
+            except:
+                pass
+        
+        total_score = features.get('Total_Score', '')
+        data_quality = features.get('Data_Quality', '')
+        
+        writer.writerow([
+            img.patient_id,
+            img.task_type,
+            total_score,
+            data_quality
+        ])
+    
+    # Return as downloadable CSV
+    csv_content = output.getvalue()
+    output.close()
+    
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=training_data_features_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        }
+    )
+
+
+@router.post("/training-data-features-upload")
+async def upload_features_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload CSV file with features and update database.
+    
+    CSV Format: Patient, Task, Total_Score, Data_Quality
+    Matching: Case-insensitive Patient + Task
+    
+    Returns:
+        Update statistics
+    """
+    try:
+        # Read CSV
+        content = await file.read()
+        content_str = content.decode('utf-8')
+        
+        csv_reader = csv.DictReader(io.StringIO(content_str))
+        
+        updated = 0
+        skipped = 0
+        errors = []
+        
+        for row in csv_reader:
+            try:
+                patient = row.get('Patient', '').strip()
+                task = row.get('Task', '').strip()
+                total_score = row.get('Total_Score', '').strip()
+                data_quality = row.get('Data_Quality', '').strip()
+                
+                if not patient or not task:
+                    skipped += 1
+                    continue
+                
+                # Find matching entry in DB (case-insensitive)
+                img = db.query(TrainingDataImage).filter(
+                    TrainingDataImage.patient_id.ilike(patient),
+                    TrainingDataImage.task_type.ilike(task)
+                ).first()
+                
+                if img:
+                    # Load existing features or create new
+                    features = {}
+                    if img.features_data:
+                        try:
+                            features = json.loads(img.features_data)
+                        except:
+                            pass
+                    
+                    # Track if any feature was successfully added
+                    any_success = False
+                    
+                    # Update features from CSV
+                    if total_score:
+                        try:
+                            features['Total_Score'] = float(total_score)
+                            any_success = True
+                        except ValueError:
+                            # Sanitize error message to prevent XSS
+                            safe_patient = patient.replace('<', '&lt;').replace('>', '&gt;')
+                            safe_task = task.replace('<', '&lt;').replace('>', '&gt;')
+                            safe_score = total_score.replace('<', '&lt;').replace('>', '&gt;')
+                            errors.append(f"{safe_patient}/{safe_task}: Invalid Total_Score '{safe_score}'")
+                    
+                    if data_quality:
+                        try:
+                            features['Data_Quality'] = float(data_quality)
+                            any_success = True
+                        except ValueError:
+                            # Sanitize error message to prevent XSS
+                            safe_patient = patient.replace('<', '&lt;').replace('>', '&gt;')
+                            safe_task = task.replace('<', '&lt;').replace('>', '&gt;')
+                            safe_quality = data_quality.replace('<', '&lt;').replace('>', '&gt;')
+                            errors.append(f"{safe_patient}/{safe_task}: Invalid Data_Quality '{safe_quality}'")
+                    
+                    # Only save and count as updated if at least one feature was successfully parsed
+                    if any_success:
+                        img.features_data = json.dumps(features)
+                        db.commit()
+                        updated += 1
+                    else:
+                        # All features failed to parse - skip this row
+                        skipped += 1
+                else:
+                    skipped += 1
+                    
+            except Exception as e:
+                # Sanitize exception message to prevent XSS
+                safe_error = str(e).replace('<', '&lt;').replace('>', '&gt;')
+                errors.append(f"Row error: {safe_error}")
+        
+        return {
+            "success": True,
+            "updated": updated,
+            "skipped": skipped,
+            "errors": errors,
+            "total_rows": updated + skipped
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"CSV processing error: {str(e)}")
 
 
 @router.post("/cleanup-old-sessions")
