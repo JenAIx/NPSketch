@@ -307,12 +307,27 @@
                 
                 <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em;">
                     <strong>Dataset:</strong> ${dataset.total_samples || 'N/A'} samples 
-                    (${dataset.train_samples || 'N/A'} train, ${dataset.val_samples || 'N/A'} val) | 
-                    <strong>Images:</strong> ${imageIds.length} used
-                    ${imageIds.length > 0 ? `
-                        <details style="display: inline; margin-left: 10px;">
-                            <summary style="cursor: pointer; color: #667eea;">Show IDs</summary>
-                            <div style="margin-top: 10px;">${imageIds.join(', ')}</div>
+                    (${dataset.train_samples || 'N/A'} train, ${dataset.val_samples || 'N/A'} val)
+                    
+                    ${metadata.train_image_ids && metadata.train_image_ids.length > 0 ? `
+                        <details style="margin-top: 10px;">
+                            <summary style="cursor: pointer; color: #667eea;">
+                                <strong>Training IDs (${metadata.train_image_ids.length}):</strong>
+                            </summary>
+                            <div style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px; max-height: 100px; overflow-y: auto;">
+                                ${metadata.train_image_ids.join(', ')}
+                            </div>
+                        </details>
+                    ` : ''}
+                    
+                    ${metadata.val_image_ids && metadata.val_image_ids.length > 0 ? `
+                        <details style="margin-top: 10px;">
+                            <summary style="cursor: pointer; color: #28a745;">
+                                <strong>Validation IDs (${metadata.val_image_ids.length}):</strong>
+                            </summary>
+                            <div style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px; max-height: 100px; overflow-y: auto;">
+                                ${metadata.val_image_ids.join(', ')}
+                            </div>
                         </details>
                     ` : ''}
                 </div>

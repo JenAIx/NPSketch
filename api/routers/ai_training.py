@@ -296,6 +296,7 @@ def run_training_job(config):
         training_state['progress']['message'] = f"Loaded {stats['total_samples']} samples"
         training_state['progress']['split_info'] = stats.get('split_info', {})
         training_state['progress']['split_strategy'] = stats.get('split_strategy', 'unknown')
+        training_state['progress']['dataset_stats'] = stats  # Store complete stats for later
         
         # Create trainer
         trainer = CNNTrainer(
@@ -346,7 +347,9 @@ def run_training_job(config):
             'train_metrics': train_metrics,
             'val_metrics': val_metrics,
             'training_history': trainer.history,
-            'image_ids': [img['id'] for img in config['images_data'] if 'id' in img],
+            'train_image_ids': stats.get('train_image_ids', []),
+            'val_image_ids': stats.get('val_image_ids', []),
+            'all_image_ids': [img['id'] for img in config['images_data'] if 'id' in img],
             'trained_at': datetime.now().isoformat()
         }
         
@@ -519,7 +522,7 @@ async def test_model(
 
 @router.delete("/models/{model_filename}")
 async def delete_model(model_filename: str):
-    """Delete a saved model."""
+    """Delete a saved model and its metadata."""
     import os
     from pathlib import Path
     
@@ -529,8 +532,48 @@ async def delete_model(model_filename: str):
         raise HTTPException(status_code=404, detail="Model not found")
     
     try:
+        # Delete model file
         os.unlink(model_path)
-        return {"success": True, "message": f"Model '{model_filename}' deleted"}
+        
+        # Delete metadata file if exists
+        model_stem = model_filename.replace('.pth', '')
+        metadata_path = Path("/app/data/models") / f"{model_stem}_metadata.json"
+        
+        if metadata_path.exists():
+            os.unlink(metadata_path)
+            return {"success": True, "message": f"Model and metadata deleted: {model_filename}"}
+        
+        return {"success": True, "message": f"Model deleted: {model_filename}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.post("/cleanup-orphaned-metadata")
+async def cleanup_orphaned_metadata():
+    """Delete orphaned metadata files (metadata without corresponding .pth file)."""
+    from pathlib import Path
+    import os
+    
+    models_dir = Path("/app/data/models")
+    cleaned = 0
+    
+    try:
+        # Find all metadata files
+        for metadata_file in models_dir.glob("*_metadata.json"):
+            # Check if corresponding .pth file exists
+            model_stem = metadata_file.stem.replace('_metadata', '')
+            model_file = models_dir / f"{model_stem}.pth"
+            
+            if not model_file.exists():
+                # Orphaned metadata - delete it
+                os.unlink(metadata_file)
+                cleaned += 1
+        
+        return {
+            "success": True,
+            "cleaned": cleaned,
+            "message": f"Deleted {cleaned} orphaned metadata file(s)"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

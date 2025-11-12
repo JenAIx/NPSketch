@@ -378,6 +378,7 @@
         <div class="loading" id="trainingProgress">
             <div class="spinner"></div>
             <p id="progressText">Initializing training...</p>
+            <div id="trainingParams" style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; display: none;"></div>
         </div>
         
         <!-- Split Information -->
@@ -656,6 +657,19 @@
                 if (data.success) {
                     showAlert('success', 'Training started! Monitoring progress...');
                     
+                    // Show training parameters
+                    const paramsDiv = document.getElementById('trainingParams');
+                    paramsDiv.innerHTML = `
+                        <div style="font-size: 0.9em; color: #495057;">
+                            <strong>Training Parameters:</strong><br>
+                            Epochs: <strong>${config.num_epochs}</strong> | 
+                            Learning Rate: <strong>${config.learning_rate}</strong> | 
+                            Batch Size: <strong>${config.batch_size}</strong> | 
+                            Train/Val Split: <strong>${(config.train_split * 100).toFixed(0)}/${((1-config.train_split) * 100).toFixed(0)}</strong>
+                        </div>
+                    `;
+                    paramsDiv.style.display = 'block';
+                    
                     // Start polling for progress
                     pollTrainingStatus();
                 } else {
@@ -728,6 +742,11 @@
             const splitDetails = document.getElementById('splitDetails');
             const strategy = progress.split_strategy || 'unknown';
             
+            // Get sample counts from config if available
+            const trainSamples = trainDist.count || 'N/A';
+            const valSamples = valDist.count || 'N/A';
+            const totalSamples = (trainDist.count || 0) + (valDist.count || 0);
+            
             splitDetails.innerHTML = `
                 <div style="background: ${strategy === 'stratified' ? '#d4edda' : '#fff3cd'}; border-left: 4px solid ${strategy === 'stratified' ? '#28a745' : '#ffc107'}; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
                     <strong style="color: ${strategy === 'stratified' ? '#155724' : '#856404'};">
@@ -736,11 +755,15 @@
                     <div style="color: ${strategy === 'stratified' ? '#155724' : '#856404'}; font-size: 0.9em; margin-top: 5px;">
                         ${strategy === 'stratified' ? '✅ Using stratified split for balanced distribution' : '⚠️ Using random split (stratification not applicable)'}
                     </div>
+                    <div style="color: ${strategy === 'stratified' ? '#155724' : '#856404'}; font-size: 0.9em; margin-top: 8px;">
+                        Total: <strong>${totalSamples}</strong> samples 
+                        (Train: <strong>${trainSamples}</strong>, Validation: <strong>${valSamples}</strong>)
+                    </div>
                 </div>
                 
                 <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 20px;">
                     <div>
-                        <h4 style="color: #667eea; margin-bottom: 10px;">Training Set Distribution</h4>
+                        <h4 style="color: #667eea; margin-bottom: 10px;">Training Set (${trainSamples} samples)</h4>
                         <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
                             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
                                 <div><span style="color: #666;">Mean:</span> <strong>${trainDist.mean ? trainDist.mean.toFixed(3) : 'N/A'}</strong></div>
@@ -752,7 +775,7 @@
                     </div>
                     
                     <div>
-                        <h4 style="color: #28a745; margin-bottom: 10px;">Validation Set Distribution</h4>
+                        <h4 style="color: #28a745; margin-bottom: 10px;">Validation Set (${valSamples} samples)</h4>
                         <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
                             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
                                 <div><span style="color: #666;">Mean:</span> <strong>${valDist.mean ? valDist.mean.toFixed(3) : 'N/A'}</strong></div>

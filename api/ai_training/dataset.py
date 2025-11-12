@@ -178,9 +178,26 @@ def create_dataloaders(
         pin_memory=False
     )
     
-    # Get train and val target values for distribution info
+    # Get train and val target values AND image IDs for distribution info
     train_targets = [all_targets[i] for i in train_indices]
     val_targets = [all_targets[i] for i in val_indices]
+    
+    # Get actual image IDs for train and val sets
+    # IMPORTANT: train_indices/val_indices are positions in full_dataset (filtered)
+    # Must map through full_dataset.valid_indices to get positions in original images_data
+    train_image_ids = []
+    for i in train_indices:
+        if i < len(full_dataset.valid_indices):
+            original_idx = full_dataset.valid_indices[i]
+            if original_idx < len(images_data) and 'id' in images_data[original_idx]:
+                train_image_ids.append(images_data[original_idx]['id'])
+    
+    val_image_ids = []
+    for i in val_indices:
+        if i < len(full_dataset.valid_indices):
+            original_idx = full_dataset.valid_indices[i]
+            if original_idx < len(images_data) and 'id' in images_data[original_idx]:
+                val_image_ids.append(images_data[original_idx]['id'])
     
     stats = {
         "total_samples": len(full_dataset),
@@ -193,7 +210,9 @@ def create_dataloaders(
         "n_bins": recommendation['n_bins'],
         "split_info": split_info,
         "train_target_range": [float(min(train_targets)), float(max(train_targets))],
-        "val_target_range": [float(min(val_targets)), float(max(val_targets))]
+        "val_target_range": [float(min(val_targets)), float(max(val_targets))],
+        "train_image_ids": train_image_ids,
+        "val_image_ids": val_image_ids
     }
     
     return train_loader, val_loader, stats
