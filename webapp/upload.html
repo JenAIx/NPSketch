@@ -664,7 +664,7 @@
                 // Load the normalized image
                 uploadedImage = new Image();
                 uploadedImage.onload = () => {
-                    // Update resolution display (should be 256×256)
+                    // Update resolution display (should be 568×274)
                     document.getElementById('uploadResolution').textContent = `(${uploadedImage.width}×${uploadedImage.height}px)`;
                     
                     // Store original for reset
@@ -682,7 +682,7 @@
                     document.getElementById('autoMatchOption').style.display = 'none';
                     workspace.style.display = 'grid';
                     
-                    showRegStatus('✅ Image normalized to 256×256!', 'success');
+                    showRegStatus('✅ Image normalized to 568×274!', 'success');
                     
                     // Check if Auto Match should be applied
                     const autoMatchEnabled = document.getElementById('autoMatchOnUpload').checked;
@@ -755,18 +755,21 @@
         function renderUploadCanvas() {
             if (!uploadedImage) return;
             
+            const canvasWidth = 568;
+            const canvasHeight = 274;
+            
             uploadCtx.save();
             
-            // Clear canvas (256×256)
+            // Clear canvas (568×274)
             uploadCtx.fillStyle = 'white';
-            uploadCtx.fillRect(0, 0, 256, 256);
+            uploadCtx.fillRect(0, 0, canvasWidth, canvasHeight);
             
-            // Backend returns 256×256, canvas is also 256×256 - perfect match!
+            // Backend returns 568×274, canvas is also 568×274 - perfect match!
             const displayWidth = uploadedImage.width;
             const displayHeight = uploadedImage.height;
             
-            // Move to center of canvas (128, 128)
-            uploadCtx.translate(128, 128);
+            // Move to center of canvas
+            uploadCtx.translate(canvasWidth / 2, canvasHeight / 2);
             
             // Apply manual transformations (around center)
             uploadCtx.translate(currentTranslateX, currentTranslateY);
@@ -785,13 +788,16 @@
         function renderReferenceCanvas() {
             if (!referenceImage) return;
             
-            refCtx.fillStyle = 'white';
-            refCtx.fillRect(0, 0, 256, 256);
+            const canvasWidth = 568;
+            const canvasHeight = 274;
             
-            // Draw reference - centered and scaled to fit 256×256
-            const scale = Math.min(256 / referenceImage.width, 256 / referenceImage.height);
-            const x = (256 - referenceImage.width * scale) / 2;
-            const y = (256 - referenceImage.height * scale) / 2;
+            refCtx.fillStyle = 'white';
+            refCtx.fillRect(0, 0, canvasWidth, canvasHeight);
+            
+            // Draw reference - centered and scaled to fit 568×274
+            const scale = Math.min(canvasWidth / referenceImage.width, canvasHeight / referenceImage.height);
+            const x = (canvasWidth - referenceImage.width * scale) / 2;
+            const y = (canvasHeight - referenceImage.height * scale) / 2;
             refCtx.drawImage(referenceImage, x, y, referenceImage.width * scale, referenceImage.height * scale);
             
             // Draw overlay if enabled
@@ -799,8 +805,10 @@
                 refCtx.save();
                 refCtx.globalAlpha = 0.5;
                 
-                // Apply same transformations as upload canvas (centered at 128, 128)
-                refCtx.translate(128 + currentTranslateX, 128 + currentTranslateY);
+                // Apply same transformations as upload canvas (centered)
+                const centerX = canvasWidth / 2;
+                const centerY = canvasHeight / 2;
+                refCtx.translate(centerX + currentTranslateX, centerY + currentTranslateY);
                 refCtx.rotate(currentRotation * Math.PI / 180);
                 refCtx.scale(currentScale, currentScale);
                 
@@ -988,7 +996,7 @@
                 // Wait a bit for render to complete
                 await new Promise(resolve => setTimeout(resolve, 100));
                 
-                // Canvas is already 256×256, directly convert to blob
+                // Canvas is already 568×274, directly convert to blob
                 const blob = await new Promise(resolve => {
                     uploadCanvas.toBlob(resolve, 'image/png');
                 });
@@ -1095,9 +1103,9 @@
             overlayBtn.textContent = 'Show Overlay';
             overlayBtn.classList.remove('active');
             
-            // Clear canvases (256×256)
-            uploadCtx.clearRect(0, 0, 256, 256);
-            refCtx.clearRect(0, 0, 256, 256);
+            // Clear canvases (568×274)
+            uploadCtx.clearRect(0, 0, 568, 274);
+            refCtx.clearRect(0, 0, 568, 274);
             
             // Reset file input
             fileInput.value = '';
