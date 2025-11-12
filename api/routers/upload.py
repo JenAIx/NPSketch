@@ -171,11 +171,21 @@ async def normalize_image(
         coords_ref = np.column_stack(np.where(binary_ref > 0))
         
         if len(coords_upload) > 0 and len(coords_ref) > 0:
-            # 1. AUTO-CROP Upload
+            # 1. AUTO-CROP Upload WITH PADDING to preserve edges
+            padding = 10  # Add 10 pixels padding on each side to prevent losing lines at edges
+            
             up_min_y, up_min_x = coords_upload.min(axis=0)
             up_max_y, up_max_x = coords_upload.max(axis=0)
+            
+            # Add padding (with bounds checking)
+            img_h, img_w = img.shape[:2]
+            up_min_y = max(0, up_min_y - padding)
+            up_min_x = max(0, up_min_x - padding)
+            up_max_y = min(img_h - 1, up_max_y + padding)
+            up_max_x = min(img_w - 1, up_max_x + padding)
+            
             cropped = img[up_min_y:up_max_y+1, up_min_x:up_max_x+1]
-            print(f"  1️⃣  Cropped: {img.shape[:2]} → {cropped.shape[:2]}")
+            print(f"  1️⃣  Cropped with {padding}px padding: {img.shape[:2]} → {cropped.shape[:2]}")
             
             # 2. SCALE to FIT 568×274 canvas (max width OR height)
             up_h, up_w = cropped.shape[:2]
