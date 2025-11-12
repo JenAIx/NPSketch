@@ -197,6 +197,7 @@ async def start_training(
         num_epochs = config.get('num_epochs', 10)
         learning_rate = config.get('learning_rate', 0.001)
         batch_size = config.get('batch_size', 8)
+        use_augmentation = config.get('use_augmentation', True)  # Enabled by default
         
         # Validate parameters
         if not target_feature:
@@ -228,7 +229,9 @@ async def start_training(
             'num_epochs': num_epochs,
             'learning_rate': learning_rate,
             'batch_size': batch_size,
-            'images_data': images_data
+            'use_augmentation': use_augmentation,
+            'images_data': images_data,
+            'db_session': db  # Pass db session for augmentation
         }
         
         # Store in global state for progress tracking
@@ -249,6 +252,7 @@ async def start_training(
                 'num_epochs': num_epochs,
                 'learning_rate': learning_rate,
                 'batch_size': batch_size,
+                'use_augmentation': use_augmentation,
                 'total_samples': len(images_data)
             }
         }
@@ -281,19 +285,79 @@ def run_training_job(config):
             'message': 'Initializing...'
         }
         
-        from ai_training.dataset import create_dataloaders
         from ai_training.trainer import CNNTrainer
         
-        # Create dataloaders
-        train_loader, val_loader, stats = create_dataloaders(
-            config['images_data'],
-            config['target_feature'],
-            train_split=config['train_split'],
-            batch_size=config['batch_size'],
-            random_seed=42
-        )
+        # Check if augmentation is enabled
+        use_augmentation = config.get('use_augmentation', True)
         
-        training_state['progress']['message'] = f"Loaded {stats['total_samples']} samples"
+        if use_augmentation:
+            # Use data augmentation
+            training_state['progress']['message'] = 'Preparing augmented dataset...'
+            
+            from ai_training.data_loader import TrainingDataLoader
+            from ai_training.dataset import create_augmented_dataloaders
+            
+            # Get a new database session (thread-safe)
+            from database import SessionLocal
+            db = SessionLocal()
+            
+            try:
+                # Prepare augmented dataset
+                loader = TrainingDataLoader(db)
+                aug_stats, output_dir = loader.prepare_augmented_training_data(
+                    target_feature=config['target_feature'],
+                    train_split=config['train_split'],
+                    augmentation_config={
+                        'rotation_range': (-3, 3),
+                        'translation_range': (-10, 10),
+                        'scale_range': (0.95, 1.05),
+                        'num_augmentations': 5
+                    },
+                    output_dir='/app/data/ai_training_data'
+                )
+                
+                training_state['progress']['message'] = f"Augmented dataset prepared: {aug_stats['train']['total']} train, {aug_stats['val']['total']} val"
+                
+                # Create dataloaders from augmented data
+                train_loader, val_loader, stats = create_augmented_dataloaders(
+                    data_dir=output_dir,
+                    batch_size=config['batch_size'],
+                    shuffle_train=True
+                )
+                
+                # Add augmentation info to stats
+                stats['augmentation'] = {
+                    'enabled': True,
+                    'original_samples': aug_stats['train']['original'] + aug_stats['val']['original'],
+                    'augmented_samples': aug_stats['train']['augmented'] + aug_stats['val']['augmented'],
+                    'total_samples': aug_stats['train']['total'] + aug_stats['val']['total'],
+                    'multiplier': round((aug_stats['train']['total'] + aug_stats['val']['total']) / 
+                                      (aug_stats['train']['original'] + aug_stats['val']['original']), 1) 
+                                   if (aug_stats['train']['original'] + aug_stats['val']['original']) > 0 else 1,
+                    'config': aug_stats.get('augmentation_config', {})
+                }
+                
+            finally:
+                db.close()
+        else:
+            # Use regular dataset (no augmentation)
+            training_state['progress']['message'] = 'Loading dataset...'
+            
+            from ai_training.dataset import create_dataloaders
+            
+            train_loader, val_loader, stats = create_dataloaders(
+                config['images_data'],
+                config['target_feature'],
+                train_split=config['train_split'],
+                batch_size=config['batch_size'],
+                random_seed=42
+            )
+            
+            stats['augmentation'] = {
+                'enabled': False
+            }
+        
+        training_state['progress']['message'] = f"Loaded {stats['total_samples']} samples (augmentation: {'enabled' if use_augmentation else 'disabled'})"
         training_state['progress']['split_info'] = stats.get('split_info', {})
         training_state['progress']['split_strategy'] = stats.get('split_strategy', 'unknown')
         training_state['progress']['dataset_stats'] = stats  # Store complete stats for later
@@ -328,8 +392,10 @@ def run_training_job(config):
                 'train_split': config['train_split'],
                 'num_epochs': config['num_epochs'],
                 'learning_rate': config['learning_rate'],
-                'batch_size': config['batch_size']
+                'batch_size': config['batch_size'],
+                'use_augmentation': config.get('use_augmentation', True)
             },
+            'augmentation': stats.get('augmentation', {'enabled': False}),
             'dataset': {
                 'total_samples': stats['total_samples'],
                 'train_samples': stats['train_samples'],

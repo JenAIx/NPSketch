@@ -369,6 +369,29 @@
                 </div>
             </div>
             
+            <!-- Data Augmentation Section -->
+            <div style="margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <input type="checkbox" id="enableAugmentation" checked style="width: 20px; height: 20px; cursor: pointer;">
+                    <label for="enableAugmentation" style="margin: 0; font-weight: 600; font-size: 1.05em; cursor: pointer; color: #333;">
+                        🔄 Enable Data Augmentation (Recommended)
+                    </label>
+                </div>
+                <div style="font-size: 0.9em; color: #666; margin-left: 30px;">
+                    Multiplies dataset size by 6x using realistic transformations (rotation ±3°, translation ±10px, scaling 95-105%).
+                    Significantly reduces overfitting and improves model generalization.
+                </div>
+                <div id="augmentationInfo" style="margin-top: 10px; margin-left: 30px; font-size: 0.85em; color: #667eea; display: none;">
+                    <strong>ℹ️ Augmentation Details:</strong>
+                    <ul style="margin: 5px 0 0 20px;">
+                        <li>5 augmented versions per image</li>
+                        <li>Rotation: ±3 degrees</li>
+                        <li>Translation: ±10 pixels</li>
+                        <li>Scaling: 95-105%</li>
+                    </ul>
+                </div>
+            </div>
+            
             <button class="btn btn-success" onclick="startTraining()" id="trainBtn" style="margin-top: 20px;">
                 🚀 Start Training
             </button>
@@ -637,7 +660,8 @@
                 train_split: parseFloat(document.getElementById('trainSplit').value),
                 num_epochs: parseInt(document.getElementById('numEpochs').value),
                 learning_rate: parseFloat(document.getElementById('learningRate').value),
-                batch_size: parseInt(document.getElementById('batchSize').value)
+                batch_size: parseInt(document.getElementById('batchSize').value),
+                use_augmentation: document.getElementById('enableAugmentation').checked
             };
             
             document.getElementById('trainBtn').disabled = true;
@@ -665,7 +689,8 @@
                             Epochs: <strong>${config.num_epochs}</strong> | 
                             Learning Rate: <strong>${config.learning_rate}</strong> | 
                             Batch Size: <strong>${config.batch_size}</strong> | 
-                            Train/Val Split: <strong>${(config.train_split * 100).toFixed(0)}/${((1-config.train_split) * 100).toFixed(0)}</strong>
+                            Train/Val Split: <strong>${(config.train_split * 100).toFixed(0)}/${((1-config.train_split) * 100).toFixed(0)}</strong> | 
+                            Augmentation: <strong>${config.use_augmentation ? 'Enabled (6x data)' : 'Disabled'}</strong>
                         </div>
                     `;
                     paramsDiv.style.display = 'block';
@@ -1148,6 +1173,16 @@
             alert.textContent = message;
             setTimeout(() => alert.classList.remove('show'), 8000);
         }
+        
+        // Augmentation checkbox toggle
+        document.getElementById('enableAugmentation')?.addEventListener('change', function() {
+            const detailsDiv = document.getElementById('augmentationInfo');
+            if (this.checked) {
+                detailsDiv.style.display = 'block';
+            } else {
+                detailsDiv.style.display = 'none';
+            }
+        });
         
         // Load data on page load
         loadDatasetInfo();

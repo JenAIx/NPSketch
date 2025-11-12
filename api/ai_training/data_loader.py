@@ -396,5 +396,20 @@ class TrainingDataLoader:
         stats['split_strategy'] = recommendation['strategy']
         stats['n_bins'] = recommendation['n_bins']
         
+        # Update metadata.json with split information
+        metadata_file = Path(output_dir) / "metadata.json"
+        if metadata_file.exists():
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+            
+            # Add split information
+            metadata['split_strategy'] = recommendation['strategy']
+            metadata['split_info'] = split_info
+            metadata['n_bins'] = recommendation['n_bins']
+            
+            # Save updated metadata
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+        
         return stats, output_dir
 

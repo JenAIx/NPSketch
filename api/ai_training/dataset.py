@@ -344,7 +344,11 @@ def create_augmented_dataloaders(
         "val_batches": len(val_loader),
         "batch_size": batch_size,
         "augmentation_config": metadata.get('augmentation_config', {}),
-        "statistics": metadata.get('statistics', {})
+        "statistics": metadata.get('statistics', {}),
+        # Restore split strategy information
+        "split_strategy": metadata.get('split_strategy', 'unknown'),
+        "split_info": metadata.get('split_info', {}),
+        "n_bins": metadata.get('n_bins', 0)
     }
     
     return train_loader, val_loader, stats

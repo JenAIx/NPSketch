@@ -30,6 +30,8 @@ from pathlib import Path
 class ImageAugmentor:
     """
     Augments training images with realistic variations.
+    
+    Includes content-aware bounds protection to prevent clipping lines.
     """
     
     def __init__(
@@ -37,7 +39,8 @@ class ImageAugmentor:
         rotation_range: Tuple[float, float] = (-3.0, 3.0),
         translation_range: Tuple[int, int] = (-10, 10),
         scale_range: Tuple[float, float] = (0.95, 1.05),
-        num_augmentations: int = 5
+        num_augmentations: int = 5,
+        safety_margin: int = 15
     ):
         """
         Initialize augmentor.
@@ -47,11 +50,13 @@ class ImageAugmentor:
             translation_range: Min/max translation in pixels
             scale_range: Min/max scale factor
             num_augmentations: Number of augmented versions per image
+            safety_margin: Minimum pixel margin from edges (default: 15)
         """
         self.rotation_range = rotation_range
         self.translation_range = translation_range
         self.scale_range = scale_range
         self.num_augmentations = num_augmentations
+        self.safety_margin = safety_margin
     
     def augment_image(
         self,
@@ -101,18 +106,119 @@ class ImageAugmentor:
         M[0, 2] += tx
         M[1, 2] += ty
         
+        # Determine border value based on image type
+        # Medical drawings have white backgrounds (255)
+        if len(image.shape) == 3:
+            border_value = (255, 255, 255)  # RGB white
+        else:
+            border_value = 255  # Grayscale white
+        
         # Apply transformation
-        # Use INTER_LINEAR for smooth edges and black background
+        # Use INTER_LINEAR for smooth edges and white background to match original images
         augmented = cv2.warpAffine(
             image,
             M,
             (width, height),
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_CONSTANT,
-            borderValue=0  # Black background
+            borderValue=border_value
         )
         
         return augmented
+    
+    def _get_content_bounds(self, image: np.ndarray) -> Tuple[int, int, int, int]:
+        """
+        Get bounding box of actual content (non-black pixels).
+        
+        Args:
+            image: Input image (grayscale or RGB)
+        
+        Returns:
+            (min_row, max_row, min_col, max_col) or None if no content
+        """
+        # Threshold to detect non-background pixels
+        if len(image.shape) == 3:
+            # RGB: check if any channel > 10
+            content_mask = np.any(image > 10, axis=2)
+        else:
+            # Grayscale: check if > 10
+            content_mask = image > 10
+        
+        rows, cols = np.where(content_mask)
+        
+        if len(rows) == 0:
+            # No content found
+            return None
+        
+        return rows.min(), rows.max(), cols.min(), cols.max()
+    
+    def _is_safe_augmentation(
+        self,
+        image: np.ndarray,
+        rotation: float,
+        tx: int,
+        ty: int,
+        scale: float
+    ) -> bool:
+        """
+        Check if augmentation parameters are safe (won't clip content).
+        
+        Args:
+            image: Input image
+            rotation: Rotation angle in degrees
+            tx: Translation X
+            ty: Translation Y
+            scale: Scale factor
+        
+        Returns:
+            True if safe, False if content might be clipped
+        """
+        bounds = self._get_content_bounds(image)
+        
+        if bounds is None:
+            # No content, safe to augment
+            return True
+        
+        min_row, max_row, min_col, max_col = bounds
+        height, width = image.shape[:2]
+        
+        # Calculate content dimensions (inclusive bounds, so +1)
+        content_height = max_row - min_row + 1
+        content_width = max_col - min_col + 1
+        
+        # Check current margins
+        # margin_top: pixels before content (0 to min_row-1)
+        margin_top = min_row
+        # margin_bottom: pixels after content (max_row+1 to height-1)
+        margin_bottom = height - max_row - 1
+        # margin_left: pixels before content (0 to min_col-1)
+        margin_left = min_col
+        # margin_right: pixels after content (max_col+1 to width-1)
+        margin_right = width - max_col - 1
+        
+        # Calculate worst-case margin loss from transformations
+        # Rotation can cause corners to extend further
+        max_dimension = max(content_height, content_width)
+        rotation_rad = abs(rotation) * np.pi / 180
+        rotation_margin_loss = int(max_dimension * np.sin(rotation_rad) * 0.5)
+        
+        # Translation directly reduces margins
+        translation_margin_loss_x = abs(tx)
+        translation_margin_loss_y = abs(ty)
+        
+        # Scaling up reduces effective margins
+        scale_margin_loss = int(max(content_height, content_width) * (scale - 1.0) * 0.5) if scale > 1 else 0
+        
+        # Total margin requirements
+        required_margin = self.safety_margin + rotation_margin_loss + scale_margin_loss
+        
+        # Check if margins are sufficient
+        safe_top = margin_top >= required_margin + translation_margin_loss_y if ty < 0 else margin_top >= required_margin
+        safe_bottom = margin_bottom >= required_margin + translation_margin_loss_y if ty > 0 else margin_bottom >= required_margin
+        safe_left = margin_left >= required_margin + translation_margin_loss_x if tx < 0 else margin_left >= required_margin
+        safe_right = margin_right >= required_margin + translation_margin_loss_x if tx > 0 else margin_right >= required_margin
+        
+        return safe_top and safe_bottom and safe_left and safe_right
     
     def augment_batch(
         self,
@@ -120,19 +226,23 @@ class ImageAugmentor:
         num_augmentations: int = None
     ) -> List[Tuple[np.ndarray, Dict]]:
         """
-        Create multiple augmented versions of an image.
+        Create multiple augmented versions of an image with content protection.
+        
+        Uses content-aware bounds checking to prevent clipping lines.
+        If aggressive parameters would clip content, falls back to conservative values.
         
         Args:
             image: Input image
             num_augmentations: Number of augmentations (uses self.num_augmentations if None)
         
         Returns:
-            List of (augmented_image, parameters) tuples
+            List of (augmented_image, parameters) tuples with safety info
         """
         if num_augmentations is None:
             num_augmentations = self.num_augmentations
         
         augmented_images = []
+        safety_stats = {'safe': 0, 'conservative': 0}
         
         for i in range(num_augmentations):
             # Generate random parameters
@@ -140,6 +250,28 @@ class ImageAugmentor:
             tx = np.random.randint(*self.translation_range)
             ty = np.random.randint(*self.translation_range)
             scale = np.random.uniform(*self.scale_range)
+            
+            # Check if safe
+            is_safe = self._is_safe_augmentation(image, rotation, tx, ty, scale)
+            
+            if not is_safe:
+                # Use conservative parameters (50% reduction)
+                rotation = rotation * 0.5
+                tx = int(tx * 0.5)
+                ty = int(ty * 0.5)
+                # Keep scale as-is (centered, less risky)
+                
+                # Verify conservative params are safe
+                if not self._is_safe_augmentation(image, rotation, tx, ty, scale):
+                    # Even more conservative: minimal transformation
+                    rotation = rotation * 0.5
+                    tx = int(tx * 0.5)
+                    ty = int(ty * 0.5)
+                    scale = 1.0 + (scale - 1.0) * 0.5  # Reduce scale deviation
+                
+                safety_stats['conservative'] += 1
+            else:
+                safety_stats['safe'] += 1
             
             # Apply augmentation
             aug_img = self.augment_image(image, rotation, tx, ty, scale)
@@ -149,10 +281,15 @@ class ImageAugmentor:
                 'rotation': float(rotation),
                 'translation_x': int(tx),
                 'translation_y': int(ty),
-                'scale': float(scale)
+                'scale': float(scale),
+                'safety_adjusted': not is_safe
             }
             
             augmented_images.append((aug_img, params))
+        
+        # Log safety statistics
+        if safety_stats['conservative'] > 0:
+            print(f"  ⚠️ Content protection: {safety_stats['conservative']}/{num_augmentations} augmentations used conservative parameters")
         
         return augmented_images
 

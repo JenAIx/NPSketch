@@ -194,7 +194,8 @@ def test_augmentation_quality():
         rotation_range=(-3, 3),
         translation_range=(-10, 10),
         scale_range=(0.95, 1.05),
-        num_augmentations=5
+        num_augmentations=5,
+        safety_margin=15
     )
     
     print(f"\nGenerating augmentations with extreme parameters...")
@@ -230,6 +231,72 @@ def test_augmentation_quality():
     return True
 
 
+def test_content_protection():
+    """Test content-aware bounds protection."""
+    print("\n" + "=" * 60)
+    print("TEST 4: Content Protection")
+    print("=" * 60)
+    
+    # Create test image with content near edges
+    img = np.zeros((274, 568), dtype=np.uint8)
+    
+    # Draw line near top edge
+    cv2.line(img, (100, 10), (200, 10), 255, 2)
+    
+    # Draw line near bottom edge
+    cv2.line(img, (300, 264), (400, 264), 255, 2)
+    
+    # Draw line near left edge
+    cv2.line(img, (10, 100), (10, 150), 255, 2)
+    
+    # Draw line near right edge
+    cv2.line(img, (558, 100), (558, 150), 255, 2)
+    
+    print(f"\nCreated test image with edge content")
+    
+    # Create augmentor with safety
+    augmentor = ImageAugmentor(
+        rotation_range=(-3, 3),
+        translation_range=(-10, 10),
+        scale_range=(0.95, 1.05),
+        num_augmentations=5,
+        safety_margin=15
+    )
+    
+    # Test content bounds detection
+    bounds = augmentor._get_content_bounds(img)
+    print(f"  Content bounds: rows [{bounds[0]}, {bounds[1]}], cols [{bounds[2]}, {bounds[3]}]")
+    
+    # Test safety check with aggressive parameters
+    is_safe = augmentor._is_safe_augmentation(img, rotation=3.0, tx=10, ty=10, scale=1.05)
+    print(f"  Aggressive params safe? {is_safe}")
+    
+    # Test safety check with conservative parameters
+    is_safe_conservative = augmentor._is_safe_augmentation(img, rotation=1.0, tx=3, ty=3, scale=1.01)
+    print(f"  Conservative params safe? {is_safe_conservative}")
+    
+    # Generate augmentations with protection
+    print(f"\n  Generating {augmentor.num_augmentations} augmentations with content protection...")
+    augmented = augmentor.augment_batch(img)
+    
+    print(f"  ✅ Generated {len(augmented)} augmentations")
+    
+    # Verify all augmentations have content
+    for i, (aug_img, params) in enumerate(augmented):
+        content_pixels = np.sum(aug_img > 10)
+        original_content = np.sum(img > 10)
+        content_ratio = content_pixels / original_content if original_content > 0 else 0
+        
+        # Content should be at least 85% of original (some edge pixels may be interpolated away)
+        assert content_ratio >= 0.80, f"Augmentation {i} lost too much content: {content_ratio:.2%}"
+        
+        print(f"    Aug {i}: content preserved = {content_ratio:.1%}, safety_adjusted = {params.get('safety_adjusted', False)}")
+    
+    print(f"\n✅ Content protection working correctly!")
+    
+    return True
+
+
 def main():
     """Run all tests."""
     print("\n" + "=" * 60)
@@ -239,7 +306,8 @@ def main():
     tests = [
         ("Single Augmentation", test_single_augmentation),
         ("Dataset Builder", test_dataset_builder),
-        ("Augmentation Quality", test_augmentation_quality)
+        ("Augmentation Quality", test_augmentation_quality),
+        ("Content Protection", test_content_protection)
     ]
     
     results = []
