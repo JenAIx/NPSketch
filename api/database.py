@@ -179,38 +179,72 @@ class TestImage(Base):
 
 class TrainingDataImage(Base):
     """
-    Stores AI training data images extracted from MAT files or OCS images.
+    Unified table for all test/training images.
+    Can be used for BOTH algorithmic evaluation AND CNN training.
     
-    Attributes:
+    USAGE:
+    ------
+    1. Algorithmic Evaluation: Uses ground_truth_* fields
+       - Upload via MAT/OCS/Draw → Set ground_truth_correct/extra
+       - Run evaluation → Compare detected lines vs ground truth
+    
+    2. CNN Model Training: Uses features_data field
+       - Upload via MAT/OCS/Draw → Set features_data (Total_Score, MMSE, etc.)
+       - Train model → Predict features from images
+    
+    3. Both: An image can have BOTH ground truth AND features!
+    
+    ATTRIBUTES:
+    -----------
+    Core Identity:
         id: Primary key
-        patient_id: Patient identifier (e.g., PC56, Park_16, TEAMK299)
-        task_type: Type of task (COPY, RECALL, REFERENCE)
-        source_format: Source format (MAT, OCS)
+        patient_id: Patient/test identifier (e.g., PC56, Park_16, test_001)
+        task_type: COPY, RECALL, or REFERENCE
+        source_format: MAT, OCS, or DRAWN
+        test_name: Human-readable name (for drawn images)
+    
+    Image Data:
         original_filename: Original uploaded filename
-        original_file_data: Original uploaded file (before extraction)
-        processed_image_data: Extracted and normalized image (568×274, 2px lines)
-        image_hash: SHA256 hash of original file for duplicate detection
-        extraction_metadata: JSON with extraction details (width, height, line_thickness, etc.)
+        original_file_data: Original uploaded file (BLOB)
+        processed_image_data: Normalized image 568×274, 2px lines (BLOB)
+        image_hash: SHA256 hash for duplicate detection
+        extraction_metadata: JSON with technical details
+    
+    Ground Truth (for Algorithmic Evaluation):
+        ground_truth_correct: Expected number of correct lines
+        ground_truth_extra: Expected number of extra/wrong lines
+        
+    Clinical Features (for CNN Training):
+        features_data: JSON with clinical scores (Total_Score, MMSE, Age, etc.)
+    
+    Metadata:
         session_id: Upload session identifier
-        uploaded_at: Timestamp of upload
+        uploaded_at: Timestamp
     """
     __tablename__ = "training_data_images"
     
+    # Core identity
     id = Column(Integer, primary_key=True, index=True)
-    patient_id = Column(String, index=True)  # e.g., PC56, Park_16
+    patient_id = Column(String, index=True)
     task_type = Column(String, index=True)  # COPY, RECALL, REFERENCE
-    source_format = Column(String, index=True)  # MAT, OCS
+    source_format = Column(String, index=True)  # MAT, OCS, DRAWN
+    test_name = Column(String, nullable=True, index=True)  # Human-readable name
+    
+    # Image data
     original_filename = Column(String)
-    original_file_data = Column(LargeBinary)  # Original uploaded file
-    processed_image_data = Column(LargeBinary)  # Extracted 568×274 image
-    image_hash = Column(String(64), index=True)  # SHA256 for duplicate detection
-    extraction_metadata = Column(String, nullable=True)  # JSON string
-    features_data = Column(String, nullable=True)  # JSON string with classification labels/features for CNN training
-    # Line detection fields (for drawn/test images)
-    expected_correct = Column(Integer, nullable=True)  # Expected correct lines (for testing)
-    expected_missing = Column(Integer, nullable=True)  # Expected missing lines (for testing)
-    expected_extra = Column(Integer, nullable=True)  # Expected extra lines (for testing)
-    test_name = Column(String, nullable=True, index=True)  # Name for manually drawn images
+    original_file_data = Column(LargeBinary)
+    processed_image_data = Column(LargeBinary)
+    image_hash = Column(String(64), index=True)
+    extraction_metadata = Column(String, nullable=True)  # JSON
+    
+    # Ground truth for algorithmic evaluation (nullable - only if known)
+    ground_truth_correct = Column(Integer, nullable=True)  # Expected correct lines
+    ground_truth_extra = Column(Integer, nullable=True)    # Expected extra/wrong lines
+    
+    # Clinical features for CNN training (nullable - only if available)
+    features_data = Column(String, nullable=True)  # JSON: {Total_Score: 31, MMSE: 28, ...}
+    
+    # Metadata
     session_id = Column(String, index=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
     

@@ -441,11 +441,14 @@ async def get_training_data_images(
             "task_type": img.task_type,
             "source_format": img.source_format,
             "original_filename": img.original_filename,
+            "test_name": img.test_name,
             "width": metadata.get("width"),
             "height": metadata.get("height"),
             "uploaded_at": img.uploaded_at.isoformat(),
             "session_id": img.session_id,
-            "has_features": has_features
+            "has_features": has_features,
+            "ground_truth_correct": img.ground_truth_correct,
+            "ground_truth_extra": img.ground_truth_extra
         })
     
     return {
@@ -658,6 +661,41 @@ async def delete_training_data_features(image_id: int, db: Session = Depends(get
     return {"success": True}
 
 
+@router.post("/training-data-image/{image_id}/ground-truth")
+async def update_ground_truth(
+    image_id: int,
+    data: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    Update ground truth values for a training data image.
+    
+    Args:
+        image_id: Image ID
+        data: Dictionary with ground_truth_correct and ground_truth_extra
+        
+    Returns:
+        Success status and updated values
+    """
+    img = db.query(TrainingDataImage).filter(TrainingDataImage.id == image_id).first()
+    if not img:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    # Update ground truth values
+    img.ground_truth_correct = data.get('ground_truth_correct')
+    img.ground_truth_extra = data.get('ground_truth_extra')
+    
+    db.commit()
+    db.refresh(img)
+    
+    return {
+        "success": True,
+        "image_id": img.id,
+        "ground_truth_correct": img.ground_truth_correct,
+        "ground_truth_extra": img.ground_truth_extra
+    }
+
+
 @router.get("/training-data-features-template")
 async def download_features_template(db: Session = Depends(get_db)):
     """
@@ -830,14 +868,17 @@ async def save_drawn_image(
     file: UploadFile = File(...),
     name: str = Form(...),
     correct_lines: int = Form(0),
-    missing_lines: int = Form(0),
     extra_lines: int = Form(0),
     db: Session = Depends(get_db)
 ):
     """
     Save manually drawn image as training data.
     
-    Source format will be 'DRAWN', can have both line counts and features.
+    Ground truth fields:
+    - correct_lines: Number of correctly drawn lines (0-11)
+    - extra_lines: Number of extra/wrong lines drawn
+    
+    Source format will be 'DRAWN', can have both ground truth and features.
     """
     import hashlib
     
@@ -863,9 +904,8 @@ async def save_drawn_image(
             original_file_data=content,
             processed_image_data=content,  # Same as original for drawn images
             image_hash=image_hash,
-            expected_correct=correct_lines if correct_lines > 0 else None,
-            expected_missing=missing_lines if missing_lines > 0 else None,
-            expected_extra=extra_lines if extra_lines > 0 else None,
+            ground_truth_correct=correct_lines if correct_lines > 0 else None,
+            ground_truth_extra=extra_lines if extra_lines > 0 else None,
             test_name=name,
             session_id='manual_draw',
             extraction_metadata=json.dumps({

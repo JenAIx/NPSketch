@@ -130,7 +130,7 @@
         
         .data-row {
             display: grid;
-            grid-template-columns: 60px 150px 100px 100px 100px 1fr 120px 100px;
+            grid-template-columns: 60px 150px 100px 100px 100px 1fr 120px 100px 120px;
             padding: 12px 15px;
             border-bottom: 1px solid #e9ecef;
             cursor: pointer;
@@ -540,6 +540,10 @@
                         <span>Features</span>
                         <span class="sort-icon" id="sort-features">↕</span>
                     </div>
+                    <div class="data-cell" onclick="sortBy('ground_truth')">
+                        <span>Lines</span>
+                        <span class="sort-icon" id="sort-ground_truth">↕</span>
+                    </div>
                 </div>
                 <div id="dataRows"></div>
             </div>
@@ -726,6 +730,10 @@
                         valA = a.has_features ? 1 : 0;
                         valB = b.has_features ? 1 : 0;
                         break;
+                    case 'ground_truth':
+                        valA = (a.ground_truth_correct || 0) + (a.ground_truth_extra || 0);
+                        valB = (b.ground_truth_correct || 0) + (b.ground_truth_extra || 0);
+                        break;
                     default:
                         return 0;
                 }
@@ -800,6 +808,12 @@
                     ? '<span class="badge has-features">✓ Set</span>'
                     : '<span class="badge missing-features">MISSING</span>';
                 
+                const hasGroundTruth = (img.ground_truth_correct !== null && img.ground_truth_correct !== undefined) || 
+                                       (img.ground_truth_extra !== null && img.ground_truth_extra !== undefined);
+                const groundTruthDisplay = hasGroundTruth
+                    ? `<span style="color: #28a745;">✓${img.ground_truth_correct || 0}</span> / <span style="color: #ffc107;">✗${img.ground_truth_extra || 0}</span>`
+                    : '<span class="badge missing-features">—</span>';
+                
                 return `
                     <div class="data-row" onclick="showPreview(${realIndex})">
                         <div class="data-cell">${img.id}</div>
@@ -810,6 +824,7 @@
                         <div class="data-cell" style="font-size: 0.8em;" title="${img.original_filename}">${shortFilename}</div>
                         <div class="data-cell">${date}</div>
                         <div class="data-cell">${featuresBadge}</div>
+                        <div class="data-cell" style="font-size: 0.9em;">${groundTruthDisplay}</div>
                     </div>
                 `;
             }).join('');
@@ -904,6 +919,33 @@
                 }).join('')
                 : '<p style="color: #999; text-align: center; padding: 10px;">No features set yet</p>';
             
+            // Add Ground Truth Editor Section
+            const groundTruthEditor = `
+                <div class="feature-editor" data-current-image-id="${img.id}" style="margin-bottom: 20px;">
+                    <h3>🎯 Ground Truth (for Algorithmic Evaluation)</h3>
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px solid #dee2e6;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div>
+                                <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #28a745;">✓ Correct Lines (0-11)</label>
+                                <input type="number" id="groundTruthCorrect" value="${img.ground_truth_correct || 0}" min="0" max="11" 
+                                       style="width: 100%; padding: 8px; border: 1px solid #28a745; border-radius: 4px; background: white;" />
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #ffc107;">✗ Extra Lines</label>
+                                <input type="number" id="groundTruthExtra" value="${img.ground_truth_extra || 0}" min="0" 
+                                       style="width: 100%; padding: 8px; border: 1px solid #ffc107; border-radius: 4px; background: white;" />
+                            </div>
+                        </div>
+                        <div style="margin-top: 10px; padding: 10px; background: white; border-radius: 4px; font-size: 0.9em; color: #666;">
+                            <strong>Missing Lines:</strong> ${11 - (img.ground_truth_correct || 0)} (calculated: 11 - correct)
+                        </div>
+                        <button class="btn btn-small save-ground-truth-btn" style="margin-top: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 100%;">
+                            💾 Save Ground Truth
+                        </button>
+                    </div>
+                </div>
+            `;
+            
             const featureEditor = `
                 <div class="feature-editor" data-current-image-id="${img.id}">
                     <h3>🏷️ Features & Labels (for CNN Training)</h3>
@@ -918,10 +960,31 @@
                 </div>
             `;
             
-            modalImages.innerHTML = imagesHtml + featureEditor;
+            modalImages.innerHTML = imagesHtml + groundTruthEditor + featureEditor;
             
-            // Add event listeners for feature buttons (event delegation)
+            // Add event listeners for buttons (event delegation)
             setTimeout(() => {
+                // Save ground truth button
+                const saveGroundTruthBtn = document.querySelector('.save-ground-truth-btn');
+                if (saveGroundTruthBtn) {
+                    saveGroundTruthBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        await saveGroundTruth(img.id);
+                    });
+                }
+                
+                // Update missing lines display when correct lines changes
+                const correctInput = document.getElementById('groundTruthCorrect');
+                if (correctInput) {
+                    correctInput.addEventListener('input', (e) => {
+                        const correct = parseInt(e.target.value) || 0;
+                        const missingDisplay = document.querySelector('.feature-editor div[style*="Missing Lines"]');
+                        if (missingDisplay) {
+                            missingDisplay.innerHTML = `<strong>Missing Lines:</strong> ${11 - correct} (calculated: 11 - correct)`;
+                        }
+                    });
+                }
+                
                 // Add feature button
                 const addBtn = document.querySelector('.add-feature-btn');
                 if (addBtn) {
@@ -943,6 +1006,36 @@
             }, 0);
             
             modal.classList.add('show');
+        }
+        
+        async function saveGroundTruth(imageId) {
+            const correct = parseInt(document.getElementById('groundTruthCorrect').value) || 0;
+            const extra = parseInt(document.getElementById('groundTruthExtra').value) || 0;
+            
+            try {
+                const response = await fetch(`/api/training-data-image/${imageId}/ground-truth`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        ground_truth_correct: correct,
+                        ground_truth_extra: extra
+                    })
+                });
+                
+                if (response.ok) {
+                    // Reload data and re-open modal
+                    await loadData();
+                    const newIndex = existingData.findIndex(img => img.id === imageId);
+                    if (newIndex >= 0) {
+                        showPreview(newIndex);
+                    }
+                } else {
+                    alert('Error saving ground truth');
+                }
+            } catch (error) {
+                console.error('Error saving ground truth:', error);
+                alert('Error saving ground truth: ' + error.message);
+            }
         }
         
         async function addFeature(imageId) {

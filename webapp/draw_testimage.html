@@ -271,11 +271,6 @@
             box-shadow: 0 0 5px rgba(40, 167, 69, 0.3);
         }
         
-        #missingLines {
-            border-color: #dc3545;
-            background: #fef8f8;
-        }
-        
         #extraLines {
             border-color: #ffc107;
             background: #fffef8;
@@ -517,19 +512,20 @@
                     </div>
                     
                     <div class="form-group">
-                        <label>Lines: Correct / Missing / Extra (of <span id="totalRefLines">8</span> total)</label>
+                        <label>Ground Truth (of <span id="totalRefLines">11</span> lines expected)</label>
                         <div class="lines-input-row">
-                            <input type="number" id="correctLines" min="0" max="8" value="0" placeholder="0" title="Correct lines (green)">
-                            <span class="separator">/</span>
-                            <input type="number" id="missingLines" min="0" value="8" disabled placeholder="8" title="Missing lines (red) - auto-calculated">
-                            <span class="separator">/</span>
-                            <input type="number" id="extraLines" min="0" value="0" placeholder="0" title="Extra lines (yellow)">
+                            <div style="flex: 1;">
+                                <label style="font-size: 0.9em; color: #28a745;">✓ Correct Lines</label>
+                                <input type="number" id="correctLines" min="0" max="11" value="0" placeholder="0" title="Number of correctly drawn lines (0-11)">
+                            </div>
+                            <div style="flex: 1; margin-left: 10px;">
+                                <label style="font-size: 0.9em; color: #ffc107;">✗ Extra Lines</label>
+                                <input type="number" id="extraLines" min="0" value="0" placeholder="0" title="Number of extra/wrong lines">
+                            </div>
                         </div>
                         <div class="lines-help">
                             <span style="color: #999; font-size: 0.85em;">
-                                <span style="color: #28a745;">●</span> Correct 
-                                <span style="color: #dc3545;">●</span> Missing (auto) 
-                                <span style="color: #ffc107;">●</span> Extra
+                                Set ground truth for algorithmic evaluation
                             </span>
                         </div>
                     </div>
@@ -586,15 +582,11 @@
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         
-        // Auto-calculate missing lines
-        document.getElementById('correctLines').addEventListener('input', (e) => {
-            const correct = parseInt(e.target.value) || 0;
-            const missing = Math.max(0, totalReferenceLines - correct);
-            document.getElementById('missingLines').value = missing;
+        // Track line changes
+        document.getElementById('correctLines').addEventListener('input', () => {
             checkForChanges();
         });
         
-        // Track extra lines changes
         document.getElementById('extraLines').addEventListener('input', () => {
             checkForChanges();
         });
@@ -794,7 +786,6 @@
         async function saveOrUpdateTestImage() {
             let testName = document.getElementById('testName').value.trim();
             const correctLines = parseInt(document.getElementById('correctLines').value);
-            const missingLines = parseInt(document.getElementById('missingLines').value);
             const extraLines = parseInt(document.getElementById('extraLines').value);
             
             // Generate default name if empty
@@ -816,23 +807,22 @@
             canvas.toBlob(async (blob) => {
                 const formData = new FormData();
                 formData.append('file', blob, 'test_image.png');
-                formData.append('test_name', testName);
+                formData.append('name', testName);
                 formData.append('correct_lines', correctLines);
-                formData.append('missing_lines', missingLines);
                 formData.append('extra_lines', extraLines);
                 
                 try {
                     let response;
                     if (isUpdate) {
                         // Update existing - delete old and create new
-                        await fetch(`/api/test-images/${loadedTestId}`, { method: 'DELETE' });
-                        response = await fetch('/api/test-images', {
+                        await fetch(`/api/training-data-image/${loadedTestId}`, { method: 'DELETE' });
+                        response = await fetch('/api/save-drawn-image', {
                             method: 'POST',
                             body: formData
                         });
                     } else {
-                        // Create new
-                        response = await fetch('/api/test-images', {
+                        // Create new - save to unified training_data_images table
+                        response = await fetch('/api/save-drawn-image', {
                             method: 'POST',
                             body: formData
                         });
@@ -844,10 +834,10 @@
                         loadTestImages();
                     } else {
                         const errorData = await response.json();
-                        if (response.status === 400 && errorData.detail && errorData.detail.includes('UNIQUE')) {
+                        if (response.status === 400 && errorData.detail && errorData.detail.includes('already exists')) {
                             alert(`Name "${testName}" already exists! Please choose a different name.`);
                         } else {
-                            alert('Error saving test image');
+                            alert('Error saving test image: ' + (errorData.detail || 'Unknown error'));
                         }
                     }
                 } catch (error) {
@@ -896,8 +886,10 @@
         // Load test images with virtual scrolling
         async function loadTestImages() {
             try {
-                const response = await fetch('/api/test-images');
-                allTestImages = await response.json();
+                const response = await fetch('/api/training-data-images?limit=10000');
+                const data = await response.json();
+                // Filter for only DRAWN images
+                allTestImages = data.images.filter(img => img.source_format === 'DRAWN');
                 
                 // Update counter
                 const counter = document.getElementById('imageCounter');
@@ -970,19 +962,22 @@
                 item.className = 'test-item';
                 item.style.height = ITEM_HEIGHT + 'px';
                 
-                const date = new Date(test.created_at);
+                const date = new Date(test.uploaded_at);
                 const dateStr = date.toLocaleDateString();
+                const testName = test.test_name || test.patient_id;
+                const correctLines = test.ground_truth_correct || 0;
+                const extraLines = test.ground_truth_extra || 0;
                 
                 item.innerHTML = `
                     <div class="test-item-header">
-                        <span class="test-id">#${test.id} - ${test.test_name}</span>
+                        <span class="test-id">#${test.id} - ${testName}</span>
                         <div class="test-meta">
                             <span style="font-size: 12px; color: #999;">${dateStr}</span>
                             <span class="delete-icon" onclick="deleteTestImage(${test.id}, event)" title="Delete">🗑️</span>
                         </div>
                     </div>
                     <div class="test-stats">
-                        <span class="stat-item">Lines: <span style="color: #28a745; font-weight: bold;">${test.expected_correct}</span> / <span style="color: #dc3545; font-weight: bold;">${test.expected_missing}</span> / <span style="color: #ffc107; font-weight: bold;">${test.expected_extra}</span></span>
+                        <span class="stat-item">✓ ${correctLines} correct  |  ✗ ${extraLines} extra</span>
                     </div>
                 `;
                 
@@ -990,7 +985,7 @@
                 item.addEventListener('click', (e) => {
                     // Don't trigger if clicking on delete icon
                     if (!e.target.closest('.delete-icon')) {
-                        loadTestImage(test.id, test.test_name, test.expected_correct, test.expected_missing, test.expected_extra);
+                        loadTestImage(test.id, testName, correctLines, extraLines);
                     }
                 });
                 
@@ -999,9 +994,9 @@
         }
         
         // Load test image into canvas
-        async function loadTestImage(testId, testName, correctLines, missingLines, extraLines) {
+        async function loadTestImage(testId, testName, correctLines, extraLines) {
             try {
-                const response = await fetch(`/api/test-images/${testId}/image`);
+                const response = await fetch(`/api/training-data-image/${testId}/processed`);
                 const blob = await response.blob();
                 const imageUrl = URL.createObjectURL(blob);
                 
@@ -1019,7 +1014,6 @@
                     loadedTestName = testName;
                     document.getElementById('testName').value = testName;
                     document.getElementById('correctLines').value = correctLines;
-                    document.getElementById('missingLines').value = missingLines;
                     document.getElementById('extraLines').value = extraLines;
                     
                     // Store original values
@@ -1140,7 +1134,7 @@
             }
             
             try {
-                const response = await fetch(`/api/test-images/${testId}`, {
+                const response = await fetch(`/api/training-data-image/${testId}`, {
                     method: 'DELETE'
                 });
                 
@@ -1187,7 +1181,6 @@
                     
                     totalReferenceLines = features.num_lines;
                     document.getElementById('totalRefLines').textContent = totalReferenceLines;
-                    document.getElementById('missingLines').value = totalReferenceLines;
                     document.getElementById('correctLines').max = totalReferenceLines;
                 }
             } catch (error) {
