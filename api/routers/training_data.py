@@ -27,8 +27,10 @@ import scipy.io
 from PIL import Image
 import csv
 
-from database import get_db, TrainingDataImage
+from database import get_db, TrainingDataImage, ReferenceImage
 from line_normalizer import normalize_line_thickness
+from services import EvaluationService
+from image_processing import LineDetector
 
 router = APIRouter(prefix="/api", tags=["training_data"])
 
@@ -870,6 +872,8 @@ async def save_drawn_image(
     name: str = Form(...),
     correct_lines: int = Form(0),
     extra_lines: int = Form(0),
+    source_format: str = Form('DRAWN'),
+    task_type: str = Form('DRAWN'),
     db: Session = Depends(get_db)
 ):
     """
@@ -879,7 +883,8 @@ async def save_drawn_image(
     - correct_lines: Number of correctly drawn lines (0-11)
     - extra_lines: Number of extra/wrong lines drawn
     
-    Source format will be 'DRAWN', can have both ground truth and features.
+    Source format: DRAWN (from draw tool), UPLOAD (from upload page), MAT, OCS
+    Task type: DRAWN, UPLOAD, undefined, COPY, RECALL
     """
     import hashlib
     
@@ -902,13 +907,24 @@ async def save_drawn_image(
         temp_img.save(original_buffer, format='PNG')
         content = original_buffer.getvalue()
         
-        # Check for duplicate name
+        # Check for duplicate image by hash (prevent same image being saved multiple times)
         existing = db.query(TrainingDataImage).filter(
-            TrainingDataImage.test_name == name
+            TrainingDataImage.image_hash == image_hash
         ).first()
         
         if existing:
-            raise HTTPException(status_code=400, detail=f"Name '{name}' already exists")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Duplicate image detected! This image already exists in database (ID: {existing.id}, uploaded: {existing.uploaded_at.strftime('%Y-%m-%d %H:%M:%S')})"
+            )
+        
+        # Also check for duplicate name (secondary check)
+        existing_name = db.query(TrainingDataImage).filter(
+            TrainingDataImage.test_name == name
+        ).first()
+        
+        if existing_name:
+            raise HTTPException(status_code=400, detail=f"Name '{name}' already exists (ID: {existing_name.id})")
         
         # Load image for processing
         image = Image.open(io.BytesIO(content))
@@ -978,9 +994,9 @@ async def save_drawn_image(
         
         # Create entry
         training_image = TrainingDataImage(
-            patient_id=name,  # Use name as patient_id for drawn images
-            task_type='DRAWN',
-            source_format='DRAWN',
+            patient_id=name,  # Use name as patient_id
+            task_type=task_type,  # Use passed task_type (DRAWN, UPLOAD, undefined, etc.)
+            source_format=source_format,  # Use passed source_format (DRAWN, UPLOAD, MAT, OCS)
             original_filename=f"{name}.png",
             original_file_data=content,  # Original drawing (raw)
             processed_image_data=normalized_content,  # CNN-ready (normalized 2px lines)
@@ -988,7 +1004,7 @@ async def save_drawn_image(
             ground_truth_correct=correct_lines if correct_lines > 0 else None,
             ground_truth_extra=extra_lines if extra_lines > 0 else None,
             test_name=name,
-            session_id='manual_draw',
+            session_id=f'{source_format.lower()}_upload',  # e.g., 'upload_upload' or 'drawn_upload'
             extraction_metadata=json.dumps({
                 "width": width,
                 "height": height,
@@ -1050,3 +1066,209 @@ def cleanup_session(session_id: str):
                 shutil.rmtree(directory)
         except Exception as e:
             print(f"Error cleaning up {directory}: {e}")
+
+
+@router.post("/training-data-image/{image_id}/evaluate")
+async def evaluate_training_data_image(
+    image_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Evaluate a training data image by running line detection and comparing to ground truth.
+    
+    This endpoint:
+    1. Loads the processed image from database
+    2. Runs automated line detection
+    3. Compares detected lines to reference
+    4. Compares detected metrics to ground truth values
+    5. Returns both automated and ground truth values for comparison
+    
+    Args:
+        image_id: Training data image ID
+        db: Database session
+    
+    Returns:
+        Evaluation results with automated detection vs ground truth comparison
+    """
+    # Get training image
+    training_img = db.query(TrainingDataImage).filter(
+        TrainingDataImage.id == image_id
+    ).first()
+    
+    if not training_img:
+        raise HTTPException(status_code=404, detail="Training image not found")
+    
+    # Get reference image (assume default reference for now)
+    reference = db.query(ReferenceImage).first()
+    if not reference:
+        raise HTTPException(status_code=404, detail="No reference image found")
+    
+    # Load processed image
+    nparr = np.frombuffer(training_img.processed_image_data, np.uint8)
+    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    
+    # Run evaluation using EvaluationService
+    eval_service = EvaluationService(db)
+    
+    # Use evaluate_test_image (doesn't store to DB, just returns result)
+    evaluation_result = eval_service.evaluate_test_image(
+        image,
+        reference.id,
+        f"training_{training_img.id}"
+    )
+    
+    # Get reference line count for calculations
+    line_detector = LineDetector()
+    ref_features = line_detector.features_from_json(reference.feature_data)
+    total_ref_lines = len(ref_features['lines'])
+    
+    # Calculate missing lines (reference - correct)
+    # Note: evaluation_result already has missing_lines calculated correctly
+    detected_correct = evaluation_result.correct_lines
+    detected_missing = evaluation_result.missing_lines
+    detected_extra = evaluation_result.extra_lines
+    
+    # Calculate automated similarity score
+    automated_similarity = evaluation_result.similarity_score
+    
+    # If ground truth exists, calculate accuracy of detection
+    ground_truth_accuracy = None
+    accuracy_details = None
+    
+    if training_img.ground_truth_correct is not None:
+        # Compare automated detection to ground truth
+        gt_correct = training_img.ground_truth_correct
+        gt_extra = training_img.ground_truth_extra or 0
+        gt_missing = total_ref_lines - gt_correct  # Calculate expected missing
+        
+        # Calculate differences
+        correct_diff = abs(detected_correct - gt_correct)
+        missing_diff = abs(detected_missing - gt_missing)
+        extra_diff = abs(detected_extra - gt_extra)
+        
+        # Total error (sum of absolute differences)
+        total_error = correct_diff + missing_diff + extra_diff
+        max_error = total_ref_lines * 3  # 3 metrics, max error = ref_lines each
+        
+        # Accuracy: 1.0 if perfect match, decreases with error
+        ground_truth_accuracy = max(0.0, 1.0 - (total_error / max_error)) if max_error > 0 else 1.0
+        
+        accuracy_details = {
+            "correct_diff": correct_diff,
+            "missing_diff": missing_diff,
+            "extra_diff": extra_diff,
+            "total_error": total_error,
+            "max_error": max_error
+        }
+    
+    # Prepare response
+    response = {
+        "image_id": training_img.id,
+        "patient_id": training_img.patient_id,
+        "task_type": training_img.task_type,
+        "source_format": training_img.source_format,
+        "total_reference_lines": total_ref_lines,
+        
+        # Automated detection results
+        "automated": {
+            "correct_lines": detected_correct,
+            "missing_lines": detected_missing,
+            "extra_lines": detected_extra,
+            "similarity_score": automated_similarity
+        },
+        
+        # Ground truth (if available)
+        "ground_truth": {
+            "correct_lines": training_img.ground_truth_correct,
+            "extra_lines": training_img.ground_truth_extra,
+            "missing_lines": total_ref_lines - training_img.ground_truth_correct if training_img.ground_truth_correct is not None else None,
+            "has_ground_truth": training_img.ground_truth_correct is not None
+        },
+        
+        # Comparison metrics
+        "comparison": {
+            "accuracy": ground_truth_accuracy,
+            "details": accuracy_details
+        },
+        
+        # Visualization path
+        "visualization_path": evaluation_result.visualization_path if evaluation_result.visualization_path else None
+    }
+    
+    return response
+
+
+@router.get("/training-data-evaluations")
+async def get_training_data_evaluations(
+    limit: int = 100,
+    offset: int = 0,
+    has_ground_truth: bool = None,
+    task_type: str = None,
+    source_format: str = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get list of training data images suitable for evaluation.
+    
+    Args:
+        limit: Maximum number of results
+        offset: Offset for pagination
+        has_ground_truth: Filter by presence of ground truth
+        task_type: Filter by task type
+        source_format: Filter by source format
+        db: Database session
+    
+    Returns:
+        List of training data images with ground truth status
+    """
+    query = db.query(TrainingDataImage)
+    
+    # Filter by ground truth presence
+    if has_ground_truth is not None:
+        if has_ground_truth:
+            query = query.filter(TrainingDataImage.ground_truth_correct.isnot(None))
+        else:
+            query = query.filter(TrainingDataImage.ground_truth_correct.is_(None))
+    
+    # Filter by task type
+    if task_type:
+        query = query.filter(TrainingDataImage.task_type == task_type)
+    
+    # Filter by source format
+    if source_format:
+        query = query.filter(TrainingDataImage.source_format == source_format)
+    
+    # Order by most recent first
+    query = query.order_by(TrainingDataImage.uploaded_at.desc())
+    
+    # Get total count
+    total = query.count()
+    
+    # Apply pagination
+    images = query.offset(offset).limit(limit).all()
+    
+    # Prepare results
+    results = []
+    for img in images:
+        metadata = json.loads(img.extraction_metadata) if img.extraction_metadata else {}
+        
+        results.append({
+            "id": img.id,
+            "patient_id": img.patient_id,
+            "task_type": img.task_type,
+            "source_format": img.source_format,
+            "test_name": img.test_name,
+            "uploaded_at": img.uploaded_at.isoformat(),
+            "has_ground_truth": img.ground_truth_correct is not None,
+            "ground_truth_correct": img.ground_truth_correct,
+            "ground_truth_extra": img.ground_truth_extra,
+            "width": metadata.get("width"),
+            "height": metadata.get("height")
+        })
+    
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "evaluations": results
+    }

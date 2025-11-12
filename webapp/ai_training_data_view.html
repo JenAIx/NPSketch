@@ -130,7 +130,7 @@
         
         .data-row {
             display: grid;
-            grid-template-columns: 60px 150px 100px 100px 100px 120px 100px 120px 1fr;
+            grid-template-columns: 60px 150px 100px 100px 100px 120px 100px 120px 1fr 50px;
             padding: 12px 15px;
             border-bottom: 1px solid #e9ecef;
             cursor: pointer;
@@ -204,6 +204,11 @@
             color: #5a3d99;
         }
         
+        .badge.upload {
+            background: #cfe2ff;
+            color: #084298;
+        }
+        
         .badge.copy {
             background: #fff3cd;
             color: #856404;
@@ -212,6 +217,11 @@
         .badge.recall {
             background: #f8d7da;
             color: #721c24;
+        }
+        
+        .badge.undefined {
+            background: #e2e3e5;
+            color: #383d41;
         }
         
         .badge.has-features {
@@ -223,6 +233,22 @@
             background: #f8d7da;
             color: #721c24;
             font-weight: 700;
+        }
+        
+        .delete-icon {
+            cursor: pointer;
+            font-size: 18px;
+            padding: 6px;
+            border-radius: 4px;
+            transition: all 0.2s;
+            opacity: 0.6;
+            text-align: center;
+        }
+        
+        .delete-icon:hover {
+            opacity: 1;
+            background: #ffebee;
+            transform: scale(1.2);
         }
         
         .empty-state {
@@ -552,6 +578,9 @@
                         <span>Original File</span>
                         <span class="sort-icon" id="sort-filename">↕</span>
                     </div>
+                    <div class="data-cell" style="cursor: default;">
+                        <span></span>
+                    </div>
                 </div>
                 <div id="dataRows"></div>
             </div>
@@ -833,9 +862,39 @@
                         <div class="data-cell">${featuresBadge}</div>
                         <div class="data-cell" style="font-size: 0.9em;">${groundTruthDisplay}</div>
                         <div class="data-cell" style="font-size: 0.8em;" title="${img.original_filename}">${shortFilename}</div>
+                        <div class="data-cell">
+                            <span class="delete-icon" onclick="event.stopPropagation(); deleteImage(${img.id}, '${img.patient_id}')" title="Delete">🗑️</span>
+                        </div>
                     </div>
                 `;
             }).join('');
+        }
+        
+        async function deleteImage(imageId, patientId) {
+            // Confirm deletion
+            if (!confirm(`Are you sure you want to delete training data image #${imageId} (${patientId})?\n\nThis action cannot be undone.`)) {
+                return;
+            }
+            
+            try {
+                // Call API to delete
+                const response = await fetch(`/api/training-data-image/${imageId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to delete image');
+                }
+                
+                // Success - reload data
+                alert(`✓ Image #${imageId} deleted successfully!`);
+                await loadData();
+                
+            } catch (error) {
+                console.error('Error deleting image:', error);
+                alert('❌ Error deleting image: ' + error.message);
+            }
         }
         
         async function showPreview(index) {

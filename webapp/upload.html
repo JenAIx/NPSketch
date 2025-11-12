@@ -175,6 +175,32 @@
             transform: none;
         }
         
+        .btn-save-db {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.05em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 20px;
+        }
+        
+        .btn-save-db:hover {
+            background: linear-gradient(135deg, #20c997 0%, #28a745 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(40, 167, 69, 0.4);
+        }
+        
+        .btn-save-db:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
         .controls {
             margin-top: 20px;
         }
@@ -510,11 +536,13 @@
                         <input type="text" id="uploader" placeholder="Enter your name">
             </div>
             
+                    <button class="btn-save-db" id="saveDbBtn" onclick="saveToTrainingDatabase()">💾 Save to Training Database</button>
+                    
                     <button class="btn" id="analyzeBtn" onclick="analyzeDrawing()">🔍 Analyze Drawing</button>
                     
-                    <!-- Evaluate button - shown after successful analysis -->
-                    <a href="/evaluations.html?filter=unevaluated" class="btn" id="evaluateBtn" style="display: none; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); margin-top: 10px; text-decoration: none; text-align: center;">
-                        ✓ View in Evaluations
+                    <!-- Training Data button - shown after successful save -->
+                    <a href="/training_evaluations.html" class="btn" id="evaluateBtn" style="display: none; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); margin-top: 10px; text-decoration: none; text-align: center;">
+                        ✓ View in Training Evaluations
                     </a>
                 </div>
             </div>
@@ -911,6 +939,88 @@
             }
             
             renderReferenceCanvas();
+        }
+        
+        // Save to Training Database
+        async function saveToTrainingDatabase() {
+            const saveBtn = document.getElementById('saveDbBtn');
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            
+            // Check if image is uploaded
+            if (!uploadedImage || !originalFileBlob) {
+                alert('Please upload an image first!');
+                return;
+            }
+            
+            // Disable buttons during save
+            saveBtn.disabled = true;
+            analyzeBtn.disabled = true;
+            
+            // Show loading
+            canvasLoading.classList.add('show');
+            spinnerText.textContent = 'Saving to training database...';
+            
+            try {
+                // Get current canvas as blob (CNN-optimized version with transformations)
+                const canvasBlob = await new Promise(resolve => {
+                    uploadCanvas.toBlob(resolve, 'image/png');
+                });
+                
+                // Generate shortened patient ID from filename
+                let patientId = originalFileName.replace(/\.(png|jpg|jpeg|gif|bmp)$/i, '');
+                // Remove special characters and limit length
+                patientId = patientId.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+                // Add timestamp to make unique
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+                patientId = `${patientId}_${timestamp}`;
+                
+                // Create form data
+                const formData = new FormData();
+                formData.append('file', canvasBlob, `${patientId}.png`);
+                formData.append('name', patientId);
+                formData.append('correct_lines', 0);  // Ground truth to be set later
+                formData.append('extra_lines', 0);     // Ground truth to be set later
+                formData.append('source_format', 'UPLOAD');  // Source: UPLOAD (from upload page)
+                formData.append('task_type', 'undefined');   // Task: undefined (unknown task type)
+                
+                // Save to database
+                const response = await fetch('/api/save-drawn-image', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    // Check if it's a duplicate error
+                    if (response.status === 400 && error.detail && error.detail.includes('Duplicate image')) {
+                        throw new Error('⚠️ ' + error.detail);
+                    }
+                    throw new Error(error.detail || 'Failed to save image');
+                }
+                
+                const result = await response.json();
+                
+                // Show success message
+                alert(`✓ Image saved to training database!\n\nID: ${result.id}\nName: ${result.name}\n\nYou can now set ground truth values in the Training Evaluations page.`);
+                
+                // Hide loading
+                canvasLoading.classList.remove('show');
+                
+                // Re-enable buttons
+                saveBtn.disabled = false;
+                analyzeBtn.disabled = false;
+                
+            } catch (error) {
+                console.error('Error saving to database:', error);
+                alert('❌ Error saving to database: ' + error.message);
+                
+                // Hide loading
+                canvasLoading.classList.remove('show');
+                
+                // Re-enable buttons
+                saveBtn.disabled = false;
+                analyzeBtn.disabled = false;
+            }
         }
         
         // Analyze Drawing

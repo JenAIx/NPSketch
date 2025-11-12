@@ -278,8 +278,8 @@
             <div class="button-group">
                 <div class="button-group-label">🤖 AI & Models</div>
                 <div class="button-row">
-                    <a href="/evaluations.html" class="btn">📊 Evaluations</a>
-                    <a href="/ai_training.html" class="btn">🧠 Train Model</a>
+                    <a href="/training_evaluations.html" class="btn">🧪 Test Algorithm</a>
+                    <a href="/ai_training.html" class="btn">🤖 AI models</a>
                 </div>
             </div>
             
@@ -310,9 +310,9 @@
         </div>
         
         <div class="stats-grid" id="statsGrid" style="display: none;">
-            <div class="stat-card clickable" onclick="window.location.href='/evaluations.html'">
+            <div class="stat-card clickable" onclick="window.location.href='/training_evaluations.html'">
                 <div class="stat-value" id="totalEvaluations">-</div>
-                <div class="stat-label">Total Evaluations</div>
+                <div class="stat-label">Training Data</div>
             </div>
             <div class="stat-card clickable" onclick="window.location.href='/reference.html'">
                 <div class="stat-value" id="referenceCount">-</div>
@@ -407,16 +407,16 @@
                 const healthResponse = await fetch('/api/health');
                 const healthData = await healthResponse.json();
                 
-                // Get evaluations
-                const evalsResponse = await fetch('/api/evaluations/recent?limit=100');
-                const evaluations = await evalsResponse.json();
+                // Get training data evaluations
+                const evalsResponse = await fetch('/api/training-data-evaluations?limit=100');
+                const evalsData = await evalsResponse.json();
                 
                 // Get test images
                 const testResponse = await fetch('/api/test-images');
                 const testImages = await testResponse.json();
                 
                 // Update stats
-                document.getElementById('totalEvaluations').textContent = evaluations.length;
+                document.getElementById('totalEvaluations').textContent = evalsData.total || 0;
                 document.getElementById('referenceCount').textContent = healthData.reference_images_count || 1;
                 document.getElementById('testImages').textContent = testImages.length;
                 
