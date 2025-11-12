@@ -16,7 +16,7 @@ from typing import Dict, Callable, Optional
 from pathlib import Path
 
 from .model import DrawingClassifier
-from .dataset import create_dataloaders
+from .dataset import create_dataloaders, create_augmented_dataloaders
 
 
 class CNNTrainer:

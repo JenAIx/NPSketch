@@ -589,6 +589,14 @@
                 <button onclick="changePage(-1)" id="prevBtn">← Previous</button>
                 <span id="pageInfo">Page 1</span>
                 <button onclick="changePage(1)" id="nextBtn">Next →</button>
+                <span style="margin-left: 20px; color: #666;">|</span>
+                <span style="color: #666; margin-left: 20px;">Items per page:</span>
+                <select onchange="changePageSize(this.value)" id="pageSizeSelect" style="padding: 6px 12px; border: 2px solid #dee2e6; border-radius: 6px; cursor: pointer; margin-left: 8px;">
+                    <option value="25" selected>25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+                <span id="itemsInfo" style="margin-left: 20px; color: #666; font-size: 0.95em;"></span>
             </div>
         </div>
     </div>
@@ -610,7 +618,7 @@
         let allData = [];  // Store all loaded data for client-side search
         let currentPage = 0;
         let totalPages = 0;
-        const pageSize = 50;
+        let pageSize = 25;  // Show 25 items per page (can be changed by user)
         let searchTerm = '';
         let sortColumn = 'id';
         let sortDirection = 'desc';  // 'asc' or 'desc'
@@ -692,6 +700,10 @@
             }
             
             return filtered;
+        }
+        
+        function getFilteredData() {
+            return existingData;  // existingData already contains the filtered results
         }
         
         function getPaginatedData() {
@@ -1169,6 +1181,18 @@
             document.getElementById('pageInfo').textContent = `Page ${currentPage + 1} of ${totalPages || 1}`;
             document.getElementById('prevBtn').disabled = currentPage === 0;
             document.getElementById('nextBtn').disabled = currentPage >= totalPages - 1 || totalPages === 0;
+            
+            // Update items info
+            const filteredData = getFilteredData();
+            const totalItems = filteredData.length;
+            const startItem = currentPage * pageSize + 1;
+            const endItem = Math.min((currentPage + 1) * pageSize, totalItems);
+            
+            if (totalItems > 0) {
+                document.getElementById('itemsInfo').textContent = `Showing ${startItem}-${endItem} of ${totalItems} items`;
+            } else {
+                document.getElementById('itemsInfo').textContent = '';
+            }
         }
         
         function changePage(delta) {
@@ -1181,6 +1205,18 @@
             updatePagination();
         }
         
+        function changePageSize(newSize) {
+            pageSize = parseInt(newSize);
+            currentPage = 0;  // Reset to first page when changing page size
+            
+            // Recalculate pagination
+            const filteredData = getFilteredData();
+            totalPages = Math.ceil(filteredData.length / pageSize);
+            
+            // Re-render with new page size
+            renderDataTable(getPaginatedData());
+            updatePagination();
+        }
         
         async function uploadFeatureCSV() {
             const fileInput = document.getElementById('csvFileInput');

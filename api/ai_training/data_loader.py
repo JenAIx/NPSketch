@@ -2,15 +2,17 @@
 Training Data Loader
 
 Loads training data from database for CNN training.
+Supports data augmentation for improved model generalization.
 """
 
 import numpy as np
 from PIL import Image
 import io
 import json
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from sqlalchemy.orm import Session
 from database import TrainingDataImage
+from pathlib import Path
 
 try:
     from .split_strategy import stratified_split_regression, validate_split, get_split_recommendation
@@ -245,4 +247,154 @@ class TrainingDataLoader:
               f"range=[{split_info['test_distribution']['min']:.3f}, {split_info['test_distribution']['max']:.3f}]")
         
         return X_train, X_test, y_train, y_test, image_ids
+    
+    def prepare_augmented_training_data(
+        self,
+        target_feature: str,
+        train_split: float = 0.8,
+        random_seed: int = 42,
+        augmentation_config: Optional[Dict] = None,
+        output_dir: str = '/app/data/ai_training_data'
+    ) -> Tuple[Dict, str]:
+        """
+        Prepare augmented training dataset and save to disk.
+        
+        Args:
+            target_feature: Feature to predict
+            train_split: Train/validation split ratio
+            random_seed: Random seed for reproducibility
+            augmentation_config: Dict with augmentation parameters:
+                - rotation_range: (min, max) degrees, default: (-3, 3)
+                - translation_range: (min, max) pixels, default: (-10, 10)
+                - scale_range: (min, max) scale factor, default: (0.95, 1.05)
+                - num_augmentations: number per image, default: 5
+            output_dir: Directory to save augmented data
+        
+        Returns:
+            (statistics_dict, output_directory_path)
+        """
+        from ai_training.data_augmentation import ImageAugmentor, AugmentedDatasetBuilder
+        
+        # Default augmentation config
+        default_config = {
+            'rotation_range': (-3.0, 3.0),
+            'translation_range': (-10, 10),
+            'scale_range': (0.95, 1.05),
+            'num_augmentations': 5
+        }
+        
+        if augmentation_config:
+            default_config.update(augmentation_config)
+        
+        print(f"\n🔄 Preparing augmented dataset...")
+        print(f"   Augmentation config: {default_config}")
+        
+        # Load images from database
+        images = self.db.query(TrainingDataImage).filter(
+            TrainingDataImage.features_data.isnot(None)
+        ).all()
+        
+        # Filter images with target feature
+        images_data = []
+        for img in images:
+            try:
+                features = json.loads(img.features_data)
+                if target_feature in features:
+                    images_data.append({
+                        'id': img.id,
+                        'patient_id': img.patient_id,
+                        'processed_image_data': img.processed_image_data,
+                        'features_data': img.features_data
+                    })
+            except Exception as e:
+                print(f"Warning: Error loading image {img.id}: {e}")
+        
+        if len(images_data) == 0:
+            raise ValueError(f"No images found with feature '{target_feature}'")
+        
+        print(f"   Found {len(images_data)} images with feature '{target_feature}'")
+        
+        # Create train/val split
+        y_values = []
+        for img_data in images_data:
+            features = json.loads(img_data['features_data'])
+            y_values.append(float(features[target_feature]))
+        
+        y_array = np.array(y_values)
+        
+        # Get split recommendation
+        recommendation = get_split_recommendation(len(images_data), y_array.max() - y_array.min())
+        
+        print(f"   Split strategy: {recommendation['strategy']} with {recommendation['n_bins']} bins")
+        
+        # Create stratified split indices
+        indices = np.arange(len(images_data))
+        
+        # Use stratified split
+        _, _, _, _, split_info = stratified_split_regression(
+            indices.reshape(-1, 1),
+            y_array,
+            train_split=train_split,
+            n_bins=recommendation['n_bins'],
+            random_seed=random_seed
+        )
+        
+        # Get actual train/val indices
+        np.random.seed(random_seed)
+        
+        try:
+            from ai_training.split_strategy import create_bins
+        except ImportError:
+            from split_strategy import create_bins
+        
+        bin_assignments = create_bins(y_array, n_bins=recommendation['n_bins'], method='quantile')
+        unique_bins = np.unique(bin_assignments)
+        
+        train_indices = []
+        val_indices = []
+        
+        for bin_idx in unique_bins:
+            bin_mask = bin_assignments == bin_idx
+            bin_idxs = np.where(bin_mask)[0]
+            np.random.shuffle(bin_idxs)
+            
+            split_point = int(len(bin_idxs) * train_split)
+            train_indices.extend(bin_idxs[:split_point].tolist())
+            val_indices.extend(bin_idxs[split_point:].tolist())
+        
+        split_indices = {
+            'train': train_indices,
+            'val': val_indices
+        }
+        
+        print(f"   Train: {len(train_indices)} images, Val: {len(val_indices)} images")
+        
+        # Create augmentor
+        augmentor = ImageAugmentor(
+            rotation_range=tuple(default_config['rotation_range']),
+            translation_range=tuple(default_config['translation_range']),
+            scale_range=tuple(default_config['scale_range']),
+            num_augmentations=default_config['num_augmentations']
+        )
+        
+        # Build augmented dataset
+        builder = AugmentedDatasetBuilder(
+            output_dir=output_dir,
+            augmentor=augmentor,
+            include_original=True
+        )
+        
+        stats = builder.prepare_augmented_dataset(
+            images_data=images_data,
+            split_indices=split_indices,
+            target_feature=target_feature,
+            clean_existing=True
+        )
+        
+        # Add split info to stats
+        stats['split_info'] = split_info
+        stats['split_strategy'] = recommendation['strategy']
+        stats['n_bins'] = recommendation['n_bins']
+        
+        return stats, output_dir
 

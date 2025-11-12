@@ -1,5 +1,9 @@
 """
 Dataset and DataLoader for Training Data Images
+
+Supports loading from:
+1. Database (original implementation)
+2. Augmented data directory (new)
 """
 
 import torch
@@ -7,8 +11,10 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import numpy as np
 import io
-from typing import List, Dict, Tuple
+import cv2
+from typing import List, Dict, Tuple, Optional
 import json
+from pathlib import Path
 
 
 class DrawingDataset(Dataset):
@@ -213,6 +219,132 @@ def create_dataloaders(
         "val_target_range": [float(min(val_targets)), float(max(val_targets))],
         "train_image_ids": train_image_ids,
         "val_image_ids": val_image_ids
+    }
+    
+    return train_loader, val_loader, stats
+
+
+class AugmentedDrawingDataset(Dataset):
+    """
+    PyTorch Dataset for augmented training data from disk.
+    """
+    
+    def __init__(self, data_dir: str, split: str = 'train', transform=None):
+        """
+        Initialize dataset from augmented data directory.
+        
+        Args:
+            data_dir: Directory containing augmented data
+            split: 'train' or 'val'
+            transform: Optional transforms
+        """
+        self.data_dir = Path(data_dir)
+        self.split = split
+        self.transform = transform
+        
+        self.split_dir = self.data_dir / split
+        if not self.split_dir.exists():
+            raise ValueError(f"Split directory not found: {self.split_dir}")
+        
+        # Load all image-label pairs
+        self.samples = []
+        label_files = sorted(self.split_dir.glob("*.json"))
+        
+        for label_file in label_files:
+            # Check if corresponding image exists
+            img_file = label_file.with_suffix('.png')
+            if img_file.exists():
+                self.samples.append({
+                    'image_path': img_file,
+                    'label_path': label_file
+                })
+    
+    def __len__(self):
+        return len(self.samples)
+    
+    def __getitem__(self, idx) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get item by index."""
+        sample = self.samples[idx]
+        
+        # Load image
+        img_array = cv2.imread(str(sample['image_path']), cv2.IMREAD_GRAYSCALE)
+        
+        # Normalize to [0, 1]
+        img_array = img_array.astype(np.float32) / 255.0
+        
+        # Convert to tensor: (H, W) -> (1, H, W)
+        img_tensor = torch.from_numpy(img_array).unsqueeze(0)
+        
+        # Apply transforms if any
+        if self.transform:
+            img_tensor = self.transform(img_tensor)
+        
+        # Load label
+        with open(sample['label_path'], 'r') as f:
+            label_data = json.load(f)
+        
+        target_value = float(label_data['target_value'])
+        target_tensor = torch.tensor([target_value], dtype=torch.float32)
+        
+        return img_tensor, target_tensor
+
+
+def create_augmented_dataloaders(
+    data_dir: str,
+    batch_size: int = 8,
+    shuffle_train: bool = True,
+    transform=None
+) -> Tuple[DataLoader, DataLoader, Dict]:
+    """
+    Create dataloaders from augmented data directory.
+    
+    Args:
+        data_dir: Directory containing augmented train/val data
+        batch_size: Batch size
+        shuffle_train: Whether to shuffle training data
+        transform: Optional transforms
+    
+    Returns:
+        (train_loader, val_loader, stats)
+    """
+    # Create datasets
+    train_dataset = AugmentedDrawingDataset(data_dir, split='train', transform=transform)
+    val_dataset = AugmentedDrawingDataset(data_dir, split='val', transform=transform)
+    
+    # Create dataloaders
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=shuffle_train,
+        num_workers=0,
+        pin_memory=False
+    )
+    
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=False
+    )
+    
+    # Load metadata
+    metadata_file = Path(data_dir) / "metadata.json"
+    if metadata_file.exists():
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+    else:
+        metadata = {}
+    
+    stats = {
+        "total_samples": len(train_dataset) + len(val_dataset),
+        "train_samples": len(train_dataset),
+        "val_samples": len(val_dataset),
+        "train_batches": len(train_loader),
+        "val_batches": len(val_loader),
+        "batch_size": batch_size,
+        "augmentation_config": metadata.get('augmentation_config', {}),
+        "statistics": metadata.get('statistics', {})
     }
     
     return train_loader, val_loader, stats
