@@ -145,15 +145,32 @@ async def extract_training_data(
                 # Read original file
                 original_content = await uploaded_file.read()
                 
-                # For MAT files: We'll check duplicates per extracted image (since COPY/RECALL are separate)
+                # Calculate original file hash
+                original_file_hash = hashlib.sha256(original_content).hexdigest()
+                
+                # For MAT files: Check if this exact .mat file was already uploaded
                 # For OCS files: Check duplicate now (since it's one image per file)
-                if format == 'ocs':
-                    # Calculate hash for duplicate detection
-                    file_hash = hashlib.sha256(original_content).hexdigest()
-                    
-                    # Check for duplicates
+                if format == 'mat':
+                    # Check if any image from this MAT file already exists
                     existing = db.query(TrainingDataImage).filter(
-                        TrainingDataImage.image_hash == file_hash
+                        TrainingDataImage.source_format == 'MAT',
+                        TrainingDataImage.original_filename == uploaded_file.filename
+                    ).first()
+                    
+                    if existing:
+                        # Check if it's really the same file (not just same name)
+                        existing_hash = hashlib.sha256(existing.original_file_data).hexdigest()
+                        if existing_hash == original_file_hash:
+                            result["status"] = "duplicate"
+                            result["message"] = f"MAT file already processed (ID #{existing.id})"
+                            result["existing_id"] = existing.id
+                            results.append(result)
+                            continue
+                
+                elif format == 'ocs':
+                    # Check for duplicates by file hash
+                    existing = db.query(TrainingDataImage).filter(
+                        TrainingDataImage.image_hash == original_file_hash
                     ).first()
                     
                     if existing:
@@ -213,13 +230,13 @@ async def extract_training_data(
                         processed_content = f.read()
                     
                     # For MAT files: Calculate hash from processed image (each drawing is unique)
-                    # For OCS files: Use file_hash from original (already calculated above)
+                    # For OCS files: Use original file hash
                     if format == 'mat':
                         # Each COPY/RECALL is a separate dataset with unique hash
                         image_hash = hashlib.sha256(processed_content).hexdigest()
                     else:
                         # OCS: Use original file hash
-                        image_hash = file_hash
+                        image_hash = original_file_hash
                     
                     # Check for duplicates of this specific image
                     existing = db.query(TrainingDataImage).filter(
