@@ -16,6 +16,7 @@ from .evaluations import router as evaluations_router
 from .references import router as references_router
 from .test_images import router as test_images_router
 from .training_data import router as training_data_router
+from .ai_training import router as ai_training_router
 
 __all__ = [
     "admin_router",
@@ -23,5 +24,6 @@ __all__ = [
     "evaluations_router",
     "references_router",
     "test_images_router",
-    "training_data_router"
+    "training_data_router",
+    "ai_training_router"
 ]
