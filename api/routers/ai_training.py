@@ -4,19 +4,17 @@ AI Training Router
 Endpoints for CNN training and model management.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 from database import get_db, TrainingDataImage
 import json
 
-# Direct import to avoid PyTorch dependency
+# Import data_loader (it will handle PyTorch imports gracefully)
+# We need to add ai_training to path first
 import sys
-import importlib.util
-spec = importlib.util.spec_from_file_location("data_loader", "/app/ai_training/data_loader.py")
-data_loader_module = importlib.util.module_from_spec(spec)
-sys.modules['data_loader'] = data_loader_module
-spec.loader.exec_module(data_loader_module)
-TrainingDataLoader = data_loader_module.TrainingDataLoader
+sys.path.insert(0, '/app')
+
+from ai_training.data_loader import TrainingDataLoader
 
 router = APIRouter(prefix="/api/ai-training", tags=["ai_training"])
 
@@ -49,6 +47,73 @@ async def get_available_features(db: Session = Depends(get_db)):
         loader = TrainingDataLoader(db)
         features_info = loader.get_available_features()
         return features_info
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/model-info")
+async def get_model_info():
+    """
+    Get detailed information about the CNN model architecture.
+    
+    Returns:
+        Model architecture details, parameters, layers
+    """
+    from ai_training.model import DrawingClassifier, get_model_summary
+    
+    try:
+        # Create a dummy model to get architecture info
+        model = DrawingClassifier(num_outputs=1, pretrained=False)
+        summary = get_model_summary(model)
+        
+        # Add detailed layer information
+        detailed_info = {
+            **summary,
+            "layers": {
+                "input_layer": {
+                    "type": "Conv2d (modified for grayscale)",
+                    "channels": "1 → 64",
+                    "kernel": "7×7",
+                    "stride": 2,
+                    "padding": 3
+                },
+                "backbone": {
+                    "architecture": "ResNet-18",
+                    "blocks": "4 residual blocks",
+                    "layers": [
+                        "Layer 1: 64 channels",
+                        "Layer 2: 128 channels",
+                        "Layer 3: 256 channels",
+                        "Layer 4: 512 channels"
+                    ],
+                    "pretrained": "ImageNet (adapted from RGB to grayscale)"
+                },
+                "output_head": {
+                    "layer_1": "Linear(512 → 256)",
+                    "activation_1": "ReLU",
+                    "dropout": "Dropout(p=0.5)",
+                    "layer_2": "Linear(256 → num_outputs)",
+                    "output": "Single value (regression)"
+                }
+            },
+            "training_details": {
+                "optimizer": "Adam",
+                "loss_function": "MSE (Mean Squared Error)",
+                "input_preprocessing": [
+                    "Grayscale conversion",
+                    "Normalization to [0, 1]",
+                    "Size: 568×274 pixels"
+                ],
+                "data_augmentation": "None (currently)",
+                "regularization": [
+                    "Dropout (0.5)",
+                    "Batch Normalization (in ResNet blocks)"
+                ]
+            }
+        }
+        
+        return detailed_info
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -114,7 +179,7 @@ async def check_training_readiness(db: Session = Depends(get_db)):
 
 @router.post("/start-training")
 async def start_training(
-    config: dict,
+    config: dict = Body(...),
     db: Session = Depends(get_db)
 ):
     """
@@ -371,7 +436,7 @@ async def get_model_metadata(model_filename: str):
 
 @router.post("/models/test")
 async def test_model(
-    request: dict,
+    request: dict = Body(...),
     db: Session = Depends(get_db)
 ):
     """

@@ -5,41 +5,43 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NPSketch - AI Training</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         .container {
-            max-width: 1400px;
+            max-width: 800px;
             margin: 0 auto;
             background: white;
             border-radius: 15px;
-            padding: 40px;
+            padding: 50px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
         }
         
         h1 {
             color: #333;
+            font-size: 2.5em;
             margin-bottom: 10px;
         }
         
         .subtitle {
             color: #666;
-            margin-bottom: 30px;
+            margin-bottom: 40px;
+            font-size: 1.1em;
         }
         
         .back-link {
             display: inline-block;
-            margin-bottom: 20px;
+            margin-bottom: 30px;
             color: #667eea;
             text-decoration: none;
             font-weight: 600;
@@ -49,236 +51,47 @@
             text-decoration: underline;
         }
         
-        .section {
+        .options {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 30px;
+            margin-top: 40px;
+        }
+        
+        .option-card {
             background: #f8f9fa;
-            padding: 25px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-        }
-        
-        .section h2 {
-            color: #333;
-            margin-bottom: 15px;
-            font-size: 1.3em;
-        }
-        
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .stat-card {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            text-align: center;
-            border: 2px solid #e9ecef;
-        }
-        
-        .stat-value {
-            font-size: 2.5em;
-            font-weight: bold;
-            color: #667eea;
-        }
-        
-        .stat-label {
-            color: #666;
-            margin-top: 8px;
-            font-size: 0.95em;
-        }
-        
-        .btn {
-            padding: 15px 30px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 1em;
-            cursor: pointer;
+            border: 3px solid #dee2e6;
+            border-radius: 15px;
+            padding: 40px 30px;
+            text-decoration: none;
+            color: inherit;
             transition: all 0.3s;
-            font-weight: 600;
-        }
-        
-        .btn:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-        
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-        
-        .btn-success {
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-        }
-        
-        .btn-secondary {
-            background: #6c757d;
-        }
-        
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        .form-group label {
-            display: block;
-            color: #495057;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-        
-        .form-group select,
-        .form-group input {
-            width: 100%;
-            padding: 10px;
-            border: 2px solid #dee2e6;
-            border-radius: 6px;
-            font-size: 0.95em;
-        }
-        
-        .form-group select:focus,
-        .form-group input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        .alert {
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            display: none;
-        }
-        
-        .alert.show {
-            display: block;
-        }
-        
-        .alert.error {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        
-        .alert.success {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .alert.warning {
-            background: #fff3cd;
-            color: #856404;
-        }
-        
-        .alert.info {
-            background: #d1ecf1;
-            color: #0c5460;
-        }
-        
-        .feature-card {
-            background: white;
-            border: 2px solid #dee2e6;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 10px;
             cursor: pointer;
-            transition: all 0.3s;
         }
         
-        .feature-card:hover {
+        .option-card:hover {
             border-color: #667eea;
-            background: #f0f4ff;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.2);
         }
         
-        .feature-card.selected {
-            border-color: #667eea;
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+        .option-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
         }
         
-        .feature-card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-        
-        .feature-name {
-            font-weight: 600;
-            color: #333;
-            font-size: 1.1em;
-        }
-        
-        .feature-count {
-            background: #667eea;
-            color: white;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 0.85em;
-        }
-        
-        .feature-stats {
-            color: #666;
-            font-size: 0.9em;
-        }
-        
-        .config-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-        }
-        
-        .loading {
-            display: none;
-            text-align: center;
-            padding: 30px;
-        }
-        
-        .loading.show {
-            display: block;
-        }
-        
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 15px;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        .readiness-check {
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            margin-top: 20px;
-        }
-        
-        .readiness-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 10px;
-            margin-bottom: 8px;
-            border-radius: 6px;
-        }
-        
-        .readiness-item.ready {
-            background: #d4edda;
-        }
-        
-        .readiness-item.not-ready {
-            background: #f8d7da;
-        }
-        
-        .readiness-icon {
+        .option-title {
             font-size: 1.5em;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .option-description {
+            color: #666;
+            font-size: 0.95em;
+            line-height: 1.5;
         }
     </style>
 </head>
@@ -287,668 +100,25 @@
         <a href="/index.html" class="back-link">← Back to Home</a>
         
         <h1>🤖 AI Training</h1>
-        <p class="subtitle">Train CNN models to predict features from neuropsychological drawings</p>
+        <p class="subtitle">Train and manage CNN models for neuropsychological drawing assessment</p>
         
-        <div class="alert" id="alert"></div>
-        
-        <!-- Dataset Overview -->
-        <div class="section">
-            <h2>📊 Training Dataset Overview</h2>
-            <div class="stats-grid" id="datasetStats">
-                <div class="stat-card">
-                    <div class="stat-value" id="totalImages">-</div>
-                    <div class="stat-label">Total Images</div>
+        <div class="options">
+            <a href="/ai_training_overview.html" class="option-card">
+                <div class="option-icon">📊</div>
+                <div class="option-title">Overview & Models</div>
+                <div class="option-description">
+                    View dataset statistics, manage and test trained models
                 </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="labeledImages">-</div>
-                    <div class="stat-label">Labeled</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="unlabeledImages">-</div>
-                    <div class="stat-label">Unlabeled</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="matImages">-</div>
-                    <div class="stat-label">MAT (Machine)</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="ocsImages">-</div>
-                    <div class="stat-label">OCS (Human)</div>
-                </div>
-            </div>
+            </a>
             
-            <div class="readiness-check" id="readinessCheck">
-                <h3 style="margin-bottom: 15px;">Training Readiness Check</h3>
-                <div id="readinessItems"></div>
-            </div>
-        </div>
-        
-        <!-- Feature Selection -->
-        <div class="section">
-            <h2>🎯 Select Target Feature</h2>
-            <p style="color: #666; margin-bottom: 15px;">Choose which feature the CNN should learn to predict</p>
-            <div id="featureList"></div>
-        </div>
-        
-        <!-- Training Configuration -->
-        <div class="section" style="display: none;" id="trainingConfig">
-            <h2>⚙️ Training Configuration</h2>
-            <div class="config-grid">
-                <div class="form-group">
-                    <label>Train/Test Split</label>
-                    <select id="trainSplit">
-                        <option value="0.9">90% Train / 10% Test</option>
-                        <option value="0.8" selected>80% Train / 20% Test</option>
-                        <option value="0.7">70% Train / 30% Test</option>
-                    </select>
+            <a href="/ai_training_train.html" class="option-card">
+                <div class="option-icon">🚀</div>
+                <div class="option-title">Train New Model</div>
+                <div class="option-description">
+                    Select features, configure parameters, and train a new CNN model
                 </div>
-                
-                <div class="form-group">
-                    <label>Number of Epochs</label>
-                    <input type="number" id="numEpochs" value="10" min="1" max="100">
-                </div>
-                
-                <div class="form-group">
-                    <label>Learning Rate</label>
-                    <input type="number" id="learningRate" value="0.001" step="0.0001" min="0.0001" max="0.1">
-                </div>
-                
-                <div class="form-group">
-                    <label>Batch Size</label>
-                    <select id="batchSize">
-                        <option value="4">4</option>
-                        <option value="8" selected>8</option>
-                        <option value="16">16</option>
-                    </select>
-                </div>
-            </div>
-            
-            <button class="btn btn-success" onclick="startTraining()" id="trainBtn" style="margin-top: 20px;">
-                🚀 Start Training
-            </button>
-        </div>
-        
-        <!-- Training Progress -->
-        <div class="loading" id="trainingProgress">
-            <div class="spinner"></div>
-            <p id="progressText">Initializing training...</p>
-        </div>
-        
-        <!-- Results -->
-        <div class="section" style="display: none;" id="resultsSection">
-            <h2>📈 Training Results</h2>
-            <div id="resultsContent"></div>
-        </div>
-        
-        <!-- Saved Models -->
-        <div class="section">
-            <h2>💾 Saved Models</h2>
-            <button class="btn btn-secondary" onclick="loadModels()" style="margin-bottom: 15px;">🔄 Refresh List</button>
-            <div id="modelsList"></div>
+            </a>
         </div>
     </div>
-    
-    <script>
-        let selectedFeature = null;
-        let datasetInfo = null;
-        let featuresInfo = null;
-        
-        async function loadDatasetInfo() {
-            try {
-                // Load dataset info
-                const infoResponse = await fetch('/api/ai-training/dataset-info');
-                datasetInfo = await infoResponse.json();
-                
-                // Update stats
-                document.getElementById('totalImages').textContent = datasetInfo.total_images;
-                document.getElementById('labeledImages').textContent = datasetInfo.labeled_images;
-                document.getElementById('unlabeledImages').textContent = datasetInfo.unlabeled_images;
-                document.getElementById('matImages').textContent = datasetInfo.by_format.MAT;
-                document.getElementById('ocsImages').textContent = datasetInfo.by_format.OCS;
-                
-                // Load features
-                const featuresResponse = await fetch('/api/ai-training/available-features');
-                featuresInfo = await featuresResponse.json();
-                
-                // Display features
-                displayFeatures();
-                
-                // Check readiness
-                await checkReadiness();
-                
-            } catch (error) {
-                showAlert('error', `Error loading data: ${error.message}`);
-            }
-        }
-        
-        function displayFeatures() {
-            const container = document.getElementById('featureList');
-            
-            if (!featuresInfo.features || featuresInfo.features.length === 0) {
-                container.innerHTML = `
-                    <div style="text-align: center; padding: 40px; color: #999;">
-                        <div style="font-size: 3em; margin-bottom: 15px;">📭</div>
-                        <h3>No Features Available</h3>
-                        <p style="margin-top: 10px;">Add feature labels to your training data first</p>
-                        <a href="/ai_training_data_view.html" class="btn" style="margin-top: 20px; display: inline-block; text-decoration: none;">
-                            Go to Training Data
-                        </a>
-                    </div>
-                `;
-                return;
-            }
-            
-            container.innerHTML = featuresInfo.features.map(feature => {
-                const stats = featuresInfo.stats[feature];
-                return `
-                    <div class="feature-card" onclick="selectFeature('${feature}')">
-                        <div class="feature-card-header">
-                            <div class="feature-name">${feature}</div>
-                            <div class="feature-count">${stats.count} samples</div>
-                        </div>
-                        <div class="feature-stats">
-                            Mean: ${stats.mean.toFixed(3)} | Std: ${stats.std.toFixed(3)} | 
-                            Range: [${stats.min.toFixed(2)}, ${stats.max.toFixed(2)}]
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-        
-        function selectFeature(feature) {
-            selectedFeature = feature;
-            
-            // Update UI
-            document.querySelectorAll('.feature-card').forEach(card => {
-                card.classList.remove('selected');
-            });
-            event.target.closest('.feature-card').classList.add('selected');
-            
-            // Show training config
-            document.getElementById('trainingConfig').style.display = 'block';
-            
-            showAlert('info', `Selected: ${feature} - Configure training parameters below`);
-        }
-        
-        async function checkReadiness() {
-            try {
-                const response = await fetch('/api/ai-training/training-readiness');
-                const readiness = await response.json();
-                
-                const container = document.getElementById('readinessItems');
-                
-                if (readiness.ready) {
-                    container.innerHTML = `
-                        <div class="readiness-item ready">
-                            <span class="readiness-icon">✅</span>
-                            <span style="color: #155724; font-weight: 600;">System Ready for Training</span>
-                        </div>
-                    `;
-                } else {
-                    const items = readiness.issues.map((issue, idx) => `
-                        <div class="readiness-item not-ready">
-                            <span class="readiness-icon">⚠️</span>
-                            <div>
-                                <div style="color: #721c24; font-weight: 600;">${issue}</div>
-                                <div style="color: #999; font-size: 0.9em; margin-top: 4px;">
-                                    → ${readiness.recommendations[idx] || ''}
-                                </div>
-                            </div>
-                        </div>
-                    `).join('');
-                    
-                    container.innerHTML = items;
-                }
-                
-            } catch (error) {
-                console.error('Error checking readiness:', error);
-            }
-        }
-        
-        async function startTraining() {
-            if (!selectedFeature) {
-                showAlert('error', 'Please select a target feature first');
-                return;
-            }
-            
-            // Get config
-            const config = {
-                target_feature: selectedFeature,
-                train_split: parseFloat(document.getElementById('trainSplit').value),
-                num_epochs: parseInt(document.getElementById('numEpochs').value),
-                learning_rate: parseFloat(document.getElementById('learningRate').value),
-                batch_size: parseInt(document.getElementById('batchSize').value)
-            };
-            
-            document.getElementById('trainBtn').disabled = true;
-            document.getElementById('trainingProgress').classList.add('show');
-            document.getElementById('progressText').textContent = 'Starting training...';
-            
-            try {
-                // Start training
-                const response = await fetch('/api/ai-training/start-training', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(config)
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    showAlert('success', 'Training started! Monitoring progress...');
-                    
-                    // Start polling for progress
-                    pollTrainingStatus();
-                } else {
-                    throw new Error(data.message || 'Failed to start training');
-                }
-                
-            } catch (error) {
-                document.getElementById('trainingProgress').classList.remove('show');
-                document.getElementById('trainBtn').disabled = false;
-                showAlert('error', `Error: ${error.message}`);
-            }
-        }
-        
-        let statusPollInterval = null;
-        
-        async function pollTrainingStatus() {
-            // Poll every second
-            statusPollInterval = setInterval(async () => {
-                try {
-                    const response = await fetch('/api/ai-training/training-status');
-                    const status = await response.json();
-                    
-                    updateProgress(status);
-                    
-                    // Stop polling when completed or error
-                    if (status.status === 'completed' || status.status === 'error') {
-                        clearInterval(statusPollInterval);
-                        document.getElementById('trainingProgress').classList.remove('show');
-                        document.getElementById('trainBtn').disabled = false;
-                        showResults(status);
-                    }
-                    
-                } catch (error) {
-                    console.error('Error polling status:', error);
-                }
-            }, 1000);
-        }
-        
-        function updateProgress(status) {
-            const progress = status.progress || {};
-            
-            let text = progress.message || 'Training...';
-            
-            if (progress.epoch && progress.total_epochs) {
-                text = `Epoch ${progress.epoch}/${progress.total_epochs} - ${text}`;
-                
-                if (progress.train_loss !== undefined) {
-                    text += ` | Train Loss: ${progress.train_loss.toFixed(4)}`;
-                }
-                if (progress.val_loss !== undefined) {
-                    text += ` | Val Loss: ${progress.val_loss.toFixed(4)}`;
-                }
-            }
-            
-            document.getElementById('progressText').textContent = text;
-        }
-        
-        function showResults(status) {
-            const resultsSection = document.getElementById('resultsSection');
-            const resultsContent = document.getElementById('resultsContent');
-            
-            if (status.status === 'completed') {
-                const progress = status.progress;
-                const trainMetrics = progress.train_metrics || {};
-                const valMetrics = progress.val_metrics || {};
-                
-                resultsContent.innerHTML = `
-                    <div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                        <h3 style="color: #155724; margin-bottom: 10px;">✅ Training Completed!</h3>
-                        <p style="color: #155724;">${progress.message}</p>
-                        ${progress.model_path ? `<p style="color: #155724; margin-top: 10px;"><strong>Model saved:</strong> ${progress.model_path}</p>` : ''}
-                    </div>
-                    
-                    <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                        <h3 style="margin-bottom: 15px;">Training Set Performance</h3>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
-                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center;">
-                                <div style="font-size: 0.85em; color: #666;">MSE</div>
-                                <div style="font-size: 1.5em; font-weight: bold; color: #667eea;">${(trainMetrics.mse || 0).toFixed(4)}</div>
-                            </div>
-                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center;">
-                                <div style="font-size: 0.85em; color: #666;">RMSE</div>
-                                <div style="font-size: 1.5em; font-weight: bold; color: #667eea;">${(trainMetrics.rmse || 0).toFixed(4)}</div>
-                            </div>
-                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center;">
-                                <div style="font-size: 0.85em; color: #666;">MAE</div>
-                                <div style="font-size: 1.5em; font-weight: bold; color: #667eea;">${(trainMetrics.mae || 0).toFixed(4)}</div>
-                            </div>
-                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center;">
-                                <div style="font-size: 0.85em; color: #666;">R² Score</div>
-                                <div style="font-size: 1.5em; font-weight: bold; color: #667eea;">${(trainMetrics.r2_score || 0).toFixed(3)}</div>
-                            </div>
-                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center;">
-                                <div style="font-size: 0.85em; color: #666;">MAPE</div>
-                                <div style="font-size: 1.5em; font-weight: bold; color: #667eea;">${(trainMetrics.mape || 0).toFixed(2)}%</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div style="background: white; padding: 20px; border-radius: 8px;">
-                        <h3 style="margin-bottom: 15px;">Validation Set Performance</h3>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
-                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center;">
-                                <div style="font-size: 0.85em; color: #666;">MSE</div>
-                                <div style="font-size: 1.5em; font-weight: bold; color: #28a745;">${(valMetrics.mse || 0).toFixed(4)}</div>
-                            </div>
-                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center;">
-                                <div style="font-size: 0.85em; color: #666;">RMSE</div>
-                                <div style="font-size: 1.5em; font-weight: bold; color: #28a745;">${(valMetrics.rmse || 0).toFixed(4)}</div>
-                            </div>
-                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center;">
-                                <div style="font-size: 0.85em; color: #666;">MAE</div>
-                                <div style="font-size: 1.5em; font-weight: bold; color: #28a745;">${(valMetrics.mae || 0).toFixed(4)}</div>
-                            </div>
-                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center;">
-                                <div style="font-size: 0.85em; color: #666;">R² Score</div>
-                                <div style="font-size: 1.5em; font-weight: bold; color: #28a745;">${(valMetrics.r2_score || 0).toFixed(3)}</div>
-                            </div>
-                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center;">
-                                <div style="font-size: 0.85em; color: #666;">MAPE</div>
-                                <div style="font-size: 1.5em; font-weight: bold; color: #28a745;">${(valMetrics.mape || 0).toFixed(2)}%</div>
-                            </div>
-                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center;">
-                                <div style="font-size: 0.85em; color: #666;">Samples</div>
-                                <div style="font-size: 1.5em; font-weight: bold; color: #667eea;">${valMetrics.num_samples || 0}</div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                
-                showAlert('success', 'Training completed successfully!');
-                loadModels();
-                
-            } else if (status.status === 'error') {
-                resultsContent.innerHTML = `
-                    <div style="background: #f8d7da; border: 1px solid #f5c6cb; padding: 20px; border-radius: 8px;">
-                        <h3 style="color: #721c24; margin-bottom: 10px;">❌ Training Failed</h3>
-                        <p style="color: #721c24;">${status.error || 'Unknown error'}</p>
-                    </div>
-                `;
-                
-                showAlert('error', 'Training failed - check error message above');
-            }
-            
-            resultsSection.style.display = 'block';
-        }
-        
-        async function loadModels() {
-            try {
-                const response = await fetch('/api/ai-training/models');
-                const data = await response.json();
-                
-                const container = document.getElementById('modelsList');
-                
-                if (!data.models || data.models.length === 0) {
-                    container.innerHTML = `
-                        <div style="text-align: center; padding: 40px; color: #999;">
-                            <div style="font-size: 3em; margin-bottom: 15px;">📭</div>
-                            <h3>No Models Yet</h3>
-                            <p style="margin-top: 10px;">Train a model to get started</p>
-                        </div>
-                    `;
-                    return;
-                }
-                
-                container.innerHTML = data.models.map(model => {
-                    const date = new Date(model.created_at * 1000).toLocaleString();
-                    const safeName = model.filename.replace(/[^a-zA-Z0-9]/g, '_');
-                    const metadataBadge = model.has_metadata 
-                        ? '<span style="background: #28a745; color: white; padding: 2px 8px; border-radius: 8px; font-size: 0.75em; margin-left: 8px;">📋 Metadata</span>'
-                        : '';
-                    
-                    return `
-                        <div style="background: white; border: 2px solid #dee2e6; border-radius: 8px; padding: 15px; margin-bottom: 10px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; cursor: pointer;" onclick="toggleMetadata('${model.filename}')">
-                                <div>
-                                    <div style="font-weight: 600; color: #333; font-size: 1.1em;">
-                                        ${model.feature}${metadataBadge}
-                                    </div>
-                                    <div style="color: #666; font-size: 0.9em;">${model.filename}</div>
-                                </div>
-                                <div style="text-align: right;">
-                                    <div style="background: #667eea; color: white; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; display: inline-block;">
-                                        ${model.size_mb.toFixed(1)} MB
-                                    </div>
-                                </div>
-                            </div>
-                            <div style="color: #999; font-size: 0.85em; margin-bottom: 15px;">
-                                Created: ${date}
-                                <span style="color: #667eea; margin-left: 10px; cursor: pointer;" onclick="toggleMetadata('${model.filename}'); event.stopPropagation();">
-                                    ${model.has_metadata ? '▼ Show Details' : ''}
-                                </span>
-                            </div>
-                            <div id="metadata-${safeName}" style="display: none; background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 15px;"></div>
-                            <div style="display: flex; gap: 10px;">
-                                <button class="btn" style="padding: 8px 16px; font-size: 0.9em;" onclick="testModel('${model.filename}')">
-                                    🧪 Test Model
-                                </button>
-                                <button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.9em; background: #dc3545;" onclick="deleteModel('${model.filename}')">
-                                    🗑️ Delete
-                                </button>
-                            </div>
-                            <div id="test-result-${safeName}" style="margin-top: 15px;"></div>
-                        </div>
-                    `;
-                }).join('');
-                
-            } catch (error) {
-                console.error('Error loading models:', error);
-            }
-        }
-        
-        let metadataCache = {};
-        
-        async function toggleMetadata(filename) {
-            const safeName = filename.replace(/[^a-zA-Z0-9]/g, '_');
-            const metadataDiv = document.getElementById(`metadata-${safeName}`);
-            
-            if (metadataDiv.style.display === 'block') {
-                metadataDiv.style.display = 'none';
-                return;
-            }
-            
-            // Load metadata if not cached
-            if (!metadataCache[filename]) {
-                metadataDiv.innerHTML = '<div style="text-align: center; padding: 10px;"><div class="spinner" style="width: 30px; height: 30px;"></div></div>';
-                metadataDiv.style.display = 'block';
-                
-                try {
-                    const response = await fetch(`/api/ai-training/models/${encodeURIComponent(filename)}/metadata`);
-                    const metadata = await response.json();
-                    metadataCache[filename] = metadata;
-                    displayMetadata(filename, metadata);
-                } catch (error) {
-                    metadataDiv.innerHTML = `
-                        <div style="color: #999; text-align: center; padding: 10px;">
-                            No metadata available (model trained before metadata feature)
-                        </div>
-                    `;
-                }
-            } else {
-                displayMetadata(filename, metadataCache[filename]);
-                metadataDiv.style.display = 'block';
-            }
-        }
-        
-        function displayMetadata(filename, metadata) {
-            const safeName = filename.replace(/[^a-zA-Z0-9]/g, '_');
-            const metadataDiv = document.getElementById(`metadata-${safeName}`);
-            
-            const config = metadata.training_config || {};
-            const dataset = metadata.dataset || {};
-            const trainMetrics = metadata.train_metrics || {};
-            const valMetrics = metadata.val_metrics || {};
-            const imageIds = metadata.image_ids || [];
-            
-            metadataDiv.innerHTML = `
-                <h4 style="margin-bottom: 10px; color: #495057;">📋 Training Details</h4>
-                
-                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
-                    <div>
-                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Configuration</div>
-                        <div style="background: white; padding: 10px; border-radius: 4px;">
-                            <div style="font-size: 0.9em;">
-                                <div>Epochs: <strong>${config.num_epochs || 'N/A'}</strong></div>
-                                <div>Learning Rate: <strong>${config.learning_rate || 'N/A'}</strong></div>
-                                <div>Batch Size: <strong>${config.batch_size || 'N/A'}</strong></div>
-                                <div>Train/Test Split: <strong>${config.train_split ? (config.train_split * 100).toFixed(0) + '/' + ((1-config.train_split) * 100).toFixed(0) : 'N/A'}</strong></div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div>
-                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Dataset</div>
-                        <div style="background: white; padding: 10px; border-radius: 4px;">
-                            <div style="font-size: 0.9em;">
-                                <div>Total Samples: <strong>${dataset.total_samples || 'N/A'}</strong></div>
-                                <div>Training: <strong>${dataset.train_samples || 'N/A'}</strong></div>
-                                <div>Validation: <strong>${dataset.val_samples || 'N/A'}</strong></div>
-                                <div>Architecture: <strong>${metadata.model_architecture || 'ResNet-18'}</strong></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div style="margin-bottom: 15px;">
-                    <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Final Performance</div>
-                    <div style="background: white; padding: 10px; border-radius: 4px;">
-                        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; font-size: 0.85em;">
-                            <div>
-                                <div style="color: #666;">R² Score</div>
-                                <div style="font-weight: bold; color: ${valMetrics.r2_score > 0.7 ? '#28a745' : valMetrics.r2_score > 0.5 ? '#ffc107' : '#dc3545'};">
-                                    ${valMetrics.r2_score ? valMetrics.r2_score.toFixed(3) : 'N/A'}
-                                </div>
-                            </div>
-                            <div>
-                                <div style="color: #666;">RMSE</div>
-                                <div style="font-weight: bold;">${valMetrics.rmse ? valMetrics.rmse.toFixed(4) : 'N/A'}</div>
-                            </div>
-                            <div>
-                                <div style="color: #666;">MAE</div>
-                                <div style="font-weight: bold;">${valMetrics.mae ? valMetrics.mae.toFixed(4) : 'N/A'}</div>
-                            </div>
-                            <div>
-                                <div style="color: #666;">MAPE</div>
-                                <div style="font-weight: bold;">${valMetrics.mape ? valMetrics.mape.toFixed(2) + '%' : 'N/A'}</div>
-                            </div>
-                            <div>
-                                <div style="color: #666;">Val Samples</div>
-                                <div style="font-weight: bold;">${valMetrics.num_samples || 'N/A'}</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                ${imageIds.length > 0 ? `
-                    <details style="margin-top: 10px;">
-                        <summary style="cursor: pointer; color: #667eea; font-size: 0.9em;">Training Data IDs (${imageIds.length} images)</summary>
-                        <div style="margin-top: 10px; padding: 10px; background: white; border-radius: 4px; font-size: 0.85em; max-height: 150px; overflow-y: auto;">
-                            ${imageIds.join(', ')}
-                        </div>
-                    </details>
-                ` : ''}
-            `;
-        }
-        
-        async function testModel(filename) {
-            const resultDiv = document.getElementById(`test-result-${filename.replace(/[^a-zA-Z0-9]/g, '_')}`);
-            resultDiv.innerHTML = '<div style="text-align: center; padding: 10px;"><div class="spinner" style="width: 30px; height: 30px;"></div></div>';
-            
-            try {
-                const response = await fetch('/api/ai-training/models/test', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({model_filename: filename})
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    const val = data.val_metrics;
-                    
-                    resultDiv.innerHTML = `
-                        <div style="background: #e7f3ff; border: 1px solid #2196F3; padding: 15px; border-radius: 6px;">
-                            <div style="font-weight: 600; color: #0c5460; margin-bottom: 10px;">Test Results:</div>
-                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.9em;">
-                                <div>
-                                    <span style="color: #666;">R² Score:</span>
-                                    <strong style="color: #667eea;"> ${val.r2_score.toFixed(3)}</strong>
-                                </div>
-                                <div>
-                                    <span style="color: #666;">RMSE:</span>
-                                    <strong style="color: #667eea;"> ${val.rmse.toFixed(4)}</strong>
-                                </div>
-                                <div>
-                                    <span style="color: #666;">MAE:</span>
-                                    <strong style="color: #667eea;"> ${val.mae.toFixed(4)}</strong>
-                                </div>
-                            </div>
-                            <div style="margin-top: 10px; color: #666; font-size: 0.85em;">
-                                Tested on ${val.num_samples} validation samples
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    throw new Error('Test failed');
-                }
-                
-            } catch (error) {
-                resultDiv.innerHTML = `
-                    <div style="background: #f8d7da; padding: 10px; border-radius: 6px; color: #721c24; font-size: 0.9em;">
-                        Error: ${error.message}
-                    </div>
-                `;
-            }
-        }
-        
-        async function deleteModel(filename) {
-            if (!confirm(`Delete model "${filename}"?`)) {
-                return;
-            }
-            
-            try {
-                const response = await fetch(`/api/ai-training/models/${encodeURIComponent(filename)}`, {
-                    method: 'DELETE'
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    showAlert('success', `Model deleted: ${filename}`);
-                    loadModels();
-                } else {
-                    throw new Error('Delete failed');
-                }
-                
-            } catch (error) {
-                showAlert('error', `Error deleting model: ${error.message}`);
-            }
-        }
-        
-        function showAlert(type, message) {
-            const alert = document.getElementById('alert');
-            alert.className = `alert ${type} show`;
-            alert.textContent = message;
-            setTimeout(() => alert.classList.remove('show'), 8000);
-        }
-        
-        // Load data on page load
-        loadDatasetInfo();
-        loadModels();
-    </script>
 </body>
 </html>
-

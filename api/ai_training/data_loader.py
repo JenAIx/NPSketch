@@ -12,6 +12,66 @@ from typing import List, Dict, Tuple
 from sqlalchemy.orm import Session
 from database import TrainingDataImage
 
+try:
+    from .split_strategy import stratified_split_regression, validate_split, get_split_recommendation
+except ImportError:
+    # Fallback for direct execution
+    try:
+        from ai_training.split_strategy import stratified_split_regression, validate_split, get_split_recommendation
+    except ImportError:
+        # Last resort fallback - simple random split with complete return values
+        def stratified_split_regression(X, y, train_split=0.8, n_bins=4, random_seed=42, min_samples_per_bin=2):
+            np.random.seed(random_seed)
+            indices = np.random.permutation(len(X))
+            split_idx = int(len(X) * train_split)
+            train_indices = indices[:split_idx]
+            test_indices = indices[split_idx:]
+            
+            y_train = y[train_indices]
+            y_test = y[test_indices]
+            
+            # Create distributions (matching real function signature)
+            split_info = {
+                'warnings': ['Using fallback random split (split_strategy module not available)'],
+                'method': 'random',
+                'train_distribution': {
+                    'mean': float(np.mean(y_train)) if len(y_train) > 0 else 0,
+                    'std': float(np.std(y_train)) if len(y_train) > 0 else 0,
+                    'min': float(np.min(y_train)) if len(y_train) > 0 else 0,
+                    'max': float(np.max(y_train)) if len(y_train) > 0 else 0
+                },
+                'test_distribution': {
+                    'mean': float(np.mean(y_test)) if len(y_test) > 0 else 0,
+                    'std': float(np.std(y_test)) if len(y_test) > 0 else 0,
+                    'min': float(np.min(y_test)) if len(y_test) > 0 else 0,
+                    'max': float(np.max(y_test)) if len(y_test) > 0 else 0
+                }
+            }
+            
+            return X[train_indices], X[test_indices], y_train, y_test, split_info
+        
+        def validate_split(y_train, y_test, y_all=None):
+            # Minimal fallback that won't break code
+            return {
+                'warnings': [],
+                'method': 'random',
+                'train_distribution': {
+                    'mean': float(np.mean(y_train)) if len(y_train) > 0 else 0,
+                    'std': float(np.std(y_train)) if len(y_train) > 0 else 0,
+                    'min': float(np.min(y_train)) if len(y_train) > 0 else 0,
+                    'max': float(np.max(y_train)) if len(y_train) > 0 else 0
+                },
+                'test_distribution': {
+                    'mean': float(np.mean(y_test)) if len(y_test) > 0 else 0,
+                    'std': float(np.std(y_test)) if len(y_test) > 0 else 0,
+                    'min': float(np.min(y_test)) if len(y_test) > 0 else 0,
+                    'max': float(np.max(y_test)) if len(y_test) > 0 else 0
+                }
+            }
+        
+        def get_split_recommendation(n_samples, target_range):
+            return {'strategy': 'random', 'reason': 'Fallback', 'n_bins': 2}
+
 
 class TrainingDataLoader:
     """Load and prepare training data for CNN."""
@@ -154,18 +214,35 @@ class TrainingDataLoader:
         if len(X.shape) == 3:
             X = np.expand_dims(X, axis=-1)
         
-        # Train/test split
-        np.random.seed(random_seed)
-        indices = np.random.permutation(len(X))
-        split_idx = int(len(X) * train_split)
+        # Get split recommendation based on dataset size
+        recommendation = get_split_recommendation(len(X), y.max() - y.min())
         
-        train_indices = indices[:split_idx]
-        test_indices = indices[split_idx:]
+        print(f"\nSplit Strategy: {recommendation['strategy']}")
+        print(f"Reason: {recommendation['reason']}")
+        print(f"Using {recommendation['n_bins']} bins for stratification")
         
-        X_train = X[train_indices]
-        X_test = X[test_indices]
-        y_train = y[train_indices]
-        y_test = y[test_indices]
+        # Stratified train/test split
+        X_train, X_test, y_train, y_test, split_info = stratified_split_regression(
+            X, y,
+            train_split=train_split,
+            n_bins=recommendation['n_bins'],
+            random_seed=random_seed
+        )
+        
+        # Print split validation
+        if split_info['warnings']:
+            print("\n⚠️ Split Quality Warnings:")
+            for warning in split_info['warnings']:
+                print(f"  - {warning}")
+        else:
+            print("\n✅ Split is well-balanced")
+        
+        print(f"\nTrain distribution: mean={split_info['train_distribution']['mean']:.3f}, "
+              f"std={split_info['train_distribution']['std']:.3f}, "
+              f"range=[{split_info['train_distribution']['min']:.3f}, {split_info['train_distribution']['max']:.3f}]")
+        print(f"Test distribution:  mean={split_info['test_distribution']['mean']:.3f}, "
+              f"std={split_info['test_distribution']['std']:.3f}, "
+              f"range=[{split_info['test_distribution']['min']:.3f}, {split_info['test_distribution']['max']:.3f}]")
         
         return X_train, X_test, y_train, y_test, image_ids
 

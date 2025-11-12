@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPSketch - Training Overview</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 { color: #333; margin-bottom: 10px; }
+        .subtitle { color: #666; margin-bottom: 30px; }
+        
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .back-link:hover { text-decoration: underline; }
+        
+        .section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .section h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            border: 2px solid #e9ecef;
+        }
+        
+        .stat-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .stat-label {
+            color: #666;
+            margin-top: 8px;
+            font-size: 0.95em;
+        }
+        
+        .btn {
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary { background: #6c757d; }
+        .btn-success { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/index.html" class="back-link">← Back to Home</a>
+        
+        <h1>📊 AI Training Overview</h1>
+        <p class="subtitle">View dataset statistics and manage trained models</p>
+        
+        <!-- Dataset Overview -->
+        <div class="section">
+            <h2>📊 Training Dataset Overview</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalImages">-</div>
+                    <div class="stat-label">Total Images</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="labeledImages">-</div>
+                    <div class="stat-label">Labeled</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="unlabeledImages">-</div>
+                    <div class="stat-label">Unlabeled</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="matImages">-</div>
+                    <div class="stat-label">MAT (Machine)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="ocsImages">-</div>
+                    <div class="stat-label">OCS (Human)</div>
+                </div>
+            </div>
+            
+            <a href="/ai_training_train.html" class="btn btn-success" style="margin-top: 15px;">
+                🚀 Train New Model
+            </a>
+        </div>
+        
+        <!-- Saved Models -->
+        <div class="section">
+            <h2>💾 Saved Models</h2>
+            <button class="btn btn-secondary" onclick="loadModels()" style="margin-bottom: 15px;">🔄 Refresh List</button>
+            <div id="modelsList"></div>
+        </div>
+    </div>
+    
+    <script>
+        async function loadDatasetInfo() {
+            try {
+                const response = await fetch('/api/ai-training/dataset-info');
+                const data = await response.json();
+                
+                document.getElementById('totalImages').textContent = data.total_images;
+                document.getElementById('labeledImages').textContent = data.labeled_images;
+                document.getElementById('unlabeledImages').textContent = data.unlabeled_images;
+                document.getElementById('matImages').textContent = data.by_format.MAT;
+                document.getElementById('ocsImages').textContent = data.by_format.OCS;
+                
+            } catch (error) {
+                console.error('Error loading dataset info:', error);
+            }
+        }
+        
+        async function loadModels() {
+            try {
+                const response = await fetch('/api/ai-training/models');
+                const data = await response.json();
+                
+                const container = document.getElementById('modelsList');
+                
+                if (!data.models || data.models.length === 0) {
+                    container.innerHTML = `
+                        <div style="text-align: center; padding: 40px; color: #999;">
+                            <div style="font-size: 3em; margin-bottom: 15px;">📭</div>
+                            <h3>No Models Yet</h3>
+                            <p style="margin-top: 10px;">Train a model to get started</p>
+                            <a href="/ai_training_train.html" class="btn" style="margin-top: 20px;">🚀 Train Model</a>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                container.innerHTML = data.models.map(model => {
+                    const date = new Date(model.created_at * 1000).toLocaleString();
+                    const safeName = model.filename.replace(/[^a-zA-Z0-9]/g, '_');
+                    const metadataBadge = model.has_metadata 
+                        ? '<span style="background: #28a745; color: white; padding: 2px 8px; border-radius: 8px; font-size: 0.75em; margin-left: 8px;">📋 Metadata</span>'
+                        : '';
+                    
+                    return `
+                        <div style="background: white; border: 2px solid #dee2e6; border-radius: 8px; padding: 15px; margin-bottom: 10px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; cursor: pointer;" onclick="toggleMetadata('${model.filename}')">
+                                <div>
+                                    <div style="font-weight: 600; color: #333; font-size: 1.1em;">
+                                        ${model.feature}${metadataBadge}
+                                    </div>
+                                    <div style="color: #666; font-size: 0.9em;">${model.filename}</div>
+                                </div>
+                                <div>
+                                    <div style="background: #667eea; color: white; padding: 4px 12px; border-radius: 12px; font-size: 0.85em;">
+                                        ${model.size_mb.toFixed(1)} MB
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="color: #999; font-size: 0.85em; margin-bottom: 15px;">
+                                Created: ${date}
+                                ${model.has_metadata ? '<span style="color: #667eea; margin-left: 10px; cursor: pointer;" onclick="toggleMetadata(\'' + model.filename + '\'); event.stopPropagation();">▼ Show Details</span>' : ''}
+                            </div>
+                            <div id="metadata-${safeName}" style="display: none; background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 15px;"></div>
+                            <div style="display: flex; gap: 10px;">
+                                <button class="btn" style="padding: 8px 16px; font-size: 0.9em;" onclick="testModel('${model.filename}')">
+                                    🧪 Test Model
+                                </button>
+                                <button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.9em; background: #dc3545;" onclick="deleteModel('${model.filename}')">
+                                    🗑️ Delete
+                                </button>
+                            </div>
+                            <div id="test-result-${safeName}" style="margin-top: 15px;"></div>
+                        </div>
+                    `;
+                }).join('');
+                
+            } catch (error) {
+                console.error('Error loading models:', error);
+            }
+        }
+        
+        let metadataCache = {};
+        
+        async function toggleMetadata(filename) {
+            const safeName = filename.replace(/[^a-zA-Z0-9]/g, '_');
+            const metadataDiv = document.getElementById(`metadata-${safeName}`);
+            
+            if (metadataDiv.style.display === 'block') {
+                metadataDiv.style.display = 'none';
+                return;
+            }
+            
+            if (!metadataCache[filename]) {
+                metadataDiv.innerHTML = '<div style="text-align: center; padding: 10px;"><div class="spinner"></div></div>';
+                metadataDiv.style.display = 'block';
+                
+                try {
+                    const response = await fetch(`/api/ai-training/models/${encodeURIComponent(filename)}/metadata`);
+                    const metadata = await response.json();
+                    metadataCache[filename] = metadata;
+                    displayMetadata(filename, metadata);
+                } catch (error) {
+                    metadataDiv.innerHTML = `
+                        <div style="color: #999; text-align: center; padding: 10px;">
+                            No metadata available (model trained before metadata feature)
+                        </div>
+                    `;
+                }
+            } else {
+                displayMetadata(filename, metadataCache[filename]);
+                metadataDiv.style.display = 'block';
+            }
+        }
+        
+        function displayMetadata(filename, metadata) {
+            const safeName = filename.replace(/[^a-zA-Z0-9]/g, '_');
+            const metadataDiv = document.getElementById(`metadata-${safeName}`);
+            
+            const config = metadata.training_config || {};
+            const dataset = metadata.dataset || {};
+            const valMetrics = metadata.val_metrics || {};
+            const imageIds = metadata.image_ids || [];
+            
+            metadataDiv.innerHTML = `
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Configuration</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em;">
+                            Epochs: <strong>${config.num_epochs || 'N/A'}</strong> | 
+                            LR: <strong>${config.learning_rate || 'N/A'}</strong> | 
+                            Batch: <strong>${config.batch_size || 'N/A'}</strong> | 
+                            Split: <strong>${config.train_split ? (config.train_split * 100).toFixed(0) + '/' + ((1-config.train_split) * 100).toFixed(0) : 'N/A'}</strong>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Performance (Validation)</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em;">
+                            R²: <strong style="color: ${valMetrics.r2_score > 0.7 ? '#28a745' : valMetrics.r2_score > 0.5 ? '#ffc107' : '#dc3545'};">${valMetrics.r2_score ? valMetrics.r2_score.toFixed(3) : 'N/A'}</strong> | 
+                            RMSE: <strong>${valMetrics.rmse ? valMetrics.rmse.toFixed(3) : 'N/A'}</strong> | 
+                            MAE: <strong>${valMetrics.mae ? valMetrics.mae.toFixed(3) : 'N/A'}</strong>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em;">
+                    <strong>Dataset:</strong> ${dataset.total_samples || 'N/A'} samples 
+                    (${dataset.train_samples || 'N/A'} train, ${dataset.val_samples || 'N/A'} val) | 
+                    <strong>Images:</strong> ${imageIds.length} used
+                    ${imageIds.length > 0 ? `
+                        <details style="display: inline; margin-left: 10px;">
+                            <summary style="cursor: pointer; color: #667eea;">Show IDs</summary>
+                            <div style="margin-top: 10px;">${imageIds.join(', ')}</div>
+                        </details>
+                    ` : ''}
+                </div>
+            `;
+        }
+        
+        async function testModel(filename) {
+            const resultDiv = document.getElementById(`test-result-${filename.replace(/[^a-zA-Z0-9]/g, '_')}`);
+            resultDiv.innerHTML = '<div style="text-align: center; padding: 10px;"><div class="spinner"></div></div>';
+            
+            try {
+                const response = await fetch('/api/ai-training/models/test', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({model_filename: filename})
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const val = data.val_metrics;
+                    
+                    resultDiv.innerHTML = `
+                        <div style="background: #e7f3ff; border: 1px solid #2196F3; padding: 15px; border-radius: 6px;">
+                            <div style="font-weight: 600; color: #0c5460; margin-bottom: 10px;">Test Results:</div>
+                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.9em;">
+                                <div><span style="color: #666;">R²:</span> <strong style="color: #667eea;">${val.r2_score.toFixed(3)}</strong></div>
+                                <div><span style="color: #666;">RMSE:</span> <strong style="color: #667eea;">${val.rmse.toFixed(4)}</strong></div>
+                                <div><span style="color: #666;">MAE:</span> <strong style="color: #667eea;">${val.mae.toFixed(4)}</strong></div>
+                            </div>
+                            <div style="margin-top: 10px; color: #666; font-size: 0.85em;">
+                                Tested on ${val.num_samples} validation samples
+                            </div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div style="color: #dc3545; padding: 10px;">Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function deleteModel(filename) {
+            if (!confirm(`Delete model "${filename}"?`)) return;
+            
+            try {
+                const response = await fetch(`/api/ai-training/models/${encodeURIComponent(filename)}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    alert(`Model deleted: ${filename}`);
+                    loadModels();
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+        
+        loadDatasetInfo();
+        loadModels();
+    </script>
+</body>
+</html>
+
