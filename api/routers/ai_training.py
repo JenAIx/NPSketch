@@ -204,6 +204,8 @@ def run_training_job(config):
     """Run training in background thread."""
     global training_state
     
+    from datetime import datetime
+    
     try:
         training_state['status'] = 'training'
         training_state['progress'] = {
@@ -250,8 +252,33 @@ def run_training_job(config):
         train_metrics = trainer.evaluate_metrics(train_loader)
         val_metrics = trainer.evaluate_metrics(val_loader)
         
-        # Save model
-        model_path = trainer.save_model(f"model_{config['target_feature']}")
+        # Prepare metadata
+        metadata = {
+            'target_feature': config['target_feature'],
+            'training_config': {
+                'train_split': config['train_split'],
+                'num_epochs': config['num_epochs'],
+                'learning_rate': config['learning_rate'],
+                'batch_size': config['batch_size']
+            },
+            'dataset': {
+                'total_samples': stats['total_samples'],
+                'train_samples': stats['train_samples'],
+                'val_samples': stats['val_samples'],
+                'train_batches': stats['train_batches'],
+                'val_batches': stats['val_batches']
+            },
+            'model_architecture': 'ResNet-18',
+            'input_size': '568x274x1',
+            'train_metrics': train_metrics,
+            'val_metrics': val_metrics,
+            'training_history': trainer.history,
+            'image_ids': [img['id'] for img in config['images_data'] if 'id' in img],
+            'trained_at': datetime.now().isoformat()
+        }
+        
+        # Save model with metadata
+        model_path = trainer.save_model(f"model_{config['target_feature']}", metadata=metadata)
         
         training_state['status'] = 'completed'
         training_state['progress']['message'] = 'Training completed!'
@@ -276,7 +303,7 @@ async def get_training_status():
 
 @router.get("/models")
 async def list_models():
-    """List all saved models."""
+    """List all saved models with metadata."""
     import os
     from pathlib import Path
     
@@ -296,14 +323,21 @@ async def list_models():
             feature = "unknown"
             timestamp = "unknown"
         
-        models.append({
+        # Check if metadata file exists
+        metadata_file = models_dir / f"{model_file.stem}_metadata.json"
+        has_metadata = metadata_file.exists()
+        
+        model_info = {
             'filename': model_file.name,
             'path': str(model_file),
             'feature': feature,
             'timestamp': timestamp,
             'size_mb': stat.st_size / (1024 * 1024),
-            'created_at': stat.st_mtime
-        })
+            'created_at': stat.st_mtime,
+            'has_metadata': has_metadata
+        }
+        
+        models.append(model_info)
     
     # Sort by creation time (newest first)
     models.sort(key=lambda x: x['created_at'], reverse=True)
@@ -312,6 +346,27 @@ async def list_models():
         'models': models,
         'total': len(models)
     }
+
+
+@router.get("/models/{model_filename}/metadata")
+async def get_model_metadata(model_filename: str):
+    """Get metadata for a specific model."""
+    from pathlib import Path
+    import json
+    
+    # Remove .pth extension if present
+    model_stem = model_filename.replace('.pth', '')
+    metadata_file = Path("/app/data/models") / f"{model_stem}_metadata.json"
+    
+    if not metadata_file.exists():
+        raise HTTPException(status_code=404, detail="Metadata not found")
+    
+    try:
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        return metadata
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/models/test")

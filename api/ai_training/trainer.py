@@ -250,11 +250,22 @@ class CNNTrainer:
         
         return self.history
     
-    def save_model(self, name: str = "model"):
-        """Save model weights."""
+    def save_model(self, name: str = "model", metadata: Dict = None):
+        """
+        Save model weights and metadata.
+        
+        Args:
+            name: Model name
+            metadata: Additional metadata to save (training config, data info, etc.)
+        
+        Returns:
+            Model filepath
+        """
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filepath = self.model_dir / f"{name}_{timestamp}.pth"
+        metadata_filepath = self.model_dir / f"{name}_{timestamp}_metadata.json"
         
+        # Save model checkpoint
         torch.save({
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
@@ -263,6 +274,18 @@ class CNNTrainer:
         }, filepath)
         
         print(f"Model saved: {filepath}")
+        
+        # Save metadata JSON
+        if metadata:
+            import json
+            metadata['model_filename'] = filepath.name
+            metadata['saved_at'] = timestamp
+            
+            with open(metadata_filepath, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            
+            print(f"Metadata saved: {metadata_filepath}")
+        
         return str(filepath)
     
     def load_model(self, filepath: str):

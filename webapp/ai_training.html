@@ -704,11 +704,18 @@
                 
                 container.innerHTML = data.models.map(model => {
                     const date = new Date(model.created_at * 1000).toLocaleString();
+                    const safeName = model.filename.replace(/[^a-zA-Z0-9]/g, '_');
+                    const metadataBadge = model.has_metadata 
+                        ? '<span style="background: #28a745; color: white; padding: 2px 8px; border-radius: 8px; font-size: 0.75em; margin-left: 8px;">📋 Metadata</span>'
+                        : '';
+                    
                     return `
                         <div style="background: white; border: 2px solid #dee2e6; border-radius: 8px; padding: 15px; margin-bottom: 10px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; cursor: pointer;" onclick="toggleMetadata('${model.filename}')">
                                 <div>
-                                    <div style="font-weight: 600; color: #333; font-size: 1.1em;">${model.feature}</div>
+                                    <div style="font-weight: 600; color: #333; font-size: 1.1em;">
+                                        ${model.feature}${metadataBadge}
+                                    </div>
                                     <div style="color: #666; font-size: 0.9em;">${model.filename}</div>
                                 </div>
                                 <div style="text-align: right;">
@@ -719,7 +726,11 @@
                             </div>
                             <div style="color: #999; font-size: 0.85em; margin-bottom: 15px;">
                                 Created: ${date}
+                                <span style="color: #667eea; margin-left: 10px; cursor: pointer;" onclick="toggleMetadata('${model.filename}'); event.stopPropagation();">
+                                    ${model.has_metadata ? '▼ Show Details' : ''}
+                                </span>
                             </div>
+                            <div id="metadata-${safeName}" style="display: none; background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 15px;"></div>
                             <div style="display: flex; gap: 10px;">
                                 <button class="btn" style="padding: 8px 16px; font-size: 0.9em;" onclick="testModel('${model.filename}')">
                                     🧪 Test Model
@@ -728,7 +739,7 @@
                                     🗑️ Delete
                                 </button>
                             </div>
-                            <div id="test-result-${model.filename.replace(/[^a-zA-Z0-9]/g, '_')}" style="margin-top: 15px;"></div>
+                            <div id="test-result-${safeName}" style="margin-top: 15px;"></div>
                         </div>
                     `;
                 }).join('');
@@ -736,6 +747,120 @@
             } catch (error) {
                 console.error('Error loading models:', error);
             }
+        }
+        
+        let metadataCache = {};
+        
+        async function toggleMetadata(filename) {
+            const safeName = filename.replace(/[^a-zA-Z0-9]/g, '_');
+            const metadataDiv = document.getElementById(`metadata-${safeName}`);
+            
+            if (metadataDiv.style.display === 'block') {
+                metadataDiv.style.display = 'none';
+                return;
+            }
+            
+            // Load metadata if not cached
+            if (!metadataCache[filename]) {
+                metadataDiv.innerHTML = '<div style="text-align: center; padding: 10px;"><div class="spinner" style="width: 30px; height: 30px;"></div></div>';
+                metadataDiv.style.display = 'block';
+                
+                try {
+                    const response = await fetch(`/api/ai-training/models/${encodeURIComponent(filename)}/metadata`);
+                    const metadata = await response.json();
+                    metadataCache[filename] = metadata;
+                    displayMetadata(filename, metadata);
+                } catch (error) {
+                    metadataDiv.innerHTML = `
+                        <div style="color: #999; text-align: center; padding: 10px;">
+                            No metadata available (model trained before metadata feature)
+                        </div>
+                    `;
+                }
+            } else {
+                displayMetadata(filename, metadataCache[filename]);
+                metadataDiv.style.display = 'block';
+            }
+        }
+        
+        function displayMetadata(filename, metadata) {
+            const safeName = filename.replace(/[^a-zA-Z0-9]/g, '_');
+            const metadataDiv = document.getElementById(`metadata-${safeName}`);
+            
+            const config = metadata.training_config || {};
+            const dataset = metadata.dataset || {};
+            const trainMetrics = metadata.train_metrics || {};
+            const valMetrics = metadata.val_metrics || {};
+            const imageIds = metadata.image_ids || [];
+            
+            metadataDiv.innerHTML = `
+                <h4 style="margin-bottom: 10px; color: #495057;">📋 Training Details</h4>
+                
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Configuration</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px;">
+                            <div style="font-size: 0.9em;">
+                                <div>Epochs: <strong>${config.num_epochs || 'N/A'}</strong></div>
+                                <div>Learning Rate: <strong>${config.learning_rate || 'N/A'}</strong></div>
+                                <div>Batch Size: <strong>${config.batch_size || 'N/A'}</strong></div>
+                                <div>Train/Test Split: <strong>${config.train_split ? (config.train_split * 100).toFixed(0) + '/' + ((1-config.train_split) * 100).toFixed(0) : 'N/A'}</strong></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Dataset</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px;">
+                            <div style="font-size: 0.9em;">
+                                <div>Total Samples: <strong>${dataset.total_samples || 'N/A'}</strong></div>
+                                <div>Training: <strong>${dataset.train_samples || 'N/A'}</strong></div>
+                                <div>Validation: <strong>${dataset.val_samples || 'N/A'}</strong></div>
+                                <div>Architecture: <strong>${metadata.model_architecture || 'ResNet-18'}</strong></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Final Performance</div>
+                    <div style="background: white; padding: 10px; border-radius: 4px;">
+                        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; font-size: 0.85em;">
+                            <div>
+                                <div style="color: #666;">R² Score</div>
+                                <div style="font-weight: bold; color: ${valMetrics.r2_score > 0.7 ? '#28a745' : valMetrics.r2_score > 0.5 ? '#ffc107' : '#dc3545'};">
+                                    ${valMetrics.r2_score ? valMetrics.r2_score.toFixed(3) : 'N/A'}
+                                </div>
+                            </div>
+                            <div>
+                                <div style="color: #666;">RMSE</div>
+                                <div style="font-weight: bold;">${valMetrics.rmse ? valMetrics.rmse.toFixed(4) : 'N/A'}</div>
+                            </div>
+                            <div>
+                                <div style="color: #666;">MAE</div>
+                                <div style="font-weight: bold;">${valMetrics.mae ? valMetrics.mae.toFixed(4) : 'N/A'}</div>
+                            </div>
+                            <div>
+                                <div style="color: #666;">MAPE</div>
+                                <div style="font-weight: bold;">${valMetrics.mape ? valMetrics.mape.toFixed(2) + '%' : 'N/A'}</div>
+                            </div>
+                            <div>
+                                <div style="color: #666;">Val Samples</div>
+                                <div style="font-weight: bold;">${valMetrics.num_samples || 'N/A'}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                ${imageIds.length > 0 ? `
+                    <details style="margin-top: 10px;">
+                        <summary style="cursor: pointer; color: #667eea; font-size: 0.9em;">Training Data IDs (${imageIds.length} images)</summary>
+                        <div style="margin-top: 10px; padding: 10px; background: white; border-radius: 4px; font-size: 0.85em; max-height: 150px; overflow-y: auto;">
+                            ${imageIds.join(', ')}
+                        </div>
+                    </details>
+                ` : ''}
+            `;
         }
         
         async function testModel(filename) {
