@@ -206,6 +206,11 @@ class TrainingDataImage(Base):
     image_hash = Column(String(64), index=True)  # SHA256 for duplicate detection
     extraction_metadata = Column(String, nullable=True)  # JSON string
     features_data = Column(String, nullable=True)  # JSON string with classification labels/features for CNN training
+    # Line detection fields (for drawn/test images)
+    expected_correct = Column(Integer, nullable=True)  # Expected correct lines (for testing)
+    expected_missing = Column(Integer, nullable=True)  # Expected missing lines (for testing)
+    expected_extra = Column(Integer, nullable=True)  # Expected extra lines (for testing)
+    test_name = Column(String, nullable=True, index=True)  # Name for manually drawn images
     session_id = Column(String, index=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
     

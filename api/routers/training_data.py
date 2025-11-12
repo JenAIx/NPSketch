@@ -825,6 +825,72 @@ async def upload_features_csv(
         raise HTTPException(status_code=500, detail=f"CSV processing error: {str(e)}")
 
 
+@router.post("/save-drawn-image")
+async def save_drawn_image(
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    correct_lines: int = Form(0),
+    missing_lines: int = Form(0),
+    extra_lines: int = Form(0),
+    db: Session = Depends(get_db)
+):
+    """
+    Save manually drawn image as training data.
+    
+    Source format will be 'DRAWN', can have both line counts and features.
+    """
+    import hashlib
+    
+    try:
+        # Read image
+        content = await file.read()
+        image_hash = hashlib.sha256(content).hexdigest()
+        
+        # Check for duplicate name
+        existing = db.query(TrainingDataImage).filter(
+            TrainingDataImage.test_name == name
+        ).first()
+        
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Name '{name}' already exists")
+        
+        # Create entry
+        training_image = TrainingDataImage(
+            patient_id=name,  # Use name as patient_id for drawn images
+            task_type='DRAWN',
+            source_format='DRAWN',
+            original_filename=f"{name}.png",
+            original_file_data=content,
+            processed_image_data=content,  # Same as original for drawn images
+            image_hash=image_hash,
+            expected_correct=correct_lines if correct_lines > 0 else None,
+            expected_missing=missing_lines if missing_lines > 0 else None,
+            expected_extra=extra_lines if extra_lines > 0 else None,
+            test_name=name,
+            session_id='manual_draw',
+            extraction_metadata=json.dumps({
+                "width": 568,
+                "height": 274,
+                "manually_drawn": True
+            })
+        )
+        
+        db.add(training_image)
+        db.commit()
+        db.refresh(training_image)
+        
+        return {
+            "success": True,
+            "id": training_image.id,
+            "name": name,
+            "message": "Drawing saved as training data"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/cleanup-old-sessions")
 async def cleanup_old_sessions(max_age_hours: int = 24):
     """Clean up old temporary extraction directories."""
