@@ -996,7 +996,8 @@
         // Load test image into canvas
         async function loadTestImage(testId, testName, correctLines, extraLines) {
             try {
-                const response = await fetch(`/api/training-data-image/${testId}/processed`);
+                // Load ORIGINAL image (not processed/skeletonized) for editing
+                const response = await fetch(`/api/training-data-image/${testId}/original`);
                 const blob = await response.blob();
                 const imageUrl = URL.createObjectURL(blob);
                 

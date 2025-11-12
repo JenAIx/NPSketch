@@ -28,6 +28,7 @@ from PIL import Image
 import csv
 
 from database import get_db, TrainingDataImage
+from line_normalizer import normalize_line_thickness
 
 router = APIRouter(prefix="/api", tags=["training_data"])
 
@@ -883,9 +884,23 @@ async def save_drawn_image(
     import hashlib
     
     try:
-        # Read image
-        content = await file.read()
-        image_hash = hashlib.sha256(content).hexdigest()
+        # Read image (original)
+        raw_content = await file.read()
+        image_hash = hashlib.sha256(raw_content).hexdigest()
+        
+        # Convert to RGB and re-save as original (for consistency)
+        temp_img = Image.open(io.BytesIO(raw_content))
+        if temp_img.mode == 'RGBA':
+            background = Image.new('RGB', temp_img.size, (255, 255, 255))
+            background.paste(temp_img, mask=temp_img.split()[3])
+            temp_img = background
+        elif temp_img.mode != 'RGB':
+            temp_img = temp_img.convert('RGB')
+        
+        # Save as PNG bytes
+        original_buffer = io.BytesIO()
+        temp_img.save(original_buffer, format='PNG')
+        content = original_buffer.getvalue()
         
         # Check for duplicate name
         existing = db.query(TrainingDataImage).filter(
@@ -895,23 +910,93 @@ async def save_drawn_image(
         if existing:
             raise HTTPException(status_code=400, detail=f"Name '{name}' already exists")
         
+        # Load image for processing
+        image = Image.open(io.BytesIO(content))
+        
+        # Convert to RGB if needed (canvas may send RGBA)
+        if image.mode == 'RGBA':
+            # Create white background
+            background = Image.new('RGB', image.size, (255, 255, 255))
+            background.paste(image, mask=image.split()[3])  # Use alpha channel as mask
+            image = background
+        elif image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        image_array = np.array(image)
+        
+        # Step 1: Auto-crop to content with 5px padding (like MAT/OCS)
+        # Find bounding box of drawn content
+        gray = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
+        _, binary = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
+        
+        # Find non-white pixels
+        coords = cv2.findNonZero(binary)
+        
+        if coords is not None:
+            # Calculate bounding box with padding
+            x, y, w, h = cv2.boundingRect(coords)
+            padding = 5
+            
+            # Add padding (with bounds checking)
+            x = max(0, x - padding)
+            y = max(0, y - padding)
+            w = min(image_array.shape[1] - x, w + 2 * padding)
+            h = min(image_array.shape[0] - y, h + 2 * padding)
+            
+            # Crop to bounding box
+            cropped_array = image_array[y:y+h, x:x+w]
+            
+            # Step 2: Scale to 568×274 (preserving aspect ratio, centered)
+            scale = min(568 / w, 274 / h)
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            
+            # Resize cropped content
+            cropped_img = Image.fromarray(cropped_array)
+            resized_img = cropped_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            
+            # Center on 568×274 canvas
+            final_canvas = np.ones((274, 568, 3), dtype=np.uint8) * 255
+            offset_x = (568 - new_w) // 2
+            offset_y = (274 - new_h) // 2
+            final_canvas[offset_y:offset_y+new_h, offset_x:offset_x+new_w] = np.array(resized_img)
+            
+            image_array = final_canvas
+        
+        # Step 3: Normalize line thickness to 2px (CNN-ready)
+        # This ensures consistency with MAT/OCS images
+        normalized_array = normalize_line_thickness(image_array, target_thickness=2)
+        
+        # Convert normalized array back to bytes
+        normalized_image = Image.fromarray(normalized_array, mode='RGB')
+        normalized_buffer = io.BytesIO()
+        normalized_image.save(normalized_buffer, format='PNG')
+        normalized_content = normalized_buffer.getvalue()
+        
+        # Get final dimensions
+        height, width = normalized_array.shape[:2]
+        
         # Create entry
         training_image = TrainingDataImage(
             patient_id=name,  # Use name as patient_id for drawn images
             task_type='DRAWN',
             source_format='DRAWN',
             original_filename=f"{name}.png",
-            original_file_data=content,
-            processed_image_data=content,  # Same as original for drawn images
+            original_file_data=content,  # Original drawing (raw)
+            processed_image_data=normalized_content,  # CNN-ready (normalized 2px lines)
             image_hash=image_hash,
             ground_truth_correct=correct_lines if correct_lines > 0 else None,
             ground_truth_extra=extra_lines if extra_lines > 0 else None,
             test_name=name,
             session_id='manual_draw',
             extraction_metadata=json.dumps({
-                "width": 568,
-                "height": 274,
-                "manually_drawn": True
+                "width": width,
+                "height": height,
+                "manually_drawn": True,
+                "auto_cropped": True,
+                "padding_px": 5,
+                "line_thickness_normalized": True,
+                "target_thickness_px": 2
             })
         )
         

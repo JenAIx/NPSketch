@@ -130,7 +130,7 @@
         
         .data-row {
             display: grid;
-            grid-template-columns: 60px 150px 100px 100px 100px 1fr 120px 100px 120px;
+            grid-template-columns: 60px 150px 100px 100px 100px 120px 100px 120px 1fr;
             padding: 12px 15px;
             border-bottom: 1px solid #e9ecef;
             cursor: pointer;
@@ -172,6 +172,9 @@
         .data-cell {
             font-size: 0.9em;
             color: #495057;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         
         .data-row.header .data-cell {
@@ -194,6 +197,11 @@
         .badge.ocs {
             background: #d4edda;
             color: #155724;
+        }
+        
+        .badge.drawn {
+            background: #e7e3ff;
+            color: #5a3d99;
         }
         
         .badge.copy {
@@ -528,10 +536,6 @@
                         <span>Resolution</span>
                         <span class="sort-icon" id="sort-resolution">↕</span>
                     </div>
-                    <div class="data-cell" onclick="sortBy('filename')">
-                        <span>Original File</span>
-                        <span class="sort-icon" id="sort-filename">↕</span>
-                    </div>
                     <div class="data-cell" onclick="sortBy('date')">
                         <span>Date</span>
                         <span class="sort-icon" id="sort-date">↕</span>
@@ -543,6 +547,10 @@
                     <div class="data-cell" onclick="sortBy('ground_truth')">
                         <span>Lines</span>
                         <span class="sort-icon" id="sort-ground_truth">↕</span>
+                    </div>
+                    <div class="data-cell" onclick="sortBy('filename')">
+                        <span>Original File</span>
+                        <span class="sort-icon" id="sort-filename">↕</span>
                     </div>
                 </div>
                 <div id="dataRows"></div>
@@ -820,11 +828,11 @@
                         <div class="data-cell">${img.patient_id}</div>
                         <div class="data-cell"><span class="badge ${img.task_type.toLowerCase()}">${img.task_type}</span></div>
                         <div class="data-cell"><span class="badge ${img.source_format.toLowerCase()}">${img.source_format}</span></div>
-                        <div class="data-cell">${img.width}×${img.height}</div>
-                        <div class="data-cell" style="font-size: 0.8em;" title="${img.original_filename}">${shortFilename}</div>
+                        <div class="data-cell" style="font-size: 0.8em;">${img.width}×${img.height}</div>
                         <div class="data-cell">${date}</div>
                         <div class="data-cell">${featuresBadge}</div>
                         <div class="data-cell" style="font-size: 0.9em;">${groundTruthDisplay}</div>
+                        <div class="data-cell" style="font-size: 0.8em;" title="${img.original_filename}">${shortFilename}</div>
                     </div>
                 `;
             }).join('');
