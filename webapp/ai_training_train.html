@@ -380,6 +380,12 @@
             <p id="progressText">Initializing training...</p>
         </div>
         
+        <!-- Split Information -->
+        <div class="section" style="display: none;" id="splitInfo">
+            <h2>📊 Data Split Information</h2>
+            <div id="splitDetails" style="background: white; padding: 20px; border-radius: 8px;"></div>
+        </div>
+        
         <!-- Results -->
         <div class="section" style="display: none;" id="resultsSection">
             <h2>📈 Training Results</h2>
@@ -705,6 +711,70 @@
             }
             
             document.getElementById('progressText').textContent = text;
+            
+            // Show split info if available (check if not already displayed)
+            const splitInfoDiv = document.getElementById('splitInfo');
+            if (progress.split_info && splitInfoDiv.style.display !== 'block') {
+                displaySplitInfo(progress);
+            }
+        }
+        
+        function displaySplitInfo(progress) {
+            const splitInfo = progress.split_info || {};
+            const trainDist = splitInfo.train_distribution || {};
+            const valDist = splitInfo.test_distribution || {};
+            const warnings = splitInfo.warnings || [];
+            
+            const splitDetails = document.getElementById('splitDetails');
+            const strategy = progress.split_strategy || 'unknown';
+            
+            splitDetails.innerHTML = `
+                <div style="background: ${strategy === 'stratified' ? '#d4edda' : '#fff3cd'}; border-left: 4px solid ${strategy === 'stratified' ? '#28a745' : '#ffc107'}; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+                    <strong style="color: ${strategy === 'stratified' ? '#155724' : '#856404'};">
+                        Split Strategy: ${strategy.toUpperCase()}
+                    </strong>
+                    <div style="color: ${strategy === 'stratified' ? '#155724' : '#856404'}; font-size: 0.9em; margin-top: 5px;">
+                        ${strategy === 'stratified' ? '✅ Using stratified split for balanced distribution' : '⚠️ Using random split (stratification not applicable)'}
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 20px;">
+                    <div>
+                        <h4 style="color: #667eea; margin-bottom: 10px;">Training Set Distribution</h4>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
+                                <div><span style="color: #666;">Mean:</span> <strong>${trainDist.mean ? trainDist.mean.toFixed(3) : 'N/A'}</strong></div>
+                                <div><span style="color: #666;">Std:</span> <strong>${trainDist.std ? trainDist.std.toFixed(3) : 'N/A'}</strong></div>
+                                <div><span style="color: #666;">Min:</span> <strong>${trainDist.min ? trainDist.min.toFixed(3) : 'N/A'}</strong></div>
+                                <div><span style="color: #666;">Max:</span> <strong>${trainDist.max ? trainDist.max.toFixed(3) : 'N/A'}</strong></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <h4 style="color: #28a745; margin-bottom: 10px;">Validation Set Distribution</h4>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
+                                <div><span style="color: #666;">Mean:</span> <strong>${valDist.mean ? valDist.mean.toFixed(3) : 'N/A'}</strong></div>
+                                <div><span style="color: #666;">Std:</span> <strong>${valDist.std ? valDist.std.toFixed(3) : 'N/A'}</strong></div>
+                                <div><span style="color: #666;">Min:</span> <strong>${valDist.min ? valDist.min.toFixed(3) : 'N/A'}</strong></div>
+                                <div><span style="color: #666;">Max:</span> <strong>${valDist.max ? valDist.max.toFixed(3) : 'N/A'}</strong></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                ${warnings.length > 0 ? `
+                    <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; border-radius: 6px;">
+                        <strong style="color: #856404;">⚠️ Split Quality Warnings:</strong>
+                        <ul style="margin: 10px 0 0 20px; color: #856404; font-size: 0.9em;">
+                            ${warnings.map(w => `<li>${w}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : '<div style="background: #d4edda; padding: 10px; border-radius: 6px; color: #155724;">✅ Split is well-balanced</div>'}
+            `;
+            
+            document.getElementById('splitInfo').style.display = 'block';
         }
         
         function showResults(status) {

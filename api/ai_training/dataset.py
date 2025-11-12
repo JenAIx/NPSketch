@@ -84,10 +84,11 @@ def create_dataloaders(
     target_feature: str,
     train_split: float = 0.8,
     batch_size: int = 8,
-    shuffle: bool = True
+    shuffle: bool = True,
+    random_seed: int = 42
 ) -> Tuple[DataLoader, DataLoader, Dict]:
     """
-    Create train and validation dataloaders.
+    Create train and validation dataloaders with stratified split.
     
     Args:
         images_data: List of image data dicts
@@ -95,23 +96,70 @@ def create_dataloaders(
         train_split: Fraction for training (rest for validation)
         batch_size: Batch size
         shuffle: Shuffle training data
+        random_seed: Random seed for reproducibility
     
     Returns:
         (train_loader, val_loader, stats)
     """
-    # Create dataset
-    dataset = DrawingDataset(images_data, target_feature)
+    # Create full dataset to get target values
+    full_dataset = DrawingDataset(images_data, target_feature)
     
-    # Split into train/val
-    total_size = len(dataset)
-    train_size = int(total_size * train_split)
-    val_size = total_size - train_size
+    if len(full_dataset) == 0:
+        raise ValueError(f"No samples with feature '{target_feature}'")
     
-    train_dataset, val_dataset = torch.utils.data.random_split(
-        dataset, 
-        [train_size, val_size],
-        generator=torch.Generator().manual_seed(42)  # Reproducible split
+    # Extract all target values for stratified split
+    all_targets = []
+    for i in range(len(full_dataset)):
+        _, target = full_dataset[i]
+        all_targets.append(target.item())
+    
+    all_targets = np.array(all_targets)
+    
+    # Import split strategy
+    try:
+        from .split_strategy import get_split_recommendation, stratified_split_regression
+    except ImportError:
+        from ai_training.split_strategy import get_split_recommendation, stratified_split_regression
+    
+    # Get recommendation and do stratified split on indices
+    recommendation = get_split_recommendation(len(all_targets), all_targets.max() - all_targets.min())
+    
+    # Create index array
+    indices = np.arange(len(full_dataset))
+    
+    # Do stratified split on indices
+    _, _, _, _, split_info = stratified_split_regression(
+        indices.reshape(-1, 1),  # Dummy X (we only care about y)
+        all_targets,
+        train_split=train_split,
+        n_bins=recommendation['n_bins'],
+        random_seed=random_seed
     )
+    
+    # Get train and val indices from the split
+    # Re-do the split to get actual indices (not dummy X)
+    np.random.seed(random_seed)
+    
+    # Use same binning as split_info
+    from .split_strategy import create_bins
+    bin_assignments = create_bins(all_targets, n_bins=recommendation['n_bins'], method='quantile')
+    unique_bins = np.unique(bin_assignments)
+    
+    train_indices = []
+    val_indices = []
+    
+    for bin_idx in unique_bins:
+        bin_mask = bin_assignments == bin_idx
+        bin_idxs = np.where(bin_mask)[0]
+        np.random.shuffle(bin_idxs)
+        
+        split_point = int(len(bin_idxs) * train_split)
+        train_indices.extend(bin_idxs[:split_point].tolist())
+        val_indices.extend(bin_idxs[split_point:].tolist())
+    
+    # Create subsets using indices
+    train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
+    val_dataset = torch.utils.data.Subset(full_dataset, val_indices)
     
     # Create dataloaders
     train_loader = DataLoader(
@@ -130,13 +178,22 @@ def create_dataloaders(
         pin_memory=False
     )
     
+    # Get train and val target values for distribution info
+    train_targets = [all_targets[i] for i in train_indices]
+    val_targets = [all_targets[i] for i in val_indices]
+    
     stats = {
-        "total_samples": total_size,
-        "train_samples": train_size,
-        "val_samples": val_size,
+        "total_samples": len(full_dataset),
+        "train_samples": len(train_indices),
+        "val_samples": len(val_indices),
         "train_batches": len(train_loader),
         "val_batches": len(val_loader),
-        "batch_size": batch_size
+        "batch_size": batch_size,
+        "split_strategy": recommendation['strategy'],
+        "n_bins": recommendation['n_bins'],
+        "split_info": split_info,
+        "train_target_range": [float(min(train_targets)), float(max(train_targets))],
+        "val_target_range": [float(min(val_targets)), float(max(val_targets))]
     }
     
     return train_loader, val_loader, stats

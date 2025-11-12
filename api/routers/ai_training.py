@@ -289,10 +289,13 @@ def run_training_job(config):
             config['images_data'],
             config['target_feature'],
             train_split=config['train_split'],
-            batch_size=config['batch_size']
+            batch_size=config['batch_size'],
+            random_seed=42
         )
         
         training_state['progress']['message'] = f"Loaded {stats['total_samples']} samples"
+        training_state['progress']['split_info'] = stats.get('split_info', {})
+        training_state['progress']['split_strategy'] = stats.get('split_strategy', 'unknown')
         
         # Create trainer
         trainer = CNNTrainer(
@@ -331,8 +334,13 @@ def run_training_job(config):
                 'train_samples': stats['train_samples'],
                 'val_samples': stats['val_samples'],
                 'train_batches': stats['train_batches'],
-                'val_batches': stats['val_batches']
+                'val_batches': stats['val_batches'],
+                'split_strategy': stats.get('split_strategy', 'unknown'),
+                'n_bins': stats.get('n_bins', 0),
+                'train_target_range': stats.get('train_target_range', []),
+                'val_target_range': stats.get('val_target_range', [])
             },
+            'split_quality': stats.get('split_info', {}),
             'model_architecture': 'ResNet-18',
             'input_size': '568x274x1',
             'train_metrics': train_metrics,
