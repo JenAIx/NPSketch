@@ -729,7 +729,17 @@ async def upload_features_csv(
         content = await file.read()
         content_str = content.decode('utf-8')
         
-        csv_reader = csv.DictReader(io.StringIO(content_str))
+        # Auto-detect delimiter using csv.Sniffer (handles quoted fields correctly)
+        try:
+            # Sample first few lines for detection
+            sample = '\n'.join(content_str.split('\n')[:5])
+            sniffer = csv.Sniffer()
+            delimiter = sniffer.sniff(sample, delimiters=',;').delimiter
+        except Exception:
+            # Fallback to comma if detection fails
+            delimiter = ','
+        
+        csv_reader = csv.DictReader(io.StringIO(content_str), delimiter=delimiter)
         
         updated = 0
         skipped = 0
