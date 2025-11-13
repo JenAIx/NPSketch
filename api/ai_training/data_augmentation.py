@@ -303,7 +303,8 @@ class AugmentedDatasetBuilder:
         self,
         output_dir: str,
         augmentor: ImageAugmentor = None,
-        include_original: bool = True
+        include_original: bool = True,
+        normalizer=None
     ):
         """
         Initialize dataset builder.
@@ -312,10 +313,12 @@ class AugmentedDatasetBuilder:
             output_dir: Directory to save augmented data
             augmentor: ImageAugmentor instance (creates default if None)
             include_original: Whether to include original images
+            normalizer: Optional TargetNormalizer for target values
         """
         self.output_dir = Path(output_dir)
         self.augmentor = augmentor or ImageAugmentor()
         self.include_original = include_original
+        self.normalizer = normalizer
     
     def prepare_augmented_dataset(
         self,
@@ -429,6 +432,11 @@ class AugmentedDatasetBuilder:
                 
                 target_value = features[target_feature]
                 
+                # Apply normalization if normalizer is provided
+                target_value_normalized = target_value
+                if self.normalizer is not None:
+                    target_value_normalized = self.normalizer.transform(np.array([target_value]))[0]
+                
                 # Load image
                 image_bytes = img_data.get('processed_image_data')
                 if not image_bytes:
@@ -451,14 +459,15 @@ class AugmentedDatasetBuilder:
                     original_path = output_dir / f"{patient_id}_id{img_id}_original.png"
                     cv2.imwrite(str(original_path), img_array)
                     
-                    # Save label
+                    # Save label (with normalized value if normalizer is used)
                     label_path = output_dir / f"{patient_id}_id{img_id}_original.json"
                     with open(label_path, 'w') as f:
                         json.dump({
                             'image_id': img_id,
                             'patient_id': patient_id,
                             'target_feature': target_feature,
-                            'target_value': target_value,
+                            'target_value': target_value_normalized,
+                            'target_value_original': target_value,  # Keep original for reference
                             'augmentation': None
                         }, f)
                     
@@ -473,14 +482,15 @@ class AugmentedDatasetBuilder:
                     aug_path = output_dir / f"{patient_id}_id{img_id}_aug{aug_idx}.png"
                     cv2.imwrite(str(aug_path), aug_img)
                     
-                    # Save label with augmentation parameters
+                    # Save label with augmentation parameters (with normalized value if normalizer is used)
                     label_path = output_dir / f"{patient_id}_id{img_id}_aug{aug_idx}.json"
                     with open(label_path, 'w') as f:
                         json.dump({
                             'image_id': img_id,
                             'patient_id': patient_id,
                             'target_feature': target_feature,
-                            'target_value': target_value,
+                            'target_value': target_value_normalized,
+                            'target_value_original': target_value,  # Keep original for reference
                             'augmentation': aug_params
                         }, f)
                     

@@ -26,7 +26,8 @@ class CNNTrainer:
         self,
         num_outputs: int = 1,
         learning_rate: float = 0.001,
-        device: str = None
+        device: str = None,
+        normalizer=None
     ):
         """
         Initialize CNN trainer.
@@ -38,10 +39,19 @@ class CNNTrainer:
         """
         self.num_outputs = num_outputs
         self.learning_rate = learning_rate
+        self.normalizer = normalizer
         
         # Auto-detect device
         if device is None:
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            # Check for CUDA first, then MPS (Apple Silicon), then CPU
+            if torch.cuda.is_available():
+                self.device = torch.device('cuda')
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                self.device = torch.device('mps')
+            else:
+                self.device = torch.device('cpu')
+                # Optimize CPU performance on M1
+                torch.set_num_threads(8)  # M1 has 8 performance cores
         else:
             self.device = torch.device(device)
         
@@ -170,7 +180,12 @@ class CNNTrainer:
         predictions = np.array(all_predictions)
         targets = np.array(all_targets)
         
-        # Calculate metrics
+        # Denormalize if normalizer is provided
+        if self.normalizer is not None:
+            predictions = self.normalizer.inverse_transform(predictions)
+            targets = self.normalizer.inverse_transform(targets)
+        
+        # Calculate metrics (on original scale)
         mse = np.mean((predictions - targets) ** 2)
         rmse = np.sqrt(mse)
         mae = np.mean(np.abs(predictions - targets))

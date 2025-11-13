@@ -254,7 +254,8 @@ class TrainingDataLoader:
         train_split: float = 0.8,
         random_seed: int = 42,
         augmentation_config: Optional[Dict] = None,
-        output_dir: str = '/app/data/ai_training_data'
+        output_dir: str = '/app/data/ai_training_data',
+        normalizer=None
     ) -> Tuple[Dict, str]:
         """
         Prepare augmented training dataset and save to disk.
@@ -369,6 +370,11 @@ class TrainingDataLoader:
         
         print(f"   Train: {len(train_indices)} images, Val: {len(val_indices)} images")
         
+        # Fit normalizer if provided
+        if normalizer is not None:
+            normalizer.fit(y_array)
+            print(f"   Fitted normalizer on {len(y_array)} samples")
+        
         # Create augmentor
         augmentor = ImageAugmentor(
             rotation_range=tuple(default_config['rotation_range']),
@@ -381,7 +387,8 @@ class TrainingDataLoader:
         builder = AugmentedDatasetBuilder(
             output_dir=output_dir,
             augmentor=augmentor,
-            include_original=True
+            include_original=True,
+            normalizer=normalizer
         )
         
         stats = builder.prepare_augmented_dataset(

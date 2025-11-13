@@ -198,6 +198,7 @@ async def start_training(
         learning_rate = config.get('learning_rate', 0.001)
         batch_size = config.get('batch_size', 8)
         use_augmentation = config.get('use_augmentation', True)  # Enabled by default
+        use_normalization = config.get('use_normalization', True)  # Enabled by default
         
         # Validate parameters
         if not target_feature:
@@ -230,6 +231,7 @@ async def start_training(
             'learning_rate': learning_rate,
             'batch_size': batch_size,
             'use_augmentation': use_augmentation,
+            'use_normalization': use_normalization,
             'images_data': images_data,
             'db_session': db  # Pass db session for augmentation
         }
@@ -253,6 +255,7 @@ async def start_training(
                 'learning_rate': learning_rate,
                 'batch_size': batch_size,
                 'use_augmentation': use_augmentation,
+                'use_normalization': use_normalization,
                 'total_samples': len(images_data)
             }
         }
@@ -286,9 +289,19 @@ def run_training_job(config):
         }
         
         from ai_training.trainer import CNNTrainer
+        from ai_training.normalization import get_normalizer_for_feature
         
-        # Check if augmentation is enabled
+        # Check if normalization and augmentation are enabled
+        use_normalization = config.get('use_normalization', True)
         use_augmentation = config.get('use_augmentation', True)
+        
+        # Create normalizer if enabled
+        normalizer = None
+        if use_normalization:
+            normalizer = get_normalizer_for_feature(config['target_feature'])
+            print(f"   Target normalization: Enabled for {config['target_feature']}")
+        else:
+            print(f"   Target normalization: Disabled (using raw values)")
         
         if use_augmentation:
             # Use data augmentation
@@ -302,7 +315,7 @@ def run_training_job(config):
             db = SessionLocal()
             
             try:
-                # Prepare augmented dataset
+                # Prepare augmented dataset (with normalizer if enabled)
                 loader = TrainingDataLoader(db)
                 aug_stats, output_dir = loader.prepare_augmented_training_data(
                     target_feature=config['target_feature'],
@@ -313,7 +326,8 @@ def run_training_job(config):
                         'scale_range': (0.95, 1.05),
                         'num_augmentations': 5
                     },
-                    output_dir='/app/data/ai_training_data'
+                    output_dir='/app/data/ai_training_data',
+                    normalizer=normalizer
                 )
                 
                 training_state['progress']['message'] = f"Augmented dataset prepared: {aug_stats['train']['total']} train, {aug_stats['val']['total']} val"
@@ -350,7 +364,8 @@ def run_training_job(config):
                 config['target_feature'],
                 train_split=config['train_split'],
                 batch_size=config['batch_size'],
-                random_seed=42
+                random_seed=42,
+                normalizer=normalizer
             )
             
             stats['augmentation'] = {
@@ -362,10 +377,11 @@ def run_training_job(config):
         training_state['progress']['split_strategy'] = stats.get('split_strategy', 'unknown')
         training_state['progress']['dataset_stats'] = stats  # Store complete stats for later
         
-        # Create trainer
+        # Create trainer with normalizer
         trainer = CNNTrainer(
             num_outputs=1,
-            learning_rate=config['learning_rate']
+            learning_rate=config['learning_rate'],
+            normalizer=normalizer
         )
         
         # Training loop
@@ -385,6 +401,10 @@ def run_training_job(config):
         train_metrics = trainer.evaluate_metrics(train_loader)
         val_metrics = trainer.evaluate_metrics(val_loader)
         
+        # Get model information
+        from ai_training.model import get_model_summary
+        model_info = get_model_summary(trainer.model)
+        
         # Prepare metadata
         metadata = {
             'target_feature': config['target_feature'],
@@ -393,8 +413,10 @@ def run_training_job(config):
                 'num_epochs': config['num_epochs'],
                 'learning_rate': config['learning_rate'],
                 'batch_size': config['batch_size'],
-                'use_augmentation': config.get('use_augmentation', True)
+                'use_augmentation': config.get('use_augmentation', True),
+                'use_normalization': config.get('use_normalization', True)
             },
+            'normalization': normalizer.get_config() if normalizer is not None else {'enabled': False},
             'augmentation': stats.get('augmentation', {'enabled': False}),
             'dataset': {
                 'total_samples': stats['total_samples'],
@@ -408,8 +430,7 @@ def run_training_job(config):
                 'val_target_range': stats.get('val_target_range', [])
             },
             'split_quality': stats.get('split_info', {}),
-            'model_architecture': 'ResNet-18',
-            'input_size': '568x274x1',
+            'model': model_info,
             'train_metrics': train_metrics,
             'val_metrics': val_metrics,
             'training_history': trainer.history,

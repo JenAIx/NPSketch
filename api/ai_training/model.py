@@ -80,16 +80,46 @@ class DrawingClassifier(nn.Module):
 
 
 def get_model_summary(model: DrawingClassifier) -> Dict:
-    """Get model summary statistics."""
+    """Get detailed model summary statistics."""
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     
+    # Get output size
+    output_size = model.backbone.fc[-1].out_features if isinstance(model.backbone.fc, nn.Sequential) else 1
+    
+    # Get head architecture details
+    head_layers = []
+    if isinstance(model.backbone.fc, nn.Sequential):
+        for i, layer in enumerate(model.backbone.fc):
+            if isinstance(layer, nn.Linear):
+                head_layers.append({
+                    "type": "Linear",
+                    "in_features": layer.in_features,
+                    "out_features": layer.out_features,
+                    "parameters": layer.weight.numel() + (layer.bias.numel() if layer.bias is not None else 0)
+                })
+            elif isinstance(layer, nn.Dropout):
+                head_layers.append({
+                    "type": "Dropout",
+                    "p": layer.p
+                })
+            elif isinstance(layer, nn.ReLU):
+                head_layers.append({
+                    "type": "ReLU"
+                })
+    
     return {
+        "name": "DrawingClassifier",
+        "architecture": "ResNet-18",
+        "backbone": "ResNet-18 (ImageNet pre-trained)",
+        "input_size": "568×274×1",
+        "input_channels": 1,
+        "output_neurons": output_size,
         "total_parameters": total_params,
         "trainable_parameters": trainable_params,
         "frozen_parameters": total_params - trainable_params,
-        "architecture": "ResNet-18",
-        "input_size": "568×274×1 (grayscale)",
-        "backbone": "ResNet-18 (ImageNet pre-trained)"
+        "head_layers": head_layers,
+        "pretrained_weights": "ImageNet1K_V1",
+        "framework": "PyTorch"
     }
 

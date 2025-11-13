@@ -283,10 +283,62 @@
             const valMetrics = metadata.val_metrics || {};
             const imageIds = metadata.image_ids || [];
             
+            const augmentation = metadata.augmentation || {};
+            const normalization = metadata.normalization || {};
+            const modelInfo = metadata.model || {};
+            
             metadataDiv.innerHTML = `
+                <div style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #667eea;">
+                    <div style="font-size: 0.9em; color: #666; margin-bottom: 8px; font-weight: 600;">🧠 Model Architecture</div>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.85em;">
+                        <div>
+                            <span style="color: #666;">Architecture:</span> 
+                            <strong>${modelInfo.architecture || 'ResNet-18'}</strong>
+                        </div>
+                        <div>
+                            <span style="color: #666;">Backbone:</span> 
+                            <strong>${modelInfo.backbone || 'ImageNet'}</strong>
+                        </div>
+                        <div>
+                            <span style="color: #666;">Input:</span> 
+                            <strong>${modelInfo.input_size || '568×274×1'}</strong>
+                        </div>
+                        <div>
+                            <span style="color: #666;">Parameters:</span> 
+                            <strong>${modelInfo.total_parameters ? (modelInfo.total_parameters / 1e6).toFixed(2) + 'M' : 'N/A'}</strong>
+                        </div>
+                        <div>
+                            <span style="color: #666;">Trainable:</span> 
+                            <strong>${modelInfo.trainable_parameters ? (modelInfo.trainable_parameters / 1e6).toFixed(2) + 'M' : 'N/A'}</strong>
+                        </div>
+                        <div>
+                            <span style="color: #666;">Output:</span> 
+                            <strong>${modelInfo.output_neurons || 1} neuron${modelInfo.output_neurons > 1 ? 's' : ''}</strong>
+                        </div>
+                    </div>
+                    ${modelInfo.head_layers && modelInfo.head_layers.length > 0 ? `
+                        <details style="margin-top: 10px;">
+                            <summary style="cursor: pointer; color: #667eea; font-size: 0.85em;">
+                                <strong>Head Architecture (${modelInfo.head_layers.length} layers)</strong>
+                            </summary>
+                            <div style="margin-top: 8px; padding: 10px; background: #f8f9fa; border-radius: 4px; font-size: 0.8em;">
+                                ${modelInfo.head_layers.map((layer, idx) => {
+                                    if (layer.type === 'Linear') {
+                                        return `${idx + 1}. Linear(${layer.in_features} → ${layer.out_features}) [${(layer.parameters / 1000).toFixed(1)}K params]`;
+                                    } else if (layer.type === 'Dropout') {
+                                        return `${idx + 1}. Dropout(p=${layer.p})`;
+                                    } else {
+                                        return `${idx + 1}. ${layer.type}`;
+                                    }
+                                }).join('<br>')}
+                            </div>
+                        </details>
+                    ` : ''}
+                </div>
+                
                 <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
                     <div>
-                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Configuration</div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Training Configuration</div>
                         <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em;">
                             Epochs: <strong>${config.num_epochs || 'N/A'}</strong> | 
                             LR: <strong>${config.learning_rate || 'N/A'}</strong> | 
@@ -305,9 +357,50 @@
                     </div>
                 </div>
                 
-                <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em;">
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Data Augmentation</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em;">
+                            <span style="color: ${augmentation.enabled ? '#28a745' : '#6c757d'};">
+                                ${augmentation.enabled ? '✅ Enabled' : '❌ Disabled'}
+                            </span>
+                            ${augmentation.enabled ? `
+                                <br><span style="font-size: 0.85em; color: #666;">
+                                    Multiplier: <strong>${augmentation.multiplier || 'N/A'}x</strong> | 
+                                    Total: <strong>${augmentation.total_samples || 'N/A'}</strong> samples
+                                </span>
+                            ` : ''}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Target Normalization</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em;">
+                            <span style="color: ${normalization.method || config.use_normalization ? '#28a745' : '#6c757d'};">
+                                ${normalization.method || config.use_normalization ? '✅ Enabled' : '❌ Disabled'}
+                            </span>
+                            ${normalization.method === 'min_max' ? `
+                                <br><span style="font-size: 0.85em; color: #666;">
+                                    Range: <strong>[${normalization.min_value}, ${normalization.max_value}] → [0, 1]</strong>
+                                </span>
+                            ` : normalization.method === 'standardize' ? `
+                                <br><span style="font-size: 0.85em; color: #666;">
+                                    Z-score (μ=${normalization.mean?.toFixed(2)}, σ=${normalization.std?.toFixed(2)})
+                                </span>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; margin-bottom: 15px;">
                     <strong>Dataset:</strong> ${dataset.total_samples || 'N/A'} samples 
                     (${dataset.train_samples || 'N/A'} train, ${dataset.val_samples || 'N/A'} val)
+                    ${dataset.split_strategy ? `
+                        <br><span style="font-size: 0.85em; color: #666;">
+                            Split Strategy: <strong>${dataset.split_strategy}</strong>
+                            ${dataset.n_bins ? ` with ${dataset.n_bins} bins` : ''}
+                        </span>
+                    ` : ''}
                     
                     ${metadata.train_image_ids && metadata.train_image_ids.length > 0 ? `
                         <details style="margin-top: 10px;">

@@ -392,6 +392,29 @@
                 </div>
             </div>
             
+            <!-- Target Normalization Section -->
+            <div style="margin-top: 20px; padding: 20px; background: #fff3cd; border-radius: 8px; border-left: 4px solid #ffc107;">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <input type="checkbox" id="enableNormalization" checked style="width: 20px; height: 20px; cursor: pointer;">
+                    <label for="enableNormalization" style="margin: 0; font-weight: 600; font-size: 1.05em; cursor: pointer; color: #333;">
+                        📊 Enable Target Normalization (Recommended)
+                    </label>
+                </div>
+                <div style="font-size: 0.9em; color: #856404; margin-left: 30px;">
+                    Normalizes target scores to [0, 1] range for more stable training. Predictions are automatically scaled back to original range.
+                    Improves convergence and prevents extreme predictions outside valid score ranges.
+                </div>
+                <div id="normalizationInfo" style="margin-top: 10px; margin-left: 30px; font-size: 0.85em; color: #856404; display: none;">
+                    <strong>ℹ️ Normalization Details:</strong>
+                    <ul style="margin: 5px 0 0 20px;">
+                        <li>Total_Score: [0, 60] → [0, 1]</li>
+                        <li>MMSE: [0, 30] → [0, 1]</li>
+                        <li>ACE: [0, 100] → [0, 1]</li>
+                        <li>Predictions scaled back automatically</li>
+                    </ul>
+                </div>
+            </div>
+            
             <button class="btn btn-success" onclick="startTraining()" id="trainBtn" style="margin-top: 20px;">
                 🚀 Start Training
             </button>
@@ -661,7 +684,8 @@
                 num_epochs: parseInt(document.getElementById('numEpochs').value),
                 learning_rate: parseFloat(document.getElementById('learningRate').value),
                 batch_size: parseInt(document.getElementById('batchSize').value),
-                use_augmentation: document.getElementById('enableAugmentation').checked
+                use_augmentation: document.getElementById('enableAugmentation').checked,
+                use_normalization: document.getElementById('enableNormalization').checked
             };
             
             document.getElementById('trainBtn').disabled = true;
@@ -690,7 +714,8 @@
                             Learning Rate: <strong>${config.learning_rate}</strong> | 
                             Batch Size: <strong>${config.batch_size}</strong> | 
                             Train/Val Split: <strong>${(config.train_split * 100).toFixed(0)}/${((1-config.train_split) * 100).toFixed(0)}</strong> | 
-                            Augmentation: <strong>${config.use_augmentation ? 'Enabled (6x data)' : 'Disabled'}</strong>
+                            Augmentation: <strong>${config.use_augmentation ? 'Enabled (6x data)' : 'Disabled'}</strong> | 
+                            Normalization: <strong>${config.use_normalization ? 'Enabled ([0,1])' : 'Disabled (raw)'}</strong>
                         </div>
                     `;
                     paramsDiv.style.display = 'block';
@@ -1177,6 +1202,16 @@
         // Augmentation checkbox toggle
         document.getElementById('enableAugmentation')?.addEventListener('change', function() {
             const detailsDiv = document.getElementById('augmentationInfo');
+            if (this.checked) {
+                detailsDiv.style.display = 'block';
+            } else {
+                detailsDiv.style.display = 'none';
+            }
+        });
+        
+        // Normalization checkbox toggle
+        document.getElementById('enableNormalization')?.addEventListener('change', function() {
+            const detailsDiv = document.getElementById('normalizationInfo');
             if (this.checked) {
                 detailsDiv.style.display = 'block';
             } else {

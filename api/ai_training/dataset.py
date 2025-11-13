@@ -16,13 +16,21 @@ from typing import List, Dict, Tuple, Optional
 import json
 from pathlib import Path
 
+from .normalization import TargetNormalizer
+
 
 class DrawingDataset(Dataset):
     """
     PyTorch Dataset for training data images.
     """
     
-    def __init__(self, images_data: List[Dict], target_feature: str, transform=None):
+    def __init__(
+        self,
+        images_data: List[Dict],
+        target_feature: str,
+        transform=None,
+        normalizer: Optional[TargetNormalizer] = None
+    ):
         """
         Initialize dataset.
         
@@ -30,10 +38,12 @@ class DrawingDataset(Dataset):
             images_data: List of dicts with 'processed_image_data', 'features_data'
             target_feature: Name of feature to predict (e.g., 'Total_Score')
             transform: Optional torchvision transforms
+            normalizer: Optional TargetNormalizer for target values
         """
         self.images_data = images_data
         self.target_feature = target_feature
         self.transform = transform
+        self.normalizer = normalizer
         
         # Filter: Only keep images that have the target feature
         self.valid_indices = []
@@ -80,6 +90,11 @@ class DrawingDataset(Dataset):
         # Get target value
         features = json.loads(img_data['features_data'])
         target_value = float(features[self.target_feature])
+        
+        # Apply normalization if normalizer is provided
+        if self.normalizer is not None:
+            target_value = self.normalizer.transform(np.array([target_value]))[0]
+        
         target_tensor = torch.tensor([target_value], dtype=torch.float32)
         
         return img_tensor, target_tensor
@@ -91,7 +106,8 @@ def create_dataloaders(
     train_split: float = 0.8,
     batch_size: int = 8,
     shuffle: bool = True,
-    random_seed: int = 42
+    random_seed: int = 42,
+    normalizer: Optional[TargetNormalizer] = None
 ) -> Tuple[DataLoader, DataLoader, Dict]:
     """
     Create train and validation dataloaders with stratified split.
@@ -107,19 +123,24 @@ def create_dataloaders(
     Returns:
         (train_loader, val_loader, stats)
     """
-    # Create full dataset to get target values
-    full_dataset = DrawingDataset(images_data, target_feature)
+    # Create full dataset WITHOUT normalizer to get raw target values for stratified split
+    full_dataset_raw = DrawingDataset(images_data, target_feature, normalizer=None)
     
-    if len(full_dataset) == 0:
+    if len(full_dataset_raw) == 0:
         raise ValueError(f"No samples with feature '{target_feature}'")
     
-    # Extract all target values for stratified split
+    # Extract all target values (raw, unnormalized) for stratified split
     all_targets = []
-    for i in range(len(full_dataset)):
-        _, target = full_dataset[i]
+    for i in range(len(full_dataset_raw)):
+        _, target = full_dataset_raw[i]
         all_targets.append(target.item())
     
     all_targets = np.array(all_targets)
+    
+    # Fit normalizer if provided
+    if normalizer is not None:
+        normalizer.fit(all_targets)
+        print(f"   Fitted normalizer on {len(all_targets)} samples")
     
     # Import split strategy
     try:
@@ -131,7 +152,7 @@ def create_dataloaders(
     recommendation = get_split_recommendation(len(all_targets), all_targets.max() - all_targets.min())
     
     # Create index array
-    indices = np.arange(len(full_dataset))
+    indices = np.arange(len(full_dataset_raw))
     
     # Do stratified split on indices
     _, _, _, _, split_info = stratified_split_regression(
@@ -163,9 +184,12 @@ def create_dataloaders(
         train_indices.extend(bin_idxs[:split_point].tolist())
         val_indices.extend(bin_idxs[split_point:].tolist())
     
+    # Create new datasets WITH normalizer for training
+    full_dataset_normalized = DrawingDataset(images_data, target_feature, normalizer=normalizer)
+    
     # Create subsets using indices
-    train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
-    val_dataset = torch.utils.data.Subset(full_dataset, val_indices)
+    train_dataset = torch.utils.data.Subset(full_dataset_normalized, train_indices)
+    val_dataset = torch.utils.data.Subset(full_dataset_normalized, val_indices)
     
     # Create dataloaders
     train_loader = DataLoader(
@@ -189,24 +213,24 @@ def create_dataloaders(
     val_targets = [all_targets[i] for i in val_indices]
     
     # Get actual image IDs for train and val sets
-    # IMPORTANT: train_indices/val_indices are positions in full_dataset (filtered)
-    # Must map through full_dataset.valid_indices to get positions in original images_data
+    # IMPORTANT: train_indices/val_indices are positions in full_dataset_normalized (filtered)
+    # Must map through full_dataset_normalized.valid_indices to get positions in original images_data
     train_image_ids = []
     for i in train_indices:
-        if i < len(full_dataset.valid_indices):
-            original_idx = full_dataset.valid_indices[i]
+        if i < len(full_dataset_normalized.valid_indices):
+            original_idx = full_dataset_normalized.valid_indices[i]
             if original_idx < len(images_data) and 'id' in images_data[original_idx]:
                 train_image_ids.append(images_data[original_idx]['id'])
     
     val_image_ids = []
     for i in val_indices:
-        if i < len(full_dataset.valid_indices):
-            original_idx = full_dataset.valid_indices[i]
+        if i < len(full_dataset_normalized.valid_indices):
+            original_idx = full_dataset_normalized.valid_indices[i]
             if original_idx < len(images_data) and 'id' in images_data[original_idx]:
                 val_image_ids.append(images_data[original_idx]['id'])
     
     stats = {
-        "total_samples": len(full_dataset),
+        "total_samples": len(full_dataset_normalized),
         "train_samples": len(train_indices),
         "val_samples": len(val_indices),
         "train_batches": len(train_loader),
