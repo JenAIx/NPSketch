@@ -89,29 +89,67 @@ class TrainingDataLoader:
         
         all_features = set()
         feature_stats = {}
+        custom_class_info = {}  # Track Custom_Class classifications
         
         for img in images:
             try:
                 features = json.loads(img.features_data)
                 for key in features.keys():
+                    # Skip Custom_Class - handle separately
+                    if key == "Custom_Class":
+                        # Parse Custom_Class structure
+                        custom_classes = features["Custom_Class"]
+                        for num_classes, class_data in custom_classes.items():
+                            feature_key = f"Custom_Class_{num_classes}"
+                            all_features.add(feature_key)
+                            
+                            if feature_key not in custom_class_info:
+                                custom_class_info[feature_key] = {
+                                    'num_classes': num_classes,
+                                    'count': 0,
+                                    'names': set()
+                                }
+                            
+                            custom_class_info[feature_key]['count'] += 1
+                            if class_data.get('name_custom'):
+                                custom_class_info[feature_key]['names'].add(class_data['name_custom'])
+                        continue
+                    
+                    # Handle regular numeric features
                     all_features.add(key)
                     if key not in feature_stats:
                         feature_stats[key] = {'count': 0, 'min': float('inf'), 'max': float('-inf'), 'values': []}
                     
-                    value = float(features[key])
-                    feature_stats[key]['count'] += 1
-                    feature_stats[key]['min'] = min(feature_stats[key]['min'], value)
-                    feature_stats[key]['max'] = max(feature_stats[key]['max'], value)
-                    feature_stats[key]['values'].append(value)
+                    try:
+                        value = float(features[key])
+                        feature_stats[key]['count'] += 1
+                        feature_stats[key]['min'] = min(feature_stats[key]['min'], value)
+                        feature_stats[key]['max'] = max(feature_stats[key]['max'], value)
+                        feature_stats[key]['values'].append(value)
+                    except (ValueError, TypeError):
+                        # Not a numeric feature, skip stats
+                        pass
             except:
                 pass
         
-        # Calculate means
+        # Calculate means for numeric features
         for key in feature_stats:
             values = feature_stats[key]['values']
             feature_stats[key]['mean'] = np.mean(values) if values else 0
             feature_stats[key]['std'] = np.std(values) if values else 0
             del feature_stats[key]['values']  # Remove raw values
+        
+        # Add stats for Custom_Class features
+        for key, info in custom_class_info.items():
+            feature_stats[key] = {
+                'count': info['count'],
+                'num_classes': info['num_classes'],
+                'class_names': ', '.join(sorted(info['names'])) if info['names'] else 'N/A',
+                'min': 0,
+                'max': int(info['num_classes']) - 1,
+                'mean': 0,
+                'std': 0
+            }
         
         return {
             'features': sorted(list(all_features)),

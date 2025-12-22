@@ -9,13 +9,14 @@ from sqlalchemy.orm import Session
 from database import get_db, TrainingDataImage
 import json
 import numpy as np
+import re
+import sys
 
 # Import data_loader (it will handle PyTorch imports gracefully)
-# We need to add ai_training to path first
-import sys
 sys.path.insert(0, '/app')
 
 from ai_training.data_loader import TrainingDataLoader
+from ai_training.classification_generator import generate_balanced_classes
 
 router = APIRouter(prefix="/api/ai-training", tags=["ai_training"])
 
@@ -710,51 +711,17 @@ async def get_feature_distribution(
             "data": histogram_data
         }
         
-        # 4. Pre-calculate auto-classifications (2-5 classes, quantile-based)
+        # 4. Pre-calculate auto-classifications (2-5 classes)
         auto_classifications = {}
         
         for num_classes in [2, 3, 4, 5]:
-            # Calculate quantile-based boundaries
-            percentiles = np.linspace(0, 100, num_classes + 1)
-            boundaries = np.percentile(scores, percentiles)
-            
-            # Ensure boundaries are unique and sorted
-            boundaries = np.unique(boundaries)
-            if len(boundaries) < num_classes + 1:
-                # Fallback to equal-width if quantiles produce duplicates
-                boundaries = np.linspace(np.min(scores), np.max(scores), num_classes + 1)
-            
-            # Assign classes and count distribution
-            class_data = []
-            
-            for class_id in range(num_classes):
-                class_min = float(boundaries[class_id])
-                class_max = float(boundaries[class_id + 1])
-                
-                # Count samples in this class
-                if class_id == num_classes - 1:
-                    # Last class: include upper boundary
-                    mask = (scores >= class_min) & (scores <= class_max)
-                else:
-                    mask = (scores >= class_min) & (scores < class_max)
-                
-                count = int(np.sum(mask))
-                percentage = (count / total_samples) * 100.0
-                
-                class_data.append({
-                    "id": class_id,
-                    "min": class_min,
-                    "max": class_max,
-                    "count": count,
-                    "percentage": round(percentage, 2),
-                    "label": f"Class_{class_id}"
-                })
-            
-            auto_classifications[f"{num_classes}_classes"] = {
-                "method": "quantile",
-                "boundaries": [float(b) for b in boundaries],
-                "classes": class_data
-            }
+            try:
+                result = generate_balanced_classes(scores, num_classes, method="quantile")
+                auto_classifications[f"{num_classes}_classes"] = result
+            except Exception as e:
+                # If classification fails, skip this number
+                print(f"Warning: Could not generate {num_classes} classes: {e}")
+                continue
         
         return {
             "feature_name": feature_name,
@@ -792,6 +759,7 @@ async def generate_and_save_classes(
         feature_name = config.get("feature_name")
         num_classes = config.get("num_classes")
         method = config.get("method", "quantile")
+        custom_classes = config.get("custom_classes")  # Custom boundaries and names
         
         if not feature_name:
             raise HTTPException(status_code=400, detail="feature_name is required")
@@ -828,50 +796,67 @@ async def generate_and_save_classes(
         
         scores = np.array(scores)
         
-        # 2. Calculate class boundaries
-        if method == "quantile":
-            percentiles = np.linspace(0, 100, num_classes + 1)
-            boundaries = np.percentile(scores, percentiles)
-            # Ensure boundaries are unique
-            boundaries = np.unique(boundaries)
-            if len(boundaries) < num_classes + 1:
-                # Fallback to equal-width if quantiles produce duplicates
-                boundaries = np.linspace(np.min(scores), np.max(scores), num_classes + 1)
-        else:  # equal-width
-            boundaries = np.linspace(np.min(scores), np.max(scores), num_classes + 1)
+        # 2. Determine class structure (custom or auto-generate)
+        if method == "custom" and custom_classes:
+            # Use custom classes from frontend
+            class_definitions = custom_classes
+            print(f"Using custom classes: {len(custom_classes)} classes")
+        else:
+            # Auto-generate with classification_generator
+            from ai_training.classification_generator import generate_balanced_classes
+            result = generate_balanced_classes(scores, num_classes, method="quantile")
+            class_definitions = result["classes"]
+            print(f"Auto-generated: {len(class_definitions)} classes")
         
-        boundaries = np.array(boundaries)
+        # Build boundaries list from class definitions
+        all_boundaries = [class_definitions[0]["min"]]
+        for cls in class_definitions:
+            all_boundaries.append(cls["max"])
         
         # 3. Assign classes and update DB (ZUSÄTZLICH, nicht ersetzend!)
+        
         updated_count = 0
-        class_distribution = {i: 0 for i in range(num_classes)}
+        class_distribution = {i: 0 for i in range(len(class_definitions))}
         
         for img in valid_images:
             try:
                 features = json.loads(img.features_data)
                 score = float(features[feature_name])
                 
-                # Determine class (digitize returns bin index, 0-based)
-                class_id = np.digitize(score, boundaries) - 1
-                # Clamp to valid range
-                class_id = max(0, min(int(class_id), num_classes - 1))
+                # Determine class based on score ranges
+                class_id = None
+                for cls in class_definitions:
+                    if score >= cls["min"] and score <= cls["max"]:
+                        class_id = cls["id"]
+                        break
                 
-                # Update features_data - NUR HINZUFÜGEN!
+                if class_id is None:
+                    # Score outside all ranges - skip
+                    print(f"Warning: Score {score} not in any class range")
+                    continue
+                
+                # Get class info
+                cls_info = class_definitions[class_id]
+                
+                # Update features_data
                 # Total_Score bleibt unverändert!
-                features[f"class_label_{num_classes}_classes"] = int(class_id)
                 
-                # Create class name with range
-                class_min = float(boundaries[class_id])
-                class_max = float(boundaries[class_id + 1])
-                features[f"class_name_{num_classes}_classes"] = f"Class_{class_id} ({class_min:.1f}-{class_max:.1f})"
-                
-                # Optional: Store boundaries for reference
-                features[f"classification_boundaries_{num_classes}_classes"] = [float(b) for b in boundaries]
+                # REPLACE Custom_Class completely (only one active classification!)
+                num_classes_str = str(len(class_definitions))
+                features["Custom_Class"] = {
+                    num_classes_str: {
+                        "label": int(class_id),
+                        "name_custom": cls_info.get("custom_name"),
+                        "name_generic": cls_info.get("generic_name") or f"Class_{class_id} [{cls_info['min']}-{cls_info['max']}]",
+                        "boundaries": all_boundaries
+                    }
+                }
                 
                 img.features_data = json.dumps(features)
                 class_distribution[class_id] += 1
                 updated_count += 1
             except (json.JSONDecodeError, ValueError, KeyError) as e:
+                print(f"Error processing image {img.id}: {e}")
                 continue
         
         db.commit()
@@ -879,22 +864,26 @@ async def generate_and_save_classes(
         # Calculate class percentages
         class_info = []
         total = updated_count
-        for class_id in range(num_classes):
-            count = class_distribution[class_id]
+        for cls_def in class_definitions:
+            class_id = cls_def["id"]
+            count = class_distribution.get(class_id, 0)
             percentage = (count / total * 100.0) if total > 0 else 0.0
             class_info.append({
                 "class_id": class_id,
                 "count": count,
                 "percentage": round(percentage, 2),
-                "range": f"{float(boundaries[class_id]):.1f}-{float(boundaries[class_id + 1]):.1f}"
+                "range": f"{cls_def['min']}-{cls_def['max']}",
+                "custom_name": cls_def.get("custom_name"),
+                "generic_name": cls_def.get("generic_name")
             })
         
         return {
             "success": True,
             "updated_count": updated_count,
-            "num_classes": num_classes,
+            "num_classes": len(class_definitions),
+            "actual_num_classes": len(class_definitions),
             "method": method,
-            "boundaries": [float(b) for b in boundaries],
+            "boundaries": all_boundaries,
             "class_distribution": class_distribution,
             "class_info": class_info
         }
@@ -904,6 +893,181 @@ async def generate_and_save_classes(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error generating classes: {str(e)}")
+
+
+@router.get("/custom-class-distribution/{feature_name}")
+async def get_custom_class_distribution(
+    feature_name: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get distribution for an existing Custom_Class feature.
+    
+    Args:
+        feature_name: e.g., "Custom_Class_5"
+    
+    Returns:
+        Class distribution with counts and percentages
+    """
+    try:
+        # Extract num_classes from feature name
+        if not feature_name.startswith("Custom_Class_"):
+            raise HTTPException(status_code=400, detail="Invalid feature name")
+        
+        num_classes_str = feature_name.replace("Custom_Class_", "")
+        
+        # Get all images with this classification
+        images = db.query(TrainingDataImage).filter(
+            TrainingDataImage.features_data.isnot(None)
+        ).all()
+        
+        class_counts = {}
+        class_info = {}
+        total_samples = 0
+        
+        for img in images:
+            try:
+                features = json.loads(img.features_data)
+                
+                # Check if Custom_Class exists
+                if "Custom_Class" not in features:
+                    continue
+                
+                # Check if this num_classes exists
+                if num_classes_str not in features["Custom_Class"]:
+                    continue
+                
+                class_data = features["Custom_Class"][num_classes_str]
+                class_id = class_data["label"]
+                
+                # Count this class
+                if class_id not in class_counts:
+                    class_counts[class_id] = 0
+                    class_info[class_id] = {
+                        "name_custom": class_data.get("name_custom"),
+                        "name_generic": class_data.get("name_generic"),
+                        "boundaries": class_data.get("boundaries")
+                    }
+                
+                class_counts[class_id] += 1
+                total_samples += 1
+                
+            except (json.JSONDecodeError, KeyError, ValueError):
+                continue
+        
+        if total_samples == 0:
+            raise HTTPException(status_code=404, detail="No samples found with this classification")
+        
+        # Build class list with percentages
+        classes = []
+        boundaries = class_info[0]["boundaries"] if 0 in class_info else []
+        
+        for class_id in sorted(class_counts.keys()):
+            count = class_counts[class_id]
+            percentage = (count / total_samples) * 100.0
+            info = class_info[class_id]
+            
+            # Extract range from boundaries or generic name
+            if boundaries and len(boundaries) > class_id + 1:
+                # Calculate non-overlapping range for this class
+                range_min = boundaries[class_id]
+                range_max = boundaries[class_id + 1] - 1 if class_id < len(boundaries) - 2 else boundaries[class_id + 1]
+                
+                range_str = f"[{range_min}, {range_max}]" if range_min != range_max else f"= {range_min}"
+            else:
+                # Parse from generic name as fallback
+                match = re.search(r'\[([^\]]+)\]', info["name_generic"] or "")
+                range_str = match.group(0) if match else f"Class {class_id}"
+            
+            classes.append({
+                "id": class_id,
+                "name_custom": info["name_custom"],
+                "name_generic": info["name_generic"],
+                "range": range_str,
+                "count": count,
+                "percentage": round(percentage, 2)
+            })
+        
+        return {
+            "feature_name": feature_name,
+            "num_classes": num_classes_str,
+            "total_samples": total_samples,
+            "classes": classes
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading custom class distribution: {str(e)}")
+
+
+@router.post("/recalculate-classes")
+async def recalculate_class_counts(
+    config: dict = Body(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Recalculate class counts based on custom boundaries.
+    
+    Request Body:
+    {
+        "feature_name": "Total_Score",
+        "num_classes": 5,
+        "boundaries": [[2, 42], [43, 50], [51, 58], [59, 59], [60, 60]]
+    }
+    """
+    try:
+        feature_name = config.get("feature_name")
+        num_classes = config.get("num_classes")
+        boundaries = config.get("boundaries")  # List of [min, max] pairs
+        
+        if not feature_name or not boundaries:
+            raise HTTPException(status_code=400, detail="feature_name and boundaries required")
+        
+        # Get all scores
+        images = db.query(TrainingDataImage).filter(
+            TrainingDataImage.features_data.isnot(None)
+        ).all()
+        
+        scores = []
+        for img in images:
+            try:
+                features = json.loads(img.features_data)
+                if feature_name in features:
+                    scores.append(float(features[feature_name]))
+            except:
+                continue
+        
+        if len(scores) == 0:
+            raise HTTPException(status_code=404, detail="No scores found")
+        
+        scores = np.array(scores)
+        total = len(scores)
+        
+        # Calculate counts for each class
+        result_classes = []
+        for class_id, (class_min, class_max) in enumerate(boundaries):
+            # Count scores in this range
+            mask = (scores >= class_min) & (scores <= class_max)
+            count = int(np.sum(mask))
+            percentage = (count / total) * 100.0
+            
+            result_classes.append({
+                "id": class_id,
+                "count": count,
+                "percentage": round(percentage, 2)
+            })
+        
+        return {
+            "success": True,
+            "classes": result_classes,
+            "total": total
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error recalculating: {str(e)}")
 
 
 @router.post("/cleanup-orphaned-metadata")

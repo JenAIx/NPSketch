@@ -473,6 +473,82 @@
             background: #218838;
         }
         
+        .edit-icon {
+            font-size: 0.9em;
+            opacity: 0;
+            transition: opacity 0.2s;
+            cursor: pointer;
+        }
+        
+        .class-distribution-label:hover .edit-icon {
+            opacity: 0.6;
+        }
+        
+        .edit-icon:hover {
+            opacity: 1 !important;
+        }
+        
+        .editable-label {
+            border-bottom: 1px dashed transparent;
+            transition: border-color 0.2s;
+        }
+        
+        .editable-label:hover {
+            border-bottom-color: #667eea;
+        }
+        
+        .editable-label:focus {
+            border-bottom-color: #667eea;
+            background: #f0f4ff;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+        
+        .editable-boundary {
+            display: inline-block;
+            min-width: 20px;
+            padding: 1px 3px;
+            border-bottom: 1px dashed transparent;
+            transition: all 0.2s;
+            cursor: text;
+            outline: none;
+        }
+        
+        .editable-boundary:hover {
+            border-bottom-color: #667eea;
+            background: #f0f4ff;
+        }
+        
+        .editable-boundary:focus {
+            border-bottom-color: #667eea;
+            background: #f0f4ff;
+            border-radius: 3px;
+        }
+        
+        .magic-wand-btn {
+            background: transparent;
+            border: 1px solid #667eea;
+            font-size: 1.1em;
+            cursor: pointer;
+            padding: 4px 10px;
+            border-radius: 6px;
+            transition: all 0.2s;
+            opacity: 0.7;
+        }
+        
+        .magic-wand-btn:hover {
+            opacity: 1;
+            background: rgba(102, 126, 234, 0.1);
+            transform: scale(1.05);
+        }
+        
+        .magic-wand-btn::after {
+            content: " Auto-Name";
+            font-size: 0.75em;
+            margin-left: 4px;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        
         .class-info {
             background: #f8f9fa;
             padding: 15px;
@@ -825,10 +901,25 @@
             
             container.innerHTML = featuresInfo.features.map(feature => {
                 const stats = featuresInfo.stats[feature];
+                
+                // Check if this is a Custom_Class feature
+                const isCustomClass = feature.startsWith('Custom_Class_');
+                
+                let statsDisplay;
+                if (isCustomClass) {
+                    // Display for Custom_Class
+                    const numClasses = stats.num_classes || '?';
+                    const classNames = stats.class_names || 'N/A';
+                    statsDisplay = `${numClasses} Classes: ${classNames}`;
+                } else {
+                    // Display for regular numeric features
+                    statsDisplay = `Mean: ${stats.mean.toFixed(3)} | Std: ${stats.std.toFixed(3)} | Range: [${stats.min.toFixed(2)}, ${stats.max.toFixed(2)}]`;
+                }
+                
                 return `
                     <div class="feature-card" onclick="selectFeature('${feature}')">
                         <div class="feature-card-header">
-                            <div class="feature-name">${feature}</div>
+                            <div class="feature-name">${isCustomClass ? '🏷️ ' : ''}${feature}</div>
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <div class="feature-count">${stats.count} samples</div>
                                 <button class="preview-icon-btn" onclick="event.stopPropagation(); DistributionPreview.showPreview('${feature}', event);" 
@@ -838,8 +929,7 @@
                             </div>
                         </div>
                         <div class="feature-stats">
-                            Mean: ${stats.mean.toFixed(3)} | Std: ${stats.std.toFixed(3)} | 
-                            Range: [${stats.min.toFixed(2)}, ${stats.max.toFixed(2)}]
+                            ${statsDisplay}
                         </div>
                     </div>
                 `;

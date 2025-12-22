@@ -983,6 +983,33 @@
                 ? Object.entries(featuresData).map(([key, value]) => {
                     // Escape for HTML display
                     const safeKey = key.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                    
+                    // Handle Custom_Class differently
+                    if (key === 'Custom_Class' && typeof value === 'object') {
+                        // Display Custom_Class structure
+                        const customClassHtml = Object.entries(value).map(([numClasses, classData]) => {
+                            const name = classData.name_custom || classData.name_generic || `Class ${classData.label}`;
+                            return `
+                                <div class="feature-item" style="margin-left: 20px; border-left: 3px solid #667eea; padding-left: 10px;">
+                                    <span class="feature-key">🏷️ ${numClasses} Classes</span>
+                                    <div style="display: flex; gap: 10px; align-items: center;">
+                                        <span class="feature-value" title="Label: ${classData.label}, Range: ${JSON.stringify(classData.boundaries)}">${name}</span>
+                                        <span style="color: #999; font-size: 0.85em;">(Label: ${classData.label})</span>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+                        
+                        return `
+                            <div class="feature-item" style="background: #f8f9fa;">
+                                <span class="feature-key" style="font-weight: 600;">Custom_Class</span>
+                                <span class="feature-value" style="color: #667eea;">${Object.keys(value).length} classification(s)</span>
+                            </div>
+                            ${customClassHtml}
+                        `;
+                    }
+                    
+                    // Regular feature
                     return `
                         <div class="feature-item">
                             <span class="feature-key">${safeKey}</span>
