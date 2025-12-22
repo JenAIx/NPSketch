@@ -112,6 +112,32 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        
+        /* Confusion Matrix Styles */
+        table {
+            border-collapse: collapse;
+            margin: 10px auto;
+            font-size: 0.85em;
+        }
+        
+        table th, table td {
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            text-align: center;
+            color: #333;
+        }
+        
+        table thead th {
+            background: #e9ecef;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        table tbody th {
+            background: #e9ecef;
+            font-weight: 600;
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -274,6 +300,41 @@
             }
         }
         
+        function renderConfusionMatrix(cm, numClasses) {
+            if (!cm || cm.length === 0) return '<p style="color: #999;">No confusion matrix data</p>';
+            
+            let html = '<table style="border-collapse: collapse; margin: 0 auto; font-size: 0.85em;">';
+            
+            // Header row
+            html += '<thead><tr><th style="border: 1px solid #ddd; padding: 8px; background: #e9ecef; color: #333;"></th>';
+            html += '<th colspan="' + numClasses + '" style="border: 1px solid #ddd; padding: 8px; background: #e9ecef; color: #333; text-align: center;">Predicted</th></tr>';
+            html += '<tr><th style="border: 1px solid #ddd; padding: 8px; background: #e9ecef; color: #333;">True</th>';
+            for (let i = 0; i < numClasses; i++) {
+                html += `<th style="border: 1px solid #ddd; padding: 8px; background: #e9ecef; color: #333;">Class ${i}</th>`;
+            }
+            html += '</tr></thead>';
+            
+            // Body rows
+            html += '<tbody>';
+            for (let i = 0; i < numClasses; i++) {
+                html += `<tr><th style="border: 1px solid #ddd; padding: 8px; background: #e9ecef; color: #333;">Class ${i}</th>`;
+                for (let j = 0; j < numClasses; j++) {
+                    const value = cm[i][j];
+                    const isDiagonal = (i === j);
+                    const maxVal = Math.max(...cm.flat());
+                    const intensity = maxVal > 0 ? (value / maxVal) : 0;
+                    const bgColor = isDiagonal 
+                        ? `rgba(40, 167, 69, ${intensity})` 
+                        : `rgba(220, 53, 69, ${intensity})`;
+                    const textColor = intensity > 0.5 ? 'white' : 'black';
+                    html += `<td style="border: 1px solid #ddd; padding: 8px; background: ${bgColor}; color: ${textColor}; text-align: center; font-weight: ${isDiagonal ? 'bold' : 'normal'};">${value}</td>`;
+                }
+                html += '</tr>';
+            }
+            html += '</tbody></table>';
+            return html;
+        }
+        
         function displayMetadata(filename, metadata) {
             const safeName = filename.replace(/[^a-zA-Z0-9]/g, '_');
             const metadataDiv = document.getElementById(`metadata-${safeName}`);
@@ -287,9 +348,39 @@
             const normalization = metadata.normalization || {};
             const modelInfo = metadata.model || {};
             
+            // Detect training mode if not set (for older models)
+            let trainingMode = metadata.training_mode;
+            let numClasses = metadata.num_classes;
+            
+            if (!trainingMode) {
+                // Fallback: detect from target_feature or val_metrics
+                if (metadata.target_feature && metadata.target_feature.startsWith('Custom_Class_')) {
+                    trainingMode = 'classification';
+                    numClasses = parseInt(metadata.target_feature.replace('Custom_Class_', '')) || modelInfo.output_neurons;
+                } else if (valMetrics.accuracy !== undefined) {
+                    trainingMode = 'classification';
+                    numClasses = modelInfo.output_neurons || valMetrics.confusion_matrix?.length;
+                } else {
+                    trainingMode = 'regression';
+                }
+            }
+            
+            // Update metadata object for template
+            metadata.training_mode = trainingMode;
+            metadata.num_classes = numClasses;
+            
             metadataDiv.innerHTML = `
-                <div style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #667eea;">
-                    <div style="font-size: 0.9em; color: #666; margin-bottom: 8px; font-weight: 600;">🧠 Model Architecture</div>
+                <div style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid ${metadata.training_mode === 'classification' ? '#28a745' : '#667eea'};">
+                    <div style="font-size: 0.9em; color: #666; margin-bottom: 8px; font-weight: 600;">
+                        🧠 Model Architecture
+                        <span style="float: right; background: ${metadata.training_mode === 'classification' ? '#28a745' : '#667eea'}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 0.85em;">
+                            ${metadata.training_mode === 'classification' ? '🏷️ Classification' : '📊 Regression'}
+                        </span>
+                    </div>
+                    <div style="margin-bottom: 12px; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+                        <strong>Target Feature:</strong> ${metadata.target_feature || 'N/A'}
+                        ${metadata.num_classes ? ` <span style="color: #666;">(${metadata.num_classes} classes)</span>` : ''}
+                    </div>
                     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.85em;">
                         <div>
                             <span style="color: #666;">Architecture:</span> 
@@ -321,7 +412,7 @@
                             <summary style="cursor: pointer; color: #667eea; font-size: 0.85em;">
                                 <strong>Head Architecture (${modelInfo.head_layers.length} layers)</strong>
                             </summary>
-                            <div style="margin-top: 8px; padding: 10px; background: #f8f9fa; border-radius: 4px; font-size: 0.8em;">
+                            <div style="margin-top: 8px; padding: 10px; background: #f8f9fa; border-radius: 4px; font-size: 0.8em; color: #333;">
                                 ${modelInfo.head_layers.map((layer, idx) => {
                                     if (layer.type === 'Linear') {
                                         return `${idx + 1}. Linear(${layer.in_features} → ${layer.out_features}) [${(layer.parameters / 1000).toFixed(1)}K params]`;
@@ -348,15 +439,18 @@
                     </div>
                     
                     <div>
-                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Performance (Validation)</div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">
+                            Performance (Validation)
+                            ${metadata.training_mode ? `<span style="color: #999;"> - ${metadata.training_mode}</span>` : ''}
+                        </div>
                         <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em;">
-                            ${valMetrics.accuracy !== undefined ? `
-                                Accuracy: <strong style="color: ${valMetrics.accuracy > 0.7 ? '#28a745' : valMetrics.accuracy > 0.5 ? '#ffc107' : '#dc3545'};">${(valMetrics.accuracy * 100).toFixed(1)}%</strong> | 
-                                F1: <strong>${valMetrics.macro_f1 ? valMetrics.macro_f1.toFixed(3) : 'N/A'}</strong>
+                            ${valMetrics.accuracy !== undefined || metadata.training_mode === 'classification' ? `
+                                Accuracy: <strong style="color: ${valMetrics.accuracy > 0.7 ? '#28a745' : valMetrics.accuracy > 0.5 ? '#ffc107' : '#dc3545'};">${valMetrics.accuracy ? (valMetrics.accuracy * 100).toFixed(1) + '%' : 'N/A'}</strong> | 
+                                F1: <strong>${valMetrics.f1_score_macro ? (valMetrics.f1_score_macro * 100).toFixed(1) + '%' : 'N/A'}</strong>
                             ` : `
                                 R²: <strong style="color: ${valMetrics.r2_score > 0.7 ? '#28a745' : valMetrics.r2_score > 0.5 ? '#ffc107' : '#dc3545'};">${valMetrics.r2_score ? valMetrics.r2_score.toFixed(3) : 'N/A'}</strong> | 
-                                RMSE: <strong>${valMetrics.rmse ? valMetrics.rmse.toFixed(3) : 'N/A'}</strong> | 
-                                MAE: <strong>${valMetrics.mae ? valMetrics.mae.toFixed(3) : 'N/A'}</strong>
+                                RMSE: <strong>${valMetrics.rmse ? valMetrics.rmse.toFixed(2) : 'N/A'}</strong> | 
+                                MAE: <strong>${valMetrics.mae ? valMetrics.mae.toFixed(2) : 'N/A'}</strong>
                             `}
                         </div>
                     </div>
@@ -381,18 +475,22 @@
                     <div>
                         <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Target Normalization</div>
                         <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em;">
-                            <span style="color: ${normalization.method || config.use_normalization ? '#28a745' : '#6c757d'};">
-                                ${normalization.method || config.use_normalization ? '✅ Enabled' : '❌ Disabled'}
-                            </span>
-                            ${normalization.method === 'min_max' ? `
-                                <br><span style="font-size: 0.85em; color: #666;">
-                                    Range: <strong>[${normalization.min_value}, ${normalization.max_value}] → [0, 1]</strong>
+                            ${metadata.training_mode === 'classification' ? `
+                                <span style="color: #6c757d;">N/A (Classification)</span>
+                            ` : `
+                                <span style="color: ${normalization.method || config.use_normalization ? '#28a745' : '#6c757d'};">
+                                    ${normalization.method || config.use_normalization ? '✅ Enabled' : '❌ Disabled'}
                                 </span>
-                            ` : normalization.method === 'standardize' ? `
-                                <br><span style="font-size: 0.85em; color: #666;">
-                                    Z-score (μ=${normalization.mean?.toFixed(2)}, σ=${normalization.std?.toFixed(2)})
-                                </span>
-                            ` : ''}
+                                ${normalization.method === 'min_max' ? `
+                                    <br><span style="font-size: 0.85em; color: #666;">
+                                        Range: <strong>[${normalization.min_value}, ${normalization.max_value}] → [0, 1]</strong>
+                                    </span>
+                                ` : normalization.method === 'standardize' ? `
+                                    <br><span style="font-size: 0.85em; color: #666;">
+                                        Z-score (μ=${normalization.mean?.toFixed(2)}, σ=${normalization.std?.toFixed(2)})
+                                    </span>
+                                ` : ''}
+                            `}
                         </div>
                     </div>
                 </div>
@@ -429,6 +527,15 @@
                         </details>
                     ` : ''}
                 </div>
+                
+                ${metadata.training_mode === 'classification' && valMetrics.confusion_matrix ? `
+                    <div style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                        <div style="font-size: 0.9em; color: #666; margin-bottom: 10px; font-weight: 600;">🔢 Confusion Matrix (Validation)</div>
+                        <div style="overflow-x: auto;">
+                            ${renderConfusionMatrix(valMetrics.confusion_matrix, metadata.num_classes || valMetrics.confusion_matrix.length)}
+                        </div>
+                    </div>
+                ` : ''}
             `;
         }
         
@@ -447,15 +554,53 @@
                 
                 if (data.success) {
                     const val = data.val_metrics;
+                    const isClassification = val.accuracy !== undefined;
+                    
+                    let metricsHtml = '';
+                    if (isClassification) {
+                        // Classification metrics
+                        metricsHtml = `
+                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.9em;">
+                                <div><span style="color: #666;">Accuracy:</span> <strong style="color: #28a745;">${(val.accuracy * 100).toFixed(1)}%</strong></div>
+                                <div><span style="color: #666;">F1 (Macro):</span> <strong style="color: #667eea;">${val.f1_score_macro ? (val.f1_score_macro * 100).toFixed(1) + '%' : 'N/A'}</strong></div>
+                                <div><span style="color: #666;">Precision:</span> <strong style="color: #667eea;">${val.precision_score_macro ? (val.precision_score_macro * 100).toFixed(1) + '%' : 'N/A'}</strong></div>
+                            </div>
+                            ${val.per_class_f1 && val.per_class_f1.length > 0 ? `
+                                <details style="margin-top: 10px;">
+                                    <summary style="cursor: pointer; color: #667eea; font-size: 0.85em;">
+                                        <strong>Per-Class Metrics</strong>
+                                    </summary>
+                                    <div style="margin-top: 8px; padding: 10px; background: white; border-radius: 4px; font-size: 0.85em;">
+                                        ${val.per_class_f1.map((f1, i) => `
+                                            <div style="margin-bottom: 5px;">
+                                                <strong>Class ${i}:</strong> 
+                                                F1=${(f1 * 100).toFixed(1)}%, 
+                                                Precision=${val.per_class_precision && val.per_class_precision[i] ? (val.per_class_precision[i] * 100).toFixed(1) + '%' : 'N/A'}, 
+                                                Recall=${val.per_class_recall && val.per_class_recall[i] ? (val.per_class_recall[i] * 100).toFixed(1) + '%' : 'N/A'}, 
+                                                Samples=${val.per_class_support && val.per_class_support[i] ? val.per_class_support[i] : 'N/A'}
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </details>
+                            ` : ''}
+                        `;
+                    } else {
+                        // Regression metrics
+                        metricsHtml = `
+                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.9em;">
+                                <div><span style="color: #666;">R²:</span> <strong style="color: #667eea;">${val.r2_score ? val.r2_score.toFixed(3) : 'N/A'}</strong></div>
+                                <div><span style="color: #666;">RMSE:</span> <strong style="color: #667eea;">${val.rmse ? val.rmse.toFixed(4) : 'N/A'}</strong></div>
+                                <div><span style="color: #666;">MAE:</span> <strong style="color: #667eea;">${val.mae ? val.mae.toFixed(4) : 'N/A'}</strong></div>
+                            </div>
+                        `;
+                    }
                     
                     resultDiv.innerHTML = `
                         <div style="background: #e7f3ff; border: 1px solid #2196F3; padding: 15px; border-radius: 6px;">
-                            <div style="font-weight: 600; color: #0c5460; margin-bottom: 10px;">Test Results:</div>
-                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.9em;">
-                                <div><span style="color: #666;">R²:</span> <strong style="color: #667eea;">${val.r2_score.toFixed(3)}</strong></div>
-                                <div><span style="color: #666;">RMSE:</span> <strong style="color: #667eea;">${val.rmse.toFixed(4)}</strong></div>
-                                <div><span style="color: #666;">MAE:</span> <strong style="color: #667eea;">${val.mae.toFixed(4)}</strong></div>
+                            <div style="font-weight: 600; color: #0c5460; margin-bottom: 10px;">
+                                Test Results (${isClassification ? 'Classification' : 'Regression'}):
                             </div>
+                            ${metricsHtml}
                             <div style="margin-top: 10px; color: #666; font-size: 0.85em;">
                                 Tested on ${val.num_samples} validation samples
                             </div>
