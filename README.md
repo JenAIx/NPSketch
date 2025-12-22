@@ -23,6 +23,7 @@ NPSketch is a computer vision and machine learning application that automaticall
 ### Data Extraction Tools
 - **MAT Extractor**: Extract images from MATLAB `.mat` files (machine recordings)
 - **OCS Extractor**: Extract red-pixel drawings from human rating images
+- **Oxford Normalizer**: Normalize pre-processed PNG images with CSV labels
 - **Line Normalization**: Consistent 2.00px line thickness via Zhang-Suen thinning + dilation
 - **Auto-Cropping**: Intelligent content-aware cropping with minimal white space
 
@@ -63,6 +64,10 @@ npsketch/
 │   │   └── split_strategy.py     # Stratified train/test split
 │   ├── mat_extraction/           # MATLAB file extractor
 │   ├── ocs_extraction/           # OCS image extractor
+│   ├── oxford_extraction/        # Oxford dataset extractor
+│   │   ├── oxford_normalizer.py  # Image normalization
+│   │   ├── oxford_db_populator.py # Database import
+│   │   └── validate_oxford_*.py  # Validation scripts
 │   └── requirements.txt          # Python dependencies
 ├── webapp/                       # Frontend (HTML/JS)
 │   ├── index.html                # Landing page
@@ -386,9 +391,46 @@ docker exec npsketch-api python3 /app/ocs_extraction/ocs_extractor.py \
 - `Park_16_COPY_ocs_20251111.png` (568×274, 2px lines)
 - `TeamD178_RECALL_ocs_20251111.png` (568×274, 2px lines)
 
+### Oxford Dataset Normalizer
+
+**Purpose:** Normalize pre-processed PNG images with CSV labels (TotalScore)
+
+**Features:**
+- Normalizes images to 568×274px with 2.00px line thickness
+- Auto-cropping with configurable padding (default: 5px)
+- Matches MAT/OCS normalization process
+- Batch processing of directory trees
+- Database import with CSV label matching
+
+**Usage:**
+
+```bash
+# Step 1: Normalize images
+docker exec npsketch-api python3 /app/oxford_extraction/oxford_normalizer.py \
+  /app/templates/training_data_oxford_manual_rater_202512/imgs \
+  /app/templates/training_data_oxford_manual_rater_202512/imgs_normalized_568x274
+
+# Step 2: Import to database
+docker exec npsketch-api python3 /app/oxford_extraction/oxford_db_populator.py
+```
+
+**Input:**
+- Original PNG files in `imgs/` directory (various resolutions)
+- CSV file: `Rater1_simple.csv` with ID, Cond (COPY/RECALL), TotalScore
+
+**Output:**
+- Normalized images: `imgs_normalized_568x274/{ID}_{Cond}.png` (568×274, 2px lines)
+- Database entries with TotalScore from CSV
+
+**Key Features:**
+- Images already black lines (no color extraction needed)
+- Labels from CSV file (TotalScore included automatically)
+- Same normalization as MAT/OCS (568×274, 2px lines)
+- Command-line import (not via web interface)
+
 ### Unified Output Format
 
-Both extractors produce identical characteristics:
+All three extractors produce identical characteristics:
 - **Resolution**: 568×274 pixels
 - **Line Thickness**: 2.00px (normalized via Zhang-Suen + dilation)
 - **Margins**: ~5-7px white border
@@ -430,9 +472,12 @@ Both extractors produce identical characteristics:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/training-data/upload` | POST | Upload training data |
+| `/api/extract-training-data` | POST | Extract MAT/OCS files (web interface) |
 | `/api/training-data-evaluations` | GET | List training images |
 | `/api/training-data-image/{id}/evaluate` | POST | Run line detection |
 | `/api/training-data-image/{id}/ground-truth` | POST | Save ground truth |
+
+**Note:** Oxford dataset uses command-line scripts (`oxford_extraction/oxford_normalizer.py` + `oxford_extraction/oxford_db_populator.py`) instead of web interface.
 
 ### AI Training
 
@@ -565,9 +610,9 @@ LineComparator(
 **training_data_images**: CNN-optimized training data
 ```python
 - id: int (PK)
-- patient_id: str (e.g., "PC56", "Park_16")
+- patient_id: str (e.g., "PC56", "Park_16", "C0078")
 - task_type: str (COPY, RECALL, REFERENCE)
-- source_format: str (MAT, OCS, DRAWN)
+- source_format: str (MAT, OCS, OXFORD, DRAWN)
 - original_file_data: bytes (original)
 - processed_image_data: bytes (568×274, 2px lines)
 - image_hash: str (SHA256)
