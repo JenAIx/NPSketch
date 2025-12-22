@@ -4,87 +4,169 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NPSketch - Documentation</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+    
+    <!-- Global Common Styles -->
+    <link rel="stylesheet" href="/css/common.css">
+    
+    <!-- Markdown Parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 15px;
-            padding: 40px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-        }
-        
-        .back-link {
-            display: inline-block;
-            margin-bottom: 20px;
-            color: #667eea;
-            text-decoration: none;
-            font-size: 14px;
-        }
-        
-        .back-link:hover {
-            text-decoration: underline;
-        }
+        /* Documentation-specific styles matching NPSketch design */
         
         .markdown-body {
-            box-sizing: border-box;
-            min-width: 200px;
-            max-width: 980px;
-            margin: 0 auto;
-            padding: 20px;
+            color: #333;
+            line-height: 1.7;
         }
         
         .markdown-body h1 {
-            border-bottom: 2px solid #667eea;
-            padding-bottom: 10px;
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 15px;
         }
         
         .markdown-body h2 {
-            margin-top: 30px;
             color: #667eea;
+            font-size: 1.8em;
+            margin-top: 40px;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #e9ecef;
+            padding-bottom: 10px;
+        }
+        
+        .markdown-body h3 {
+            color: #333;
+            font-size: 1.4em;
+            margin-top: 25px;
+            margin-bottom: 12px;
+        }
+        
+        .markdown-body h4 {
+            color: #333;
+            font-size: 1.2em;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+        
+        .markdown-body p {
+            margin-bottom: 15px;
+            color: #333;
         }
         
         .markdown-body a {
             color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .markdown-body a:hover {
+            text-decoration: underline;
+        }
+        
+        .markdown-body ul, 
+        .markdown-body ol {
+            margin-left: 30px;
+            margin-bottom: 15px;
+        }
+        
+        .markdown-body li {
+            margin-bottom: 8px;
+            color: #333;
         }
         
         .markdown-body code {
-            background: #f6f8fa;
-            padding: 2px 6px;
-            border-radius: 3px;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            color: #d63384;
         }
         
         .markdown-body pre {
-            background: #f6f8fa;
-            border-radius: 6px;
-            padding: 16px;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            overflow-x: auto;
+            margin: 20px 0;
+        }
+        
+        .markdown-body pre code {
+            background: none;
+            border: none;
+            padding: 0;
+            color: #333;
+            font-size: 0.95em;
         }
         
         .markdown-body table {
             width: 100%;
+            margin: 20px 0;
+            border-collapse: collapse;
+        }
+        
+        .markdown-body table th {
+            background: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+        
+        .markdown-body table td {
+            background: white;
+            padding: 12px;
+            border: 1px solid #e9ecef;
+            color: #333;
+        }
+        
+        .markdown-body table tr:nth-child(even) td {
+            background: #f8f9fa;
         }
         
         .markdown-body blockquote {
             border-left: 4px solid #667eea;
+            padding-left: 20px;
+            margin: 20px 0;
+            color: #666;
+            font-style: italic;
         }
         
-        @media (max-width: 767px) {
-            .markdown-body {
+        .markdown-body hr {
+            border: none;
+            border-top: 2px solid #e9ecef;
+            margin: 30px 0;
+        }
+        
+        .markdown-body strong {
+            color: #333;
+            font-weight: 600;
+        }
+        
+        .markdown-body img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin: 20px 0;
+        }
+        
+        @media (max-width: 768px) {
+            .markdown-body h1 {
+                font-size: 2em;
+            }
+            
+            .markdown-body h2 {
+                font-size: 1.5em;
+            }
+            
+            .markdown-body pre {
                 padding: 15px;
+                font-size: 0.9em;
             }
         }
     </style>
@@ -93,440 +175,64 @@
     <div class="container">
         <a href="/index.html" class="back-link">← Main</a>
         
-        <article class="markdown-body">
-            <h1>NPSketch v1.0</h1>
-            <p><strong>Automated Line Detection for Hand-Drawn Images</strong></p>
-            <p>NPSketch is a computer vision application that automatically compares hand-drawn images to reference templates, providing detailed feedback on drawing accuracy.</p>
-            
-            <hr>
-            
-            <h2>🎯 Motivation</h2>
-            <p>The goal of this project is to create an automated solution for comparing hand-drawn images — for example, the "House of Nikolaus" — to a reference drawing. The system automatically identifies how many lines in the drawing are correct, missing, or misplaced, and provides both numerical and visual feedback.</p>
-            
-            <hr>
-            
-            <h2>✨ Features</h2>
-            <ul>
-                <li><strong>Automated Line Detection</strong>: Uses OpenCV Hough Transform to detect and extract line features from drawings</li>
-                <li><strong>Smart Comparison</strong>: Compares uploaded drawings to reference templates with configurable tolerance</li>
-                <li><strong>Visual Feedback</strong>: Generates side-by-side visualizations showing matches and differences</li>
-                <li><strong>REST API</strong>: Full-featured FastAPI backend with automatic documentation</li>
-                <li><strong>Modern Web Interface</strong>: Beautiful, responsive web UI with drag & drop upload</li>
-                <li><strong>Database Storage</strong>: SQLite database for storing images, features, and evaluation results</li>
-                <li><strong>Persistent Data</strong>: Volume-mounted data directory for database and visualizations</li>
-                <li><strong>Hot Reload</strong>: Development mode with automatic code reloading</li>
-            </ul>
-            
-            <hr>
-            
-            <h2>🏗️ Architecture</h2>
-            <pre><code>npsketch/
-├── data/                         # Persistent data (volume mounted)
-│   ├── npsketch.db              # SQLite database
-│   ├── visualizations/          # Generated comparison images
-│   └── .gitignore               # Ignore DB & visualizations
-├── api/                          # FastAPI Backend
-│   ├── main.py                  # Main application (startup, health, router includes)
-│   ├── routers/                 # Modular API endpoints
-│   │   ├── __init__.py          # Router exports
-│   │   ├── admin.py             # Administrative endpoints (migrations)
-│   │   ├── upload.py            # Image upload and processing endpoints
-│   │   ├── evaluations.py       # Evaluation management endpoints
-│   │   ├── references.py        # Reference image management endpoints
-│   │   └── test_images.py       # Test image management and testing endpoints
-│   ├── database.py              # SQLAlchemy models and setup
-│   ├── models.py                # Pydantic request/response models
-│   ├── image_processing/        # Image processing library
-│   │   ├── line_detector.py     # Line detection using Hough Transform
-│   │   ├── comparator.py        # Line comparison and similarity metrics
-│   │   └── utils.py             # Image preprocessing utilities
-│   ├── services/                # Business logic layer
-│   │   ├── reference_service.py # Reference image management
-│   │   └── evaluation_service.py# Evaluation workflow
-│   ├── requirements.txt         # Python dependencies
-│   └── Dockerfile               # API container definition
-├── webapp/                      # Frontend (served by nginx)
-│   ├── index.html               # Landing page with stats
-│   ├── upload.html              # Upload & align interface (3-step workflow)
-│   ├── reference.html           # Manual reference line editor
-│   ├── draw_testimage.html      # Test image creation tool
-│   ├── run_test.html            # Automated test runner
-│   ├── evaluations.html         # Evaluation viewer & rating
-│   ├── admin.html               # Database migration admin page
-│   └── docs.html                # This documentation page
-├── nginx/                       # Nginx configuration
-│   └── nginx.conf               # Reverse proxy config
-├── docker-compose.yml           # Container orchestration
-├── .gitignore                   # Git ignore rules
-└── README.md                    # Documentation
-</code></pre>
-            
-            <h3>Communication Flow</h3>
-            <pre><code>Browser → nginx (Port 80) → Static HTML files (webapp/)
-        ↓
-        JavaScript → /api/* → nginx → FastAPI (Port 8000)
-        ↓
-        Response with JSON data
-</code></pre>
-            
-            <hr>
-            
-            <h2>🚀 Quick Start</h2>
-            
-            <h3>Prerequisites</h3>
-            <ul>
-                <li>Docker and Docker Compose</li>
-                <li>(Optional) Python 3.10+ for local development</li>
-            </ul>
-            
-            <h3>Installation & Running</h3>
-            <ol>
-                <li><strong>Clone or navigate to the project directory:</strong>
-                    <pre><code>cd npsketch</code></pre>
-                </li>
-                <li><strong>Start the application:</strong>
-                    <pre><code>docker compose up --build -d</code></pre>
-                </li>
-                <li><strong>Access the application:</strong>
-                    <ul>
-                        <li><strong>Landing Page</strong>: <a href="/">http://localhost</a> (stats and overview)</li>
-                        <li><strong>Upload & Align</strong>: <a href="/upload.html">http://localhost/upload.html</a> (upload and process drawings)</li>
-                        <li><strong>Reference Editor</strong>: <a href="/reference.html">http://localhost/reference.html</a> (define reference lines manually)</li>
-                        <li><strong>Draw Test Images</strong>: <a href="/draw_testimage.html">http://localhost/draw_testimage.html</a> (create test dataset)</li>
-                        <li><strong>Run Tests</strong>: <a href="/run_test.html">http://localhost/run_test.html</a> (automated testing with metrics)</li>
-                        <li><strong>Evaluations</strong>: <a href="/evaluations.html">http://localhost/evaluations.html</a> (view and rate evaluations)</li>
-                        <li><strong>Admin Tools</strong>: <a href="/admin.html">http://localhost/admin.html</a> (database migrations)</li>
-                        <li><strong>API Documentation</strong>: <a href="/api/docs" target="_blank">http://localhost/api/docs</a> (interactive Swagger UI)</li>
-                    </ul>
-                </li>
-                <li><strong>Stop the application:</strong>
-                    <pre><code>docker compose down</code></pre>
-                </li>
-            </ol>
-            
-            <hr>
-            
-            <h2>📖 How It Works</h2>
-            
-            <h3>1. Reference Image Initialization</h3>
-            <p>On startup, the system:</p>
-            <ul>
-                <li>Checks if the SQLite database exists, otherwise initializes it</li>
-                <li>Loads the reference image (from <code>templates/reference_image.png</code> or generates default pattern)</li>
-                <li>Normalizes the reference to 256×256 pixels</li>
-                <li>Uses OpenCV to extract exactly 8 line features</li>
-                <li>Stores extracted reference features and images in the database</li>
-            </ul>
-            
-            <h3>2. Image Upload & Processing</h3>
-            <p>When you upload an image:</p>
-            <ol>
-                <li><strong>Duplicate Detection</strong>: SHA256 hash checks if image already exists</li>
-                <li><strong>Normalization</strong>: Image is resized to 256×256 with aspect ratio preservation and padding</li>
-                <li><strong>Manual Adjustments</strong>: Scale, rotate, and translate image interactively</li>
-                <li><strong>Auto Registration</strong>: Optional automatic alignment to reference image</li>
-                <li><strong>Line Detection</strong>: Probabilistic Hough Transform detects line segments</li>
-                <li><strong>Line Merging</strong>: Similar lines are merged to reduce duplicates</li>
-                <li><strong>Feature Extraction</strong>: Lines, angles, and lengths are extracted and stored</li>
-                <li><strong>Storage</strong>: Original and processed images stored separately in database</li>
-            </ol>
-            
-            <h4>User Experience Features</h4>
-            <ul>
-                <li><strong>Spinner Overlay</strong>: Visual feedback during processing (overlaid on canvas)</li>
-                <li><strong>Button States</strong>: "Analyze Drawing" button disabled while processing</li>
-                <li><strong>Duplicate Warning</strong>: Banner shown if image already exists in database</li>
-                <li><strong>"View in Evaluations" Button</strong>: Direct link to evaluations page after successful analysis</li>
-                <li><strong>Smart Filtering</strong>: Evaluations page opens with "Unevaluated" filter active</li>
-            </ul>
-            
-            <h3>3. Comparison & Evaluation</h3>
-            <p>The system compares detected lines to reference lines using:</p>
-            <ul>
-                <li><strong>Position Similarity</strong>: Euclidean distance between line midpoints (tolerance: 20px)</li>
-                <li><strong>Angle Similarity</strong>: Angle difference in degrees (tolerance: 15°)</li>
-                <li><strong>Length Similarity</strong>: Relative length ratio (tolerance: 30%)</li>
-                <li><strong>Weighted Similarity</strong>: Combines metrics (40% position, 30% angle, 30% length)</li>
-            </ul>
-            
-            <p>Metrics calculated:</p>
-            <ul>
-                <li><strong>Correct Lines</strong>: Lines that match the reference (similarity &gt; 70%)</li>
-                <li><strong>Missing Lines</strong>: Reference lines not found in drawing</li>
-                <li><strong>Extra Lines</strong>: Lines drawn but not in reference</li>
-                <li><strong>Similarity Score</strong>: Overall accuracy (0-100%)</li>
-            </ul>
-            
-            <h3>4. Visualization</h3>
-            <p>Each evaluation generates a side-by-side visualization:</p>
-            <ul>
-                <li>🟢 <strong>Green</strong>: Matched lines (present in both)</li>
-                <li>🔴 <strong>Red</strong>: Missing lines (in reference only)</li>
-                <li>🔵 <strong>Blue</strong>: Extra lines (in upload only)</li>
-            </ul>
-            
-            <hr>
-            
-            <h2>🔧 Configuration</h2>
-            
-            <h3>Line Detection Parameters</h3>
-            <p>Edit <code>api/image_processing/line_detector.py</code>:</p>
-            <pre><code>LineDetector(
-    rho=1.0,              # Distance resolution (pixels)
-    theta=np.pi/180,      # Angle resolution (radians)
-    threshold=100,        # Minimum votes for line
-    min_line_length=80,   # Minimum line length (pixels)
-    max_line_gap=25       # Max gap between segments (pixels)
-)</code></pre>
-            
-            <h3>Line Merging</h3>
-            <pre><code>_merge_similar_lines(
-    position_threshold=15.0,  # Max distance for merge (pixels)
-    angle_threshold=8.0       # Max angle for merge (degrees)
-)</code></pre>
-            
-            <h3>Comparison Tolerance</h3>
-            <p>Edit <code>api/image_processing/comparator.py</code>:</p>
-            <pre><code>LineComparator(
-    position_tolerance=20.0,  # Max position difference (pixels)
-    angle_tolerance=15.0,     # Max angle difference (degrees)
-    length_tolerance=0.3      # Max length difference (ratio)
-)</code></pre>
-            
-            <hr>
-            
-            <h2>📡 API Endpoints</h2>
-            
-            <table>
-                <thead>
-                    <tr>
-                        <th>Endpoint</th>
-                        <th>Method</th>
-                        <th>Description</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td><code>/api/health</code></td>
-                        <td>GET</td>
-                        <td>Health check and stats</td>
-                    </tr>
-                    <tr>
-                        <td><code>/api/upload</code></td>
-                        <td>POST</td>
-                        <td>Upload and evaluate image (with duplicate detection)</td>
-                    </tr>
-                    <tr>
-                        <td><code>/api/check-duplicate</code></td>
-                        <td>POST</td>
-                        <td>Check if image already exists (SHA256 hash)</td>
-                    </tr>
-                    <tr>
-                        <td><code>/api/normalize-image</code></td>
-                        <td>POST</td>
-                        <td>Auto-crop, scale, and center image to 256×256</td>
-                    </tr>
-                    <tr>
-                        <td><code>/api/register-image</code></td>
-                        <td>POST</td>
-                        <td>Automatically align image to reference</td>
-                    </tr>
-                    <tr>
-                        <td><code>/api/evaluations/recent</code></td>
-                        <td>GET</td>
-                        <td>List recent evaluations</td>
-                    </tr>
-                    <tr>
-                        <td><code>/api/evaluations/{id}</code></td>
-                        <td>GET</td>
-                        <td>Get specific evaluation</td>
-                    </tr>
-                    <tr>
-                        <td><code>/api/evaluations/{id}</code></td>
-                        <td>DELETE</td>
-                        <td>Delete evaluation (cascades to uploaded_images)</td>
-                    </tr>
-                    <tr>
-                        <td><code>/api/evaluations/{id}/evaluate</code></td>
-                        <td>PUT</td>
-                        <td>Add manual evaluation scores</td>
-                    </tr>
-                    <tr>
-                        <td><code>/api/references</code></td>
-                        <td>GET</td>
-                        <td>List reference images</td>
-                    </tr>
-                    <tr>
-                        <td><code>/api/references/{id}/image</code></td>
-                        <td>GET</td>
-                        <td>Get reference image data</td>
-                    </tr>
-                    <tr>
-                        <td><code>/api/references/{id}/features</code></td>
-                        <td>GET</td>
-                        <td>Get reference features</td>
-                    </tr>
-                    <tr>
-                        <td><code>/api/test-images</code></td>
-                        <td>GET/POST</td>
-                        <td>Manage test images</td>
-                    </tr>
-                    <tr>
-                        <td><code>/api/visualizations/{file}</code></td>
-                        <td>GET</td>
-                        <td>Get visualization image</td>
-                    </tr>
-                </tbody>
-            </table>
-            
-            <p>For interactive API documentation, visit: <a href="/api/docs" target="_blank">http://localhost/api/docs</a></p>
-            
-            <hr>
-            
-            <h2>🧪 Testing</h2>
-            
-            <h3>Manual Testing</h3>
-            <ol>
-                <li>Navigate to <a href="/upload.html">Upload Interface</a></li>
-                <li>Drag and drop or click to upload a hand-drawn image</li>
-                <li>View instant feedback with metrics and visualization</li>
-            </ol>
-            
-            <h3>Creating Test Images</h3>
-            <ol>
-                <li>Go to <a href="/draw_testimage.html">Draw Test Image</a></li>
-                <li>Draw on the 256×256 canvas</li>
-                <li>Enter expected scores manually</li>
-                <li>Save to database for regression testing</li>
-            </ol>
-            
-            <hr>
-            
-            <h2>🐳 Docker Details</h2>
-            
-            <h3>Services</h3>
-            <ul>
-                <li><strong>nginx</strong>: Serves frontend (webapp/) and proxies API requests (Port 80)</li>
-                <li><strong>api</strong>: FastAPI backend with OpenCV (Port 8000)</li>
-            </ul>
-            
-            <h3>Volumes</h3>
-            <ul>
-                <li><code>./api:/app:rw</code> - API code with modular routers (hot-reload enabled)</li>
-                <li><code>./data:/app/data:rw</code> - Persistent data (database & visualizations)</li>
-                <li><code>./webapp:/usr/share/nginx/html:ro</code> - Frontend files</li>
-                <li><code>./nginx/nginx.conf:/etc/nginx/nginx.conf:ro</code> - Nginx configuration</li>
-            </ul>
-            
-            <h3>Useful Commands</h3>
-            <pre><code># Rebuild after code changes
-docker compose up --build
-
-# View logs
-docker compose logs -f api
-
-# Restart services
-docker compose restart
-
-# Clean rebuild
-docker compose down
-docker compose up --build -d
-</code></pre>
-            
-            <hr>
-            
-            <h2>🏗️ Modular API Architecture</h2>
-            
-            <h3>Router Organization</h3>
-            <p>The API is organized into focused router modules for better maintainability:</p>
-            
-            <pre><code># api/routers/
-├── admin.py        # Database migrations, system admin
-├── upload.py       # Image upload, duplicate check, normalization, registration  
-├── evaluations.py  # Evaluation CRUD, user feedback
-├── references.py   # Reference management, manual feature editing
-└── test_images.py  # Test image management, automated testing</code></pre>
-            
-            <h3>Benefits</h3>
-            <ul>
-                <li><strong>Maintainable</strong>: Easy to locate and modify functionality</li>
-                <li><strong>Scalable</strong>: New features can be added to appropriate modules</li>
-                <li><strong>Testable</strong>: Individual routers can be tested in isolation</li>
-                <li><strong>Readable</strong>: Clear separation of concerns</li>
-                <li><strong>Size Reduction</strong>: main.py reduced from 1323 to 75 lines (95% smaller)</li>
-            </ul>
-            
-            <h3>Endpoint Distribution</h3>
-            <ul>
-                <li><code>/api/admin/*</code> → <strong>admin.py</strong></li>
-                <li><code>/api/upload</code>, <code>/api/check-duplicate</code>, <code>/api/normalize-image</code>, <code>/api/register-image</code> → <strong>upload.py</strong></li>
-                <li><code>/api/evaluations/*</code> → <strong>evaluations.py</strong></li>
-                <li><code>/api/references/*</code>, <code>/api/reference/*</code> → <strong>references.py</strong></li>
-                <li><code>/api/test-images/*</code> → <strong>test_images.py</strong></li>
-            </ul>
-            
-            <hr>
-            
-            <h2>🔍 Algorithms Used</h2>
-            
-            <h3>Line Detection</h3>
-            <ul>
-                <li><strong>Gaussian Blur</strong>: Reduces noise before edge detection</li>
-                <li><strong>Adaptive Thresholding</strong>: Converts to binary image</li>
-                <li><strong>Probabilistic Hough Transform</strong>: Detects line segments efficiently</li>
-                <li><strong>Line Merging Algorithm</strong>: Consolidates similar lines based on position and angle</li>
-            </ul>
-            
-            <h3>Comparison Algorithm (Hungarian Method)</h3>
-            <ul>
-                <li><strong>Multi-Metric Similarity</strong>: Combines position, angle, and length</li>
-                <li><strong>Hungarian Algorithm</strong>: Optimal bipartite matching for line assignment</li>
-                <li><strong>Cost Matrix</strong>: Precomputes similarity for all line pairs</li>
-                <li><strong>Global Optimization</strong>: Finds best overall assignment (not greedy)</li>
-                <li><strong>Length Filtering</strong>: Ignores extra lines &lt;30px (noise reduction)</li>
-                <li><strong>Weighted Similarity</strong>: Position (40%), Angle (30%), Length (30%)</li>
-            </ul>
-            
-            <hr>
-            
-            <h2>📊 Database Schema</h2>
-            
-            <h3>Tables</h3>
-            <ol>
-                <li><strong>reference_images</strong> - Reference templates and manually defined features</li>
-                <li><strong>uploaded_images</strong> - User-uploaded drawings with duplicate detection
-                    <ul>
-                        <li><code>image_data</code>: Original uploaded file (before normalization)</li>
-                        <li><code>processed_image_data</code>: Normalized 256×256 image</li>
-                        <li><code>image_hash</code>: SHA256 hash for duplicate detection</li>
-                    </ul>
-                </li>
-                <li><strong>extracted_features</strong> - Detected line features</li>
-                <li><strong>evaluation_results</strong> - Comparison results and scores with optional user evaluation</li>
-                <li><strong>test_images</strong> - Manual test images with expected scores for validation</li>
-            </ol>
-            
-            <p>Database file: <code>data/npsketch.db</code> (SQLite)</p>
-            
-            <h3>Data Integrity</h3>
-            <ul>
-                <li><strong>Cascading Deletes</strong>: Deleting an evaluation cleans up associated images if no other evaluations reference them</li>
-                <li><strong>Duplicate Prevention</strong>: SHA256 hashing prevents storing identical images multiple times</li>
-                <li><strong>Separate Storage</strong>: Original and processed images stored independently for accurate comparisons</li>
-            </ul>
-            
-            <hr>
-            
-            <h2>👤 Author</h2>
-            <p><strong>Stefan Brodoehl</strong><br>
-            Date: October 2025<br>
-            Version: 1.0</p>
-            
-            <hr>
-            
-            <p style="text-align: center; margin-top: 40px; font-size: 24px;"><strong>Happy Sketching! 🎨</strong></p>
+        <!-- Loading Indicator -->
+        <div id="loadingIndicator" style="text-align: center; padding: 40px; color: #666;">
+            <div class="spinner"></div>
+            <p style="margin-top: 15px;">Loading documentation from README.md...</p>
+        </div>
+        
+        <!-- Error Message -->
+        <div id="errorMessage" style="display: none; text-align: center; padding: 40px; color: #dc3545;">
+            <h2>⚠️ Error Loading Documentation</h2>
+            <p id="errorText"></p>
+            <a href="/index.html" class="btn" style="margin-top: 20px;">← Back to Main</a>
+        </div>
+        
+        <!-- Markdown Content Container (dynamically populated from README.md) -->
+        <article class="markdown-body" id="markdownContent" style="display: none;">
+            <!-- Content loaded from README.md via JavaScript -->
         </article>
     </div>
+    
+    <script>
+        // Load and render README.md
+        async function loadReadme() {
+            try {
+                // Fetch README.md from project root
+                const response = await fetch('/README.md');
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to load README.md: ${response.status} ${response.statusText}`);
+                }
+                
+                const markdownText = await response.text();
+                
+                // Parse markdown to HTML using marked.js
+                const htmlContent = marked.parse(markdownText);
+                
+                // Insert into container
+                document.getElementById('markdownContent').innerHTML = htmlContent;
+                
+                // Hide loading, show content
+                document.getElementById('loadingIndicator').style.display = 'none';
+                document.getElementById('markdownContent').style.display = 'block';
+                
+            } catch (error) {
+                console.error('Error loading README:', error);
+                
+                // Show error message
+                document.getElementById('loadingIndicator').style.display = 'none';
+                document.getElementById('errorMessage').style.display = 'block';
+                document.getElementById('errorText').textContent = error.message;
+            }
+        }
+        
+        // Load on page ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', loadReadme);
+        } else {
+            loadReadme();
+        }
+    </script>
 </body>
 </html>
-

@@ -1,146 +1,12 @@
 /**
- * AI Training Common Styles
- * Shared styles for all AI Training pages
+ * AI Training Specific Styles
+ * Requires: /css/common.css (must be loaded first)
+ * 
+ * Contains AI-specific components:
+ * - Distribution Preview Modal
+ * - Histogram
+ * - Class Distribution Bars
  */
-
-/* Base Styles */
-* { 
-    margin: 0; 
-    padding: 0; 
-    box-sizing: border-box; 
-}
-
-body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    min-height: 100vh;
-    padding: 20px;
-    color: #333;
-}
-
-.container {
-    max-width: 1400px;
-    margin: 0 auto;
-    background: white;
-    border-radius: 15px;
-    padding: 40px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-}
-
-h1 { 
-    color: #333; 
-    margin-bottom: 10px; 
-}
-
-h2 {
-    color: #333;
-    margin-bottom: 15px;
-    font-size: 1.3em;
-}
-
-.subtitle { 
-    color: #666; 
-    margin-bottom: 30px; 
-}
-
-.back-link {
-    display: inline-block;
-    margin-bottom: 20px;
-    color: #667eea;
-    text-decoration: none;
-    font-weight: 600;
-}
-
-.back-link:hover { 
-    text-decoration: underline; 
-}
-
-/* Buttons */
-.btn {
-    padding: 15px 30px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-size: 1em;
-    cursor: pointer;
-    transition: all 0.3s;
-    font-weight: 600;
-    text-decoration: none;
-    display: inline-block;
-}
-
-.btn:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-}
-
-.btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.btn-secondary { 
-    background: #6c757d; 
-}
-
-.btn-success { 
-    background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
-}
-
-.btn-danger {
-    background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
-}
-
-/* Sections */
-.section {
-    background: #f8f9fa;
-    padding: 25px;
-    border-radius: 12px;
-    margin-bottom: 20px;
-    color: #333;
-}
-
-.section h2 {
-    color: #333;
-    margin-bottom: 15px;
-    font-size: 1.3em;
-}
-
-/* Spinner */
-.spinner {
-    border: 4px solid #f3f3f3;
-    border-top: 4px solid #667eea;
-    border-radius: 50%;
-    width: 30px;
-    height: 30px;
-    animation: spin 1s linear infinite;
-    margin: 0 auto;
-}
-
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-
-/* Loading Overlay */
-.loading {
-    display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(255, 255, 255, 0.95);
-    justify-content: center;
-    align-items: center;
-    flex-direction: column;
-    z-index: 999;
-}
-
-.loading.show {
-    display: flex;
-}
 
 /* Distribution Preview Modal */
 .modal-overlay {
@@ -343,6 +209,54 @@ body.modal-open {
     color: #333;
 }
 
+/* Responsive Design for AI Training Components */
+@media (max-width: 768px) {
+    .modal-content {
+        width: 95vw;
+        height: 95vh;
+    }
+    
+    .modal-header {
+        padding: 15px 20px;
+    }
+    
+    .modal-stats-section {
+        padding: 10px 20px;
+    }
+    
+    .modal-body-scrollable {
+        padding: 15px 20px;
+    }
+    
+    .stats-grid-modal {
+        flex-wrap: wrap;
+    }
+    
+    .stat-item {
+        min-width: 80px;
+    }
+    
+    .histogram-label {
+        width: 60px;
+        font-size: 0.75em;
+    }
+    
+    .histogram-count {
+        width: 60px;
+        font-size: 0.75em;
+    }
+    
+    .class-distribution-label {
+        width: 80px;
+        font-size: 0.85em;
+    }
+    
+    .class-distribution-count {
+        width: 70px;
+        font-size: 0.85em;
+    }
+}
+
 /* Additional Modal Content Styles */
 .modal-content * {
     color: inherit;
@@ -358,58 +272,5 @@ body.modal-open {
     color: white;
 }
 
-/* Stats Grid */
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 12px;
-    margin-bottom: 20px;
-}
-
-.stat-card {
-    background: white;
-    padding: 12px;
-    border-radius: 8px;
-    text-align: center;
-    border: 2px solid #e9ecef;
-    color: #333;
-}
-
-.stat-value {
-    font-size: 1.8em;
-    font-weight: bold;
-    color: #667eea;
-}
-
-.stat-label {
-    color: #666;
-    margin-top: 5px;
-    font-size: 0.85em;
-}
-
-/* Confusion Matrix */
-table {
-    border-collapse: collapse;
-    margin: 10px auto;
-    font-size: 0.85em;
-}
-
-table th, table td {
-    border: 1px solid #ddd;
-    padding: 8px 12px;
-    text-align: center;
-    color: #333;
-}
-
-table thead th {
-    background: #e9ecef;
-    font-weight: 600;
-    color: #333;
-}
-
-table tbody th {
-    background: #e9ecef;
-    font-weight: 600;
-    color: #333;
-}
+/* AI-Specific Stats for Modals */
 
