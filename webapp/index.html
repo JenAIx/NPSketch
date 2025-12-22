@@ -60,7 +60,13 @@
         
         .container {
             text-align: center;
-            background: rgba(255, 255, 255, 0.95);
+            background: rgba(255, 255, 255, 0.98);
+            background-image: 
+                radial-gradient(circle at 20% 20%, rgba(180, 180, 180, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 80% 80%, rgba(180, 180, 180, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 50% 50%, rgba(160, 160, 160, 0.1) 0%, transparent 50%);
+            background-size: 250px 250px, 250px 250px, 400px 400px;
+            background-position: 0 0, 100% 100%, 50% 50%;
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.5);
@@ -72,7 +78,22 @@
             width: 100%;
             position: relative;
             z-index: 1;
-            animation: fadeInUp 0.6s ease-out;
+            animation: fadeInUp 0.6s ease-out, backgroundShift 15s ease-in-out infinite;
+            overflow: hidden;
+        }
+        
+        /* Hexagon pattern is now in common.css - applied via position: relative on container */
+        
+        @keyframes backgroundShift {
+            0%, 100% { 
+                background-position: 0 0, 100% 100%, 50% 50%;
+            }
+            33% { 
+                background-position: 30px -30px, calc(100% - 30px) calc(100% + 30px), 50% 50%;
+            }
+            66% { 
+                background-position: -20px 20px, calc(100% + 20px) calc(100% - 20px), 50% 50%;
+            }
         }
         
         @keyframes fadeInUp {
@@ -91,6 +112,8 @@
             font-size: 3em;
             margin-bottom: 10px;
             animation: fadeInUp 0.6s ease-out 0.1s both;
+            position: relative;
+            z-index: 2;
         }
         
         .version {
@@ -98,6 +121,8 @@
             font-size: 1.2em;
             margin-bottom: 30px;
             animation: fadeInUp 0.6s ease-out 0.2s both;
+            position: relative;
+            z-index: 2;
         }
         
         .description {
@@ -105,6 +130,8 @@
             line-height: 1.6;
             margin-bottom: 30px;
             animation: fadeInUp 0.6s ease-out 0.3s both;
+            position: relative;
+            z-index: 2;
         }
         
         .links {
@@ -113,6 +140,8 @@
             gap: 30px;
             margin-top: 10px;
             animation: fadeInUp 0.6s ease-out 0.4s both;
+            position: relative;
+            z-index: 2;
         }
         
         .button-group {
@@ -213,13 +242,16 @@
         .status {
             margin-top: 30px;
             padding: 15px;
-            background: rgba(240, 249, 255, 0.6);
+            background: rgba(255, 255, 255, 0.9);
             backdrop-filter: blur(5px);
             -webkit-backdrop-filter: blur(5px);
             border-radius: 8px;
             border-left: 4px solid #667eea;
-            border: 1px solid rgba(102, 126, 234, 0.2);
+            border: 1px solid rgba(220, 220, 220, 0.4);
             animation: fadeInUp 0.6s ease-out 0.5s both;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            position: relative;
+            z-index: 2;
         }
         
         .status-dot {
@@ -245,13 +277,16 @@
         }
         
         .stat-card {
-            background: rgba(248, 249, 250, 0.6);
+            background: rgba(255, 255, 255, 0.9);
             backdrop-filter: blur(5px);
             -webkit-backdrop-filter: blur(5px);
             padding: 30px 20px;
             border-radius: 12px;
             border-left: 4px solid #667eea;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            border: 1px solid rgba(220, 220, 220, 0.4);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            position: relative;
+            z-index: 2;
         }
         
         .stat-card.clickable {
@@ -261,10 +296,10 @@
         
         .stat-card.clickable:hover {
             transform: translateY(-5px);
-            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3),
-                        0 0 15px rgba(102, 126, 234, 0.2);
-            background: rgba(248, 249, 250, 0.8);
-            border-color: rgba(102, 126, 234, 0.4);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.2),
+                        0 0 15px rgba(102, 126, 234, 0.15);
+            background: rgba(255, 255, 255, 0.95);
+            border-color: rgba(102, 126, 234, 0.5);
         }
         
         .stat-value {
@@ -282,13 +317,16 @@
         .info-section {
             margin-top: 50px;
             padding: 40px;
-            background: rgba(248, 249, 250, 0.5);
+            background: rgba(255, 255, 255, 0.85);
             backdrop-filter: blur(5px);
             -webkit-backdrop-filter: blur(5px);
             border-radius: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            border: 1px solid rgba(220, 220, 220, 0.4);
             text-align: left;
             animation: fadeInUp 0.6s ease-out 0.6s both;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            position: relative;
+            z-index: 2;
         }
         
         .info-section h2 {
@@ -311,23 +349,23 @@
         }
         
         .feature {
-            background: rgba(255, 255, 255, 0.7);
+            background: rgba(255, 255, 255, 0.9);
             backdrop-filter: blur(5px);
             -webkit-backdrop-filter: blur(5px);
             padding: 25px;
             border-radius: 12px;
             text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.4);
+            border: 1px solid rgba(220, 220, 220, 0.4);
             transition: all 0.3s ease;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
         }
         
         .feature:hover {
             border-color: rgba(102, 126, 234, 0.5);
             transform: translateY(-5px);
-            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.25),
-                        0 0 15px rgba(102, 126, 234, 0.15);
-            background: rgba(255, 255, 255, 0.85);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.15),
+                        0 0 15px rgba(102, 126, 234, 0.1);
+            background: rgba(255, 255, 255, 0.95);
         }
         
         .feature-icon {
@@ -350,7 +388,7 @@
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container hexagon-pattern">
         <h1>🎨 NPSketch</h1>
         <div class="version">v. 1.0</div>
         
