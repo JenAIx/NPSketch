@@ -11,12 +11,16 @@ This package contains modular FastAPI routers for different functional areas:
 """
 
 from .admin import router as admin_router
-from .upload import router as upload_router  
+from .upload import router as upload_router
 from .evaluations import router as evaluations_router
 from .references import router as references_router
 from .test_images import router as test_images_router
 from .training_data import router as training_data_router
-from .ai_training import router as ai_training_router
+
+# AI Training routers (split into 3 modules)
+from .ai_training_base import router as ai_training_base_router
+from .ai_training_classification import router as ai_training_classification_router
+from .ai_training_models import router as ai_training_models_router
 
 __all__ = [
     "admin_router",
@@ -25,5 +29,7 @@ __all__ = [
     "references_router",
     "test_images_router",
     "training_data_router",
-    "ai_training_router"
+    "ai_training_base_router",
+    "ai_training_classification_router",
+    "ai_training_models_router"
 ]
