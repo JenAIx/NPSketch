@@ -181,45 +181,76 @@ def create_dataloaders(
     
     # Import split strategy
     try:
-        from .split_strategy import get_split_recommendation, stratified_split_regression
+        from .split_strategy import get_split_recommendation, stratified_split_regression, stratified_split_classification
     except ImportError:
-        from ai_training.split_strategy import get_split_recommendation, stratified_split_regression
-    
-    # Get recommendation and do stratified split on indices
-    recommendation = get_split_recommendation(len(all_targets), all_targets.max() - all_targets.min())
+        from ai_training.split_strategy import get_split_recommendation, stratified_split_regression, stratified_split_classification
     
     # Create index array
     indices = np.arange(len(full_dataset_raw))
     
-    # Do stratified split on indices
-    _, _, _, _, split_info = stratified_split_regression(
-        indices.reshape(-1, 1),  # Dummy X (we only care about y)
-        all_targets,
-        train_split=train_split,
-        n_bins=recommendation['n_bins'],
-        random_seed=random_seed
-    )
-    
-    # Get train and val indices from the split
-    # Re-do the split to get actual indices (not dummy X)
-    np.random.seed(random_seed)
-    
-    # Use same binning as split_info
-    from .split_strategy import create_bins
-    bin_assignments = create_bins(all_targets, n_bins=recommendation['n_bins'], method='quantile')
-    unique_bins = np.unique(bin_assignments)
-    
-    train_indices = []
-    val_indices = []
-    
-    for bin_idx in unique_bins:
-        bin_mask = bin_assignments == bin_idx
-        bin_idxs = np.where(bin_mask)[0]
-        np.random.shuffle(bin_idxs)
+    # Choose split strategy based on task type
+    if is_classification:
+        # For classification: stratify by actual class labels
+        print(f"   Using CLASSIFICATION stratification (by class labels)")
+        _, _, _, _, split_info = stratified_split_classification(
+            indices.reshape(-1, 1),  # Dummy X
+            all_targets,
+            train_split=train_split,
+            random_seed=random_seed
+        )
         
-        split_point = int(len(bin_idxs) * train_split)
-        train_indices.extend(bin_idxs[:split_point].tolist())
-        val_indices.extend(bin_idxs[split_point:].tolist())
+        # Re-do split to get actual indices
+        np.random.seed(random_seed)
+        unique_classes = np.unique(all_targets)
+        
+        train_indices = []
+        val_indices = []
+        
+        for cls in unique_classes:
+            class_mask = all_targets == cls
+            class_idxs = np.where(class_mask)[0]
+            np.random.shuffle(class_idxs)
+            
+            split_point = int(len(class_idxs) * train_split)
+            
+            # Ensure at least 1 sample in test if possible
+            if split_point == len(class_idxs) and len(class_idxs) > 1:
+                split_point = len(class_idxs) - 1
+            
+            train_indices.extend(class_idxs[:split_point].tolist())
+            val_indices.extend(class_idxs[split_point:].tolist())
+        
+    else:
+        # For regression: stratify by binning continuous values
+        print(f"   Using REGRESSION stratification (by value bins)")
+        recommendation = get_split_recommendation(len(all_targets), all_targets.max() - all_targets.min())
+        
+        _, _, _, _, split_info = stratified_split_regression(
+            indices.reshape(-1, 1),  # Dummy X
+            all_targets,
+            train_split=train_split,
+            n_bins=recommendation['n_bins'],
+            random_seed=random_seed
+        )
+        
+        # Re-do split to get actual indices
+        np.random.seed(random_seed)
+        
+        from .split_strategy import create_bins
+        bin_assignments = create_bins(all_targets, n_bins=recommendation['n_bins'], method='quantile')
+        unique_bins = np.unique(bin_assignments)
+        
+        train_indices = []
+        val_indices = []
+        
+        for bin_idx in unique_bins:
+            bin_mask = bin_assignments == bin_idx
+            bin_idxs = np.where(bin_mask)[0]
+            np.random.shuffle(bin_idxs)
+            
+            split_point = int(len(bin_idxs) * train_split)
+            train_indices.extend(bin_idxs[:split_point].tolist())
+            val_indices.extend(bin_idxs[split_point:].tolist())
     
     # Create new datasets WITH normalizer for training
     full_dataset_normalized = DrawingDataset(

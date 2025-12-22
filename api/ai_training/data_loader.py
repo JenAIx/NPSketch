@@ -268,20 +268,34 @@ class TrainingDataLoader:
         if len(X.shape) == 3:
             X = np.expand_dims(X, axis=-1)
         
-        # Get split recommendation based on dataset size
-        recommendation = get_split_recommendation(len(X), y.max() - y.min())
-        
-        print(f"\nSplit Strategy: {recommendation['strategy']}")
-        print(f"Reason: {recommendation['reason']}")
-        print(f"Using {recommendation['n_bins']} bins for stratification")
-        
-        # Stratified train/test split
-        X_train, X_test, y_train, y_test, split_info = stratified_split_regression(
-            X, y,
-            train_split=train_split,
-            n_bins=recommendation['n_bins'],
-            random_seed=random_seed
-        )
+        # Choose split strategy based on task type
+        if is_classification_mode:
+            # For classification: stratify by actual class labels
+            print(f"\nSplit Strategy: stratified_classification")
+            print(f"Reason: Classification task - stratify by class labels")
+            print(f"Number of classes: {len(np.unique(y))}")
+            
+            from ai_training.split_strategy import stratified_split_classification
+            X_train, X_test, y_train, y_test, split_info = stratified_split_classification(
+                X, y,
+                train_split=train_split,
+                random_seed=random_seed
+            )
+        else:
+            # For regression: stratify by binning continuous values
+            recommendation = get_split_recommendation(len(X), y.max() - y.min())
+            
+            print(f"\nSplit Strategy: {recommendation['strategy']}")
+            print(f"Reason: {recommendation['reason']}")
+            print(f"Using {recommendation['n_bins']} bins for stratification")
+            
+            from ai_training.split_strategy import stratified_split_regression
+            X_train, X_test, y_train, y_test, split_info = stratified_split_regression(
+                X, y,
+                train_split=train_split,
+                n_bins=recommendation['n_bins'],
+                random_seed=random_seed
+            )
         
         # Print split validation
         if split_info['warnings']:
@@ -291,12 +305,27 @@ class TrainingDataLoader:
         else:
             print("\n✅ Split is well-balanced")
         
-        print(f"\nTrain distribution: mean={split_info['train_distribution']['mean']:.3f}, "
-              f"std={split_info['train_distribution']['std']:.3f}, "
-              f"range=[{split_info['train_distribution']['min']:.3f}, {split_info['train_distribution']['max']:.3f}]")
-        print(f"Test distribution:  mean={split_info['test_distribution']['mean']:.3f}, "
-              f"std={split_info['test_distribution']['std']:.3f}, "
-              f"range=[{split_info['test_distribution']['min']:.3f}, {split_info['test_distribution']['max']:.3f}]")
+        # Print distribution details (different for classification vs regression)
+        if is_classification_mode:
+            # Classification: show class distribution
+            train_counts = split_info['train_distribution']['class_counts']
+            test_counts = split_info['test_distribution']['class_counts']
+            
+            print(f"\nTrain set: {split_info['train_distribution']['count']} samples")
+            for cls, count in train_counts.items():
+                print(f"  Class {cls}: {count} samples")
+            
+            print(f"\nTest set: {split_info['test_distribution']['count']} samples")
+            for cls, count in test_counts.items():
+                print(f"  Class {cls}: {count} samples")
+        else:
+            # Regression: show statistical distribution
+            print(f"\nTrain distribution: mean={split_info['train_distribution']['mean']:.3f}, "
+                  f"std={split_info['train_distribution']['std']:.3f}, "
+                  f"range=[{split_info['train_distribution']['min']:.3f}, {split_info['train_distribution']['max']:.3f}]")
+            print(f"Test distribution:  mean={split_info['test_distribution']['mean']:.3f}, "
+                  f"std={split_info['test_distribution']['std']:.3f}, "
+                  f"range=[{split_info['test_distribution']['min']:.3f}, {split_info['test_distribution']['max']:.3f}]")
         
         return X_train, X_test, y_train, y_test, image_ids
     
@@ -396,45 +425,80 @@ class TrainingDataLoader:
         
         y_array = np.array(y_values)
         
-        # Get split recommendation
-        recommendation = get_split_recommendation(len(images_data), y_array.max() - y_array.min())
-        
-        print(f"   Split strategy: {recommendation['strategy']} with {recommendation['n_bins']} bins")
-        
         # Create stratified split indices
         indices = np.arange(len(images_data))
         
-        # Use stratified split
-        _, _, _, _, split_info = stratified_split_regression(
-            indices.reshape(-1, 1),
-            y_array,
-            train_split=train_split,
-            n_bins=recommendation['n_bins'],
-            random_seed=random_seed
-        )
+        # Choose split strategy based on task type
+        if is_classification_mode:
+            # For classification: stratify by class labels
+            from ai_training.split_strategy import stratified_split_classification
+            
+            print(f"   Split strategy: stratified_classification (by class labels)")
+            print(f"   Number of classes: {len(np.unique(y_array))}")
+            
+            _, _, _, _, split_info = stratified_split_classification(
+                indices.reshape(-1, 1),
+                y_array,
+                train_split=train_split,
+                random_seed=random_seed
+            )
+        else:
+            # For regression: stratify by binning continuous values
+            from ai_training.split_strategy import stratified_split_regression
+            
+            recommendation = get_split_recommendation(len(images_data), y_array.max() - y_array.min())
+            
+            print(f"   Split strategy: {recommendation['strategy']} with {recommendation['n_bins']} bins")
+            
+            _, _, _, _, split_info = stratified_split_regression(
+                indices.reshape(-1, 1),
+                y_array,
+                train_split=train_split,
+                n_bins=recommendation['n_bins'],
+                random_seed=random_seed
+            )
         
-        # Get actual train/val indices
+        # Get actual train/val indices - different logic for classification vs regression
         np.random.seed(random_seed)
-        
-        try:
-            from ai_training.split_strategy import create_bins
-        except ImportError:
-            from split_strategy import create_bins
-        
-        bin_assignments = create_bins(y_array, n_bins=recommendation['n_bins'], method='quantile')
-        unique_bins = np.unique(bin_assignments)
         
         train_indices = []
         val_indices = []
         
-        for bin_idx in unique_bins:
-            bin_mask = bin_assignments == bin_idx
-            bin_idxs = np.where(bin_mask)[0]
-            np.random.shuffle(bin_idxs)
+        if is_classification_mode:
+            # For classification: split by class labels
+            unique_classes = np.unique(y_array)
             
-            split_point = int(len(bin_idxs) * train_split)
-            train_indices.extend(bin_idxs[:split_point].tolist())
-            val_indices.extend(bin_idxs[split_point:].tolist())
+            for cls in unique_classes:
+                class_mask = y_array == cls
+                class_idxs = np.where(class_mask)[0]
+                np.random.shuffle(class_idxs)
+                
+                split_point = int(len(class_idxs) * train_split)
+                
+                # Ensure at least 1 sample in val if possible
+                if split_point == len(class_idxs) and len(class_idxs) > 1:
+                    split_point = len(class_idxs) - 1
+                
+                train_indices.extend(class_idxs[:split_point].tolist())
+                val_indices.extend(class_idxs[split_point:].tolist())
+        else:
+            # For regression: split by bins
+            try:
+                from ai_training.split_strategy import create_bins
+            except ImportError:
+                from split_strategy import create_bins
+            
+            bin_assignments = create_bins(y_array, n_bins=recommendation['n_bins'], method='quantile')
+            unique_bins = np.unique(bin_assignments)
+            
+            for bin_idx in unique_bins:
+                bin_mask = bin_assignments == bin_idx
+                bin_idxs = np.where(bin_mask)[0]
+                np.random.shuffle(bin_idxs)
+                
+                split_point = int(len(bin_idxs) * train_split)
+                train_indices.extend(bin_idxs[:split_point].tolist())
+                val_indices.extend(bin_idxs[split_point:].tolist())
         
         split_indices = {
             'train': train_indices,

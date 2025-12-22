@@ -708,7 +708,20 @@
                 
                 <div class="form-group">
                     <label>Number of Epochs</label>
-                    <input type="number" id="numEpochs" value="10" min="1" max="100">
+                    <select id="numEpochs">
+                        <option value="1">1 (Debug only)</option>
+                        <option value="5">5 (Quick test)</option>
+                        <option value="10">10 (Fast test)</option>
+                        <option value="20">20 (Minimal)</option>
+                        <option value="30" selected>30 (Recommended)</option>
+                        <option value="50">50 (Good)</option>
+                        <option value="75">75 (Better)</option>
+                        <option value="100">100 (Best for large datasets)</option>
+                    </select>
+                    <p style="margin-top: 8px; font-size: 0.85em; color: #666; font-weight: normal;">
+                        💡 <strong>With augmentation (6x data):</strong> Use 30-50 epochs minimum<br>
+                        💡 <strong>Without augmentation:</strong> Use 20-30 epochs (risk of overfitting if higher)
+                    </p>
                 </div>
                 
                 <div class="form-group">
@@ -723,6 +736,17 @@
                         <option value="8" selected>8</option>
                         <option value="16">16</option>
                     </select>
+                </div>
+            </div>
+            
+            <!-- Epoch Recommendations Info -->
+            <div style="margin-top: 20px; padding: 15px; background: #e7f3ff; border-radius: 8px; border-left: 4px solid #2196f3;">
+                <div style="font-weight: 600; color: #0c5460; margin-bottom: 8px;">📚 Why Epoch Count Matters</div>
+                <div style="font-size: 0.85em; color: #0c5460; line-height: 1.6;">
+                    <strong>Epochs</strong> = number of times the model sees the entire training dataset<br>
+                    <strong>More epochs:</strong> Better learning, but risk of overfitting (memorizing training data)<br>
+                    <strong>With augmentation (6x):</strong> Need 30-50 epochs minimum to see all variations<br>
+                    <strong>Monitor:</strong> Stop if validation loss stops improving (early stopping)
                 </div>
             </div>
             
@@ -1053,27 +1077,50 @@
         
         async function loadModelInfoForClassification(numClasses, featureName) {
             try {
-                // Fetch Custom_Class data to get class names
+                // Fetch Custom_Class data to get class names and distribution
                 const response = await fetch(`/api/ai-training/custom-class-distribution/${encodeURIComponent(featureName)}`);
                 const data = await response.json();
                 
+                // Fetch model-info for architecture details
+                const infoResponse = await fetch('/api/ai-training/model-info');
+                const info = await infoResponse.json();
+                
                 const details = document.getElementById('modelDetails');
                 
-                // Get class names
+                // Get class names and counts
                 const classNames = data.classes.map(cls => cls.name_custom || cls.name_generic).join(', ');
+                const totalSamples = data.classes.reduce((sum, cls) => sum + cls.count, 0);
+                
+                // Calculate model parameters for classification (different output layer)
+                // ResNet-18 backbone: ~11M parameters
+                // Output head structure:
+                //   Layer 1: Linear(512→256) = 512*256 + 256 = 131,328 params
+                //   Layer 2: ReLU (no params)
+                //   Layer 3: Dropout (no params)
+                //   Layer 4: Linear(256→numClasses) = 256*numClasses + numClasses params
+                
+                // info.total_parameters is for regression (numClasses=1)
+                // Final layer for regression: Linear(256→1) = 256*1 + 1 = 257 params
+                // Final layer for classification: Linear(256→numClasses) = 256*numClasses + numClasses params
+                
+                // Correct adjustment: subtract regression final layer, add classification final layer
+                const regressionFinalLayer = 256 * 1 + 1;  // 257 params (weights + bias)
+                const classificationFinalLayer = 256 * numClasses + numClasses;  // weights + bias
+                const totalParams = info.total_parameters - regressionFinalLayer + classificationFinalLayer;
+                const trainableParams = totalParams; // All trainable for fine-tuning
                 
                 details.innerHTML = `
                     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 20px;">
                         <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
-                            <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Training Mode</div>
-                            <div style="font-size: 1.3em; font-weight: bold; color: #667eea;">
-                                Classification
+                            <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Total Parameters</div>
+                            <div style="font-size: 1.8em; font-weight: bold; color: #667eea;">
+                                ${(totalParams / 1000000).toFixed(1)}M
                             </div>
                         </div>
                         <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
-                            <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Output Neurons</div>
+                            <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Trainable Parameters</div>
                             <div style="font-size: 1.8em; font-weight: bold; color: #28a745;">
-                                ${numClasses}
+                                ${(trainableParams / 1000000).toFixed(1)}M
                             </div>
                         </div>
                         <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
@@ -1084,16 +1131,102 @@
                         </div>
                     </div>
                     
-                    <div style="background: #e7f3ff; padding: 15px; border-radius: 6px; border-left: 4px solid #667eea; margin-bottom: 15px;">
-                        <strong>🏷️ Classes (${numClasses}):</strong> ${classNames}
+                    <div style="background: #d4edda; padding: 15px; border-radius: 6px; border-left: 4px solid #28a745; margin-bottom: 15px;">
+                        <strong style="color: #155724;">🏷️ Classification Task - ${numClasses} Classes (${totalSamples} samples)</strong>
+                        <div style="color: #155724; font-size: 0.9em; margin-top: 8px;">
+                            <strong>Classes:</strong> ${classNames}
+                        </div>
+                        <div style="margin-top: 10px; font-size: 0.85em; color: #155724;">
+                            ${data.classes.map(cls => {
+                                const pct = totalSamples > 0 ? ((cls.count / totalSamples) * 100).toFixed(1) : 0;
+                                return `<div style="margin: 4px 0;">• <strong>${cls.name_custom || cls.name_generic}:</strong> ${cls.count} samples (${pct}%) ${cls.range || ''}</div>`;
+                            }).join('')}
+                        </div>
                     </div>
                     
-                    <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
-                        <strong>Model Architecture:</strong> ResNet-18 (ImageNet pre-trained)<br>
-                        <strong>Input:</strong> 568×274×1 (grayscale)<br>
-                        <strong>Output:</strong> ${numClasses} neurons (one per class)<br>
-                        <strong>Loss Function:</strong> CrossEntropyLoss<br>
-                        <strong>Normalization:</strong> None (classification uses raw class indices)
+                    <details open style="margin-bottom: 15px;">
+                        <summary style="cursor: pointer; font-weight: 600; color: #495057; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+                            Network Layers
+                        </summary>
+                        <div style="padding: 15px; background: #f8f9fa; border-radius: 6px; margin-top: 10px;">
+                            <div style="margin-bottom: 15px;">
+                                <div style="font-weight: 600; color: #667eea; margin-bottom: 5px;">Input Layer</div>
+                                <div style="font-size: 0.9em; color: #666;">
+                                    ${info.layers.input_layer.type}<br>
+                                    Channels: ${info.layers.input_layer.channels}, Kernel: ${info.layers.input_layer.kernel}
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 15px;">
+                                <div style="font-weight: 600; color: #667eea; margin-bottom: 5px;">Backbone (${info.layers.backbone.architecture})</div>
+                                <div style="font-size: 0.9em; color: #666;">
+                                    ${info.layers.backbone.blocks}<br>
+                                    ${info.layers.backbone.layers.join('<br>')}
+                                </div>
+                                <div style="font-size: 0.85em; color: #999; margin-top: 5px;">
+                                    Pre-trained: ${info.layers.backbone.pretrained}
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <div style="font-weight: 600; color: #667eea; margin-bottom: 5px;">Output Head (Classification)</div>
+                                <div style="font-size: 0.9em; color: #666;">
+                                    ${info.layers.output_head.layer_1} → 
+                                    ${info.layers.output_head.activation_1} → 
+                                    ${info.layers.output_head.dropout} → 
+                                    Linear(256 → ${numClasses})<br>
+                                    <span style="color: #28a745;">→ ${numClasses} class probabilities (softmax)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+                    
+                    <details style="margin-bottom: 15px;">
+                        <summary style="cursor: pointer; font-weight: 600; color: #495057; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+                            Training Details
+                        </summary>
+                        <div style="padding: 15px; background: #f8f9fa; border-radius: 6px; margin-top: 10px;">
+                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
+                                <div>
+                                    <div style="font-weight: 600; color: #667eea; margin-bottom: 5px;">Optimizer & Loss</div>
+                                    <div style="font-size: 0.9em; color: #666;">
+                                        Optimizer: <strong>Adam</strong><br>
+                                        Loss: <strong>CrossEntropyLoss</strong>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 600; color: #667eea; margin-bottom: 5px;">Preprocessing</div>
+                                    <div style="font-size: 0.9em; color: #666;">
+                                        ${info.training_details.input_preprocessing.join('<br>')}
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="margin-top: 15px;">
+                                <div style="font-weight: 600; color: #667eea; margin-bottom: 5px;">Regularization</div>
+                                <div style="font-size: 0.9em; color: #666;">
+                                    ${info.training_details.regularization.join('<br>')}
+                                </div>
+                            </div>
+                            <div style="margin-top: 15px;">
+                                <div style="font-weight: 600; color: #667eea; margin-bottom: 5px;">Output & Evaluation</div>
+                                <div style="font-size: 0.9em; color: #666;">
+                                    Output: Softmax probabilities over ${numClasses} classes<br>
+                                    Metrics: Accuracy, F1-score (macro), Precision, Recall<br>
+                                    Confusion Matrix: ${numClasses}×${numClasses} matrix
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+                    
+                    <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; border-radius: 6px;">
+                        <strong style="color: #856404;">💡 Classification Training Tips:</strong>
+                        <div style="color: #856404; font-size: 0.9em; margin-top: 5px; line-height: 1.6;">
+                            • <strong>Balanced classes:</strong> Each class should have similar sample counts (±20%)<br>
+                            • <strong>Minimum per class:</strong> At least 10-15 samples per class for reliable training<br>
+                            • <strong>Augmentation:</strong> Highly recommended (6x multiplier) to reduce overfitting<br>
+                            • <strong>Epochs:</strong> Use 30-50 epochs with augmentation for best results<br>
+                            • <strong>Monitor:</strong> Watch confusion matrix to identify problematic classes
+                        </div>
                     </div>
                 `;
                 
@@ -1256,52 +1389,100 @@
             const warnings = splitInfo.warnings || [];
             
             const splitDetails = document.getElementById('splitDetails');
-            const strategy = progress.split_strategy || 'unknown';
+            const strategy = progress.split_strategy || splitInfo.method || 'unknown';
             
-            // Get sample counts from config if available
+            // Detect if classification based on split_info structure
+            const isClassification = trainDist.class_counts !== undefined;
+            
+            // Get sample counts
             const trainSamples = trainDist.count || 'N/A';
             const valSamples = valDist.count || 'N/A';
             const totalSamples = (trainDist.count || 0) + (valDist.count || 0);
             
-            splitDetails.innerHTML = `
-                <div style="background: ${strategy === 'stratified' ? '#d4edda' : '#fff3cd'}; border-left: 4px solid ${strategy === 'stratified' ? '#28a745' : '#ffc107'}; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
-                    <strong style="color: ${strategy === 'stratified' ? '#155724' : '#856404'};">
-                        Split Strategy: ${strategy.toUpperCase()}
-                    </strong>
-                    <div style="color: ${strategy === 'stratified' ? '#155724' : '#856404'}; font-size: 0.9em; margin-top: 5px;">
-                        ${strategy === 'stratified' ? '✅ Using stratified split for balanced distribution' : '⚠️ Using random split (stratification not applicable)'}
+            // Strategy display name
+            const strategyDisplay = strategy.includes('classification') ? 'STRATIFIED (Classification)' : 
+                                   strategy === 'stratified' ? 'STRATIFIED (Regression)' : 
+                                   strategy.toUpperCase();
+            
+            let distributionHtml = '';
+            
+            if (isClassification) {
+                // Classification: show class distribution
+                const trainCounts = trainDist.class_counts || {};
+                const valCounts = valDist.class_counts || {};
+                const allClasses = [...new Set([...Object.keys(trainCounts), ...Object.keys(valCounts)])].sort((a, b) => a - b);
+                
+                distributionHtml = `
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 20px;">
+                        <div>
+                            <h4 style="color: #667eea; margin-bottom: 10px;">Training Set (${trainSamples} samples)</h4>
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                                ${allClasses.map(cls => {
+                                    const count = trainCounts[cls] || 0;
+                                    const pct = trainSamples > 0 ? ((count / trainSamples) * 100).toFixed(1) : 0;
+                                    return `<div style="margin: 5px 0; font-size: 0.9em;"><span style="color: #666;">Class ${cls}:</span> <strong>${count}</strong> (${pct}%)</div>`;
+                                }).join('')}
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <h4 style="color: #28a745; margin-bottom: 10px;">Validation Set (${valSamples} samples)</h4>
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                                ${allClasses.map(cls => {
+                                    const count = valCounts[cls] || 0;
+                                    const pct = valSamples > 0 ? ((count / valSamples) * 100).toFixed(1) : 0;
+                                    return `<div style="margin: 5px 0; font-size: 0.9em;"><span style="color: #666;">Class ${cls}:</span> <strong>${count}</strong> (${pct}%)</div>`;
+                                }).join('')}
+                            </div>
+                        </div>
                     </div>
-                    <div style="color: ${strategy === 'stratified' ? '#155724' : '#856404'}; font-size: 0.9em; margin-top: 8px;">
+                `;
+            } else {
+                // Regression: show statistical distribution
+                distributionHtml = `
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 20px;">
+                        <div>
+                            <h4 style="color: #667eea; margin-bottom: 10px;">Training Set (${trainSamples} samples)</h4>
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
+                                    <div><span style="color: #666;">Mean:</span> <strong>${trainDist.mean ? trainDist.mean.toFixed(3) : 'N/A'}</strong></div>
+                                    <div><span style="color: #666;">Std:</span> <strong>${trainDist.std ? trainDist.std.toFixed(3) : 'N/A'}</strong></div>
+                                    <div><span style="color: #666;">Min:</span> <strong>${trainDist.min ? trainDist.min.toFixed(3) : 'N/A'}</strong></div>
+                                    <div><span style="color: #666;">Max:</span> <strong>${trainDist.max ? trainDist.max.toFixed(3) : 'N/A'}</strong></div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <h4 style="color: #28a745; margin-bottom: 10px;">Validation Set (${valSamples} samples)</h4>
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
+                                    <div><span style="color: #666;">Mean:</span> <strong>${valDist.mean ? valDist.mean.toFixed(3) : 'N/A'}</strong></div>
+                                    <div><span style="color: #666;">Std:</span> <strong>${valDist.std ? valDist.std.toFixed(3) : 'N/A'}</strong></div>
+                                    <div><span style="color: #666;">Min:</span> <strong>${valDist.min ? valDist.min.toFixed(3) : 'N/A'}</strong></div>
+                                    <div><span style="color: #666;">Max:</span> <strong>${valDist.max ? valDist.max.toFixed(3) : 'N/A'}</strong></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            splitDetails.innerHTML = `
+                <div style="background: ${strategy.includes('stratified') ? '#d4edda' : '#fff3cd'}; border-left: 4px solid ${strategy.includes('stratified') ? '#28a745' : '#ffc107'}; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+                    <strong style="color: ${strategy.includes('stratified') ? '#155724' : '#856404'};">
+                        Split Strategy: ${strategyDisplay}
+                    </strong>
+                    <div style="color: ${strategy.includes('stratified') ? '#155724' : '#856404'}; font-size: 0.9em; margin-top: 5px;">
+                        ${strategy.includes('stratified') ? (isClassification ? '✅ Using class-based stratification for balanced class distribution' : '✅ Using bin-based stratification for balanced value distribution') : '⚠️ Using random split (stratification not applicable)'}
+                    </div>
+                    <div style="color: ${strategy.includes('stratified') ? '#155724' : '#856404'}; font-size: 0.9em; margin-top: 8px;">
                         Total: <strong>${totalSamples}</strong> samples 
                         (Train: <strong>${trainSamples}</strong>, Validation: <strong>${valSamples}</strong>)
                     </div>
                 </div>
                 
-                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 20px;">
-                    <div>
-                        <h4 style="color: #667eea; margin-bottom: 10px;">Training Set (${trainSamples} samples)</h4>
-                        <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
-                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
-                                <div><span style="color: #666;">Mean:</span> <strong>${trainDist.mean ? trainDist.mean.toFixed(3) : 'N/A'}</strong></div>
-                                <div><span style="color: #666;">Std:</span> <strong>${trainDist.std ? trainDist.std.toFixed(3) : 'N/A'}</strong></div>
-                                <div><span style="color: #666;">Min:</span> <strong>${trainDist.min ? trainDist.min.toFixed(3) : 'N/A'}</strong></div>
-                                <div><span style="color: #666;">Max:</span> <strong>${trainDist.max ? trainDist.max.toFixed(3) : 'N/A'}</strong></div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div>
-                        <h4 style="color: #28a745; margin-bottom: 10px;">Validation Set (${valSamples} samples)</h4>
-                        <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
-                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
-                                <div><span style="color: #666;">Mean:</span> <strong>${valDist.mean ? valDist.mean.toFixed(3) : 'N/A'}</strong></div>
-                                <div><span style="color: #666;">Std:</span> <strong>${valDist.std ? valDist.std.toFixed(3) : 'N/A'}</strong></div>
-                                <div><span style="color: #666;">Min:</span> <strong>${valDist.min ? valDist.min.toFixed(3) : 'N/A'}</strong></div>
-                                <div><span style="color: #666;">Max:</span> <strong>${valDist.max ? valDist.max.toFixed(3) : 'N/A'}</strong></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                ${distributionHtml}
                 
                 ${warnings.length > 0 ? `
                     <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; border-radius: 6px;">
