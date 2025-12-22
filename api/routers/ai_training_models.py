@@ -269,12 +269,26 @@ async def predict_single_image(
         image_bytes = await file.read()
         pil_img = Image.open(io.BytesIO(image_bytes))
         
-        # Convert to grayscale
-        if pil_img.mode != 'L':
-            pil_img = pil_img.convert('L')
+        # Convert to RGB first (needed for line normalization)
+        if pil_img.mode != 'RGB':
+            if pil_img.mode == 'RGBA':
+                background = Image.new('RGB', pil_img.size, (255, 255, 255))
+                background.paste(pil_img, mask=pil_img.split()[3])
+                pil_img = background
+            else:
+                pil_img = pil_img.convert('RGB')
         
         # Resize to expected dimensions (568x274)
         pil_img = pil_img.resize((568, 274), Image.Resampling.LANCZOS)
+        
+        # CRITICAL: Normalize line thickness to 2.00px (same as training data)
+        # This ensures consistency with how training images were processed
+        from line_normalizer import normalize_line_thickness
+        img_array_rgb = np.array(pil_img)
+        img_array_rgb = normalize_line_thickness(img_array_rgb, target_thickness=2.0)
+        
+        # Convert to grayscale after normalization
+        pil_img = Image.fromarray(img_array_rgb).convert('L')
         
         # Convert to tensor
         img_array = np.array(pil_img, dtype=np.float32) / 255.0

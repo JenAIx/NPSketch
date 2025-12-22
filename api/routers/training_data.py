@@ -4,6 +4,7 @@ Training Data Extraction Router
 Handles file uploads and processing for AI training data:
 - MATLAB .mat files → MAT Extractor
 - OCS PNG/JPG images → OCS Extractor
+- Oxford PNG images → Direct normalization (filename-based)
 
 Stores original + processed data in database with duplicate detection.
 """
@@ -79,6 +80,104 @@ def extract_task_type(filename: str) -> str:
         return 'COPY'
     
     return 'UNKNOWN'
+
+
+def parse_oxford_filename(filename: str) -> tuple:
+    """
+    Parse Oxford-style filename to extract patient_id and task_type.
+    
+    Expected format: {ID}_{COND}.png
+    Examples:
+        - C0078_COPY.png → ("C0078", "COPY")
+        - C0078_RECALL.png → ("C0078", "RECALL")
+        - Park_16_COPY.png → ("Park_16", "COPY")
+    
+    Args:
+        filename: The image filename
+    
+    Returns:
+        tuple: (patient_id, task_type) or (None, None) if parsing fails
+    """
+    # Remove extension
+    name = os.path.splitext(filename)[0]
+    
+    # Try to split by underscore
+    parts = name.split('_')
+    
+    if len(parts) < 2:
+        return (None, None)
+    
+    # Last part should be COPY or RECALL
+    task_type = parts[-1].upper()
+    if task_type not in ['COPY', 'RECALL']:
+        return (None, None)
+    
+    # Everything before last underscore is patient_id
+    patient_id = '_'.join(parts[:-1])
+    
+    return (patient_id, task_type)
+
+
+def normalize_oxford_image_data(image_data: np.ndarray, target_size=(568, 274)) -> tuple:
+    """
+    Normalize Oxford-style PNG image data.
+    
+    Process:
+    1. Auto-crop to content (5px padding)
+    2. Resize to target size (568×274)
+    3. Normalize line thickness to 2.00px
+    
+    Args:
+        image_data: RGB numpy array (H×W×3)
+        target_size: Target resolution (width, height)
+    
+    Returns:
+        tuple: (normalized_rgb_array, success_bool)
+    """
+    try:
+        # Step 1: Calculate bounding box and crop
+        threshold = 250
+        padding = 5
+        
+        # Convert to grayscale for bbox calculation
+        if len(image_data.shape) == 3:
+            gray = np.mean(image_data, axis=2)
+        else:
+            gray = image_data
+        
+        # Find non-white pixels
+        content_mask = gray < threshold
+        rows = np.any(content_mask, axis=1)
+        cols = np.any(content_mask, axis=0)
+        
+        if not np.any(rows) or not np.any(cols):
+            return (None, False)
+        
+        min_y, max_y = np.where(rows)[0][[0, -1]]
+        min_x, max_x = np.where(cols)[0][[0, -1]]
+        
+        # Add padding
+        min_x = max(0, min_x - padding)
+        max_x = min(image_data.shape[1] - 1, max_x + padding)
+        min_y = max(0, min_y - padding)
+        max_y = min(image_data.shape[0] - 1, max_y + padding)
+        
+        # Crop
+        cropped = image_data[min_y:max_y+1, min_x:max_x+1]
+        
+        # Step 2: Resize to target size
+        pil_image = Image.fromarray(cropped)
+        pil_image = pil_image.resize(target_size, Image.Resampling.LANCZOS)
+        resized = np.array(pil_image)
+        
+        # Step 3: Normalize line thickness to 2.00px
+        normalized = normalize_line_thickness(resized, target_thickness=2.0)
+        
+        return (normalized, True)
+        
+    except Exception as e:
+        print(f"Error normalizing image: {e}")
+        return (None, False)
 
 
 @router.post("/extract-training-data")
@@ -394,6 +493,186 @@ async def run_ocs_extractor(input_dir: str, output_dir: str) -> bool:
     except Exception as e:
         print(f"Error running OCS extractor: {e}")
         return False
+
+
+@router.post("/extract-training-data-oxford")
+async def extract_oxford_data(
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Extract Oxford-style PNG images and save to database.
+    
+    Expected filename format: {ID}_{COND}.png
+    Examples: C0078_COPY.png, C0078_RECALL.png, Park_16_COPY.png
+    
+    Process:
+    1. Parse patient_id and task_type from filename
+    2. Normalize image (auto-crop, resize to 568×274, line thickness 2px)
+    3. Check for duplicates
+    4. Save to database with source_format='OXFORD'
+    
+    Args:
+        files: List of uploaded PNG files
+        db: Database session
+    
+    Returns:
+        {
+            "success": True,
+            "session_id": "...",
+            "results": [
+                {
+                    "original_filename": "...",
+                    "status": "success|duplicate|error",
+                    "message": "...",
+                    "extracted_images": [...]
+                },
+                ...
+            ]
+        }
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+    
+    # Create unique session
+    session_id = f"oxford_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    results = []
+    
+    try:
+        # Process each file
+        for uploaded_file in files:
+            result = {
+                "original_filename": uploaded_file.filename,
+                "status": "pending",
+                "message": "",
+                "extracted_images": []
+            }
+            
+            try:
+                # Read file
+                original_content = await uploaded_file.read()
+                
+                # Calculate hash of ORIGINAL file for duplicate detection (before normalization)
+                original_file_hash = hashlib.sha256(original_content).hexdigest()
+                
+                # Check for duplicates by original file hash
+                existing = db.query(TrainingDataImage).filter(
+                    TrainingDataImage.image_hash == original_file_hash
+                ).first()
+                
+                if existing:
+                    result["status"] = "duplicate"
+                    result["message"] = f"Duplicate of image #{existing.id} (patient_id={existing.patient_id}, uploaded at {existing.uploaded_at})"
+                    result["existing_id"] = existing.id
+                    results.append(result)
+                    continue
+                
+                # Parse filename
+                patient_id, task_type = parse_oxford_filename(uploaded_file.filename)
+                
+                if not patient_id or not task_type:
+                    result["status"] = "error"
+                    result["message"] = f"Invalid filename format. Expected: {{ID}}_{{COPY|RECALL}}.png (e.g., C0078_COPY.png)"
+                    results.append(result)
+                    continue
+                
+                # Load image
+                image = Image.open(io.BytesIO(original_content))
+                
+                # Convert to RGB if needed
+                if image.mode != 'RGB':
+                    image = image.convert('RGB')
+                
+                image_data = np.array(image)
+                
+                # Normalize image
+                normalized_data, success = normalize_oxford_image_data(image_data, target_size=(568, 274))
+                
+                if not success or normalized_data is None:
+                    result["status"] = "error"
+                    result["message"] = "Failed to normalize image (empty or invalid content)"
+                    results.append(result)
+                    continue
+                
+                # Convert normalized data to PNG bytes
+                normalized_pil = Image.fromarray(normalized_data)
+                processed_buffer = io.BytesIO()
+                normalized_pil.save(processed_buffer, format='PNG')
+                processed_data = processed_buffer.getvalue()
+                
+                # Create extraction metadata
+                extraction_metadata = {
+                    "width": 568,
+                    "height": 274,
+                    "line_thickness": 2.0,
+                    "auto_crop": True,
+                    "padding_px": 5,
+                    "normalization_method": "Zhang-Suen + dilation",
+                    "source": "Oxford-style PNG (UI upload)",
+                    "original_resolution": f"{image.width}×{image.height}",
+                    "original_file_size": len(original_content),
+                    "processed_file_size": len(processed_data)
+                }
+                
+                # Create database entry
+                training_image = TrainingDataImage(
+                    patient_id=patient_id,
+                    task_type=task_type,
+                    source_format="OXFORD",
+                    original_filename=uploaded_file.filename,
+                    original_file_data=original_content,
+                    processed_image_data=processed_data,
+                    image_hash=original_file_hash,  # Use hash of ORIGINAL file for duplicate detection
+                    extraction_metadata=json.dumps(extraction_metadata),
+                    features_data=json.dumps({}),  # Empty for now, can be filled later
+                    session_id=session_id
+                )
+                
+                db.add(training_image)
+                db.commit()
+                db.refresh(training_image)
+                
+                result["status"] = "success"
+                result["message"] = "Successfully extracted and saved to database"
+                result["extracted_images"] = [{
+                    "id": training_image.id,
+                    "patient_id": patient_id,
+                    "task_type": task_type,
+                    "filename": uploaded_file.filename
+                }]
+                
+                results.append(result)
+                
+            except Exception as e:
+                result["status"] = "error"
+                result["message"] = f"Error processing file: {str(e)}"
+                results.append(result)
+                print(f"Error processing {uploaded_file.filename}: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Count statistics
+        success_count = sum(1 for r in results if r["status"] == "success")
+        duplicate_count = sum(1 for r in results if r["status"] == "duplicate")
+        error_count = sum(1 for r in results if r["status"] == "error")
+        total_extracted = sum(len(r.get("extracted_images", [])) for r in results)
+        
+        return {
+            "success": True,
+            "session_id": session_id,
+            "statistics": {
+                "total_files": len(files),
+                "success": success_count,
+                "duplicates": duplicate_count,
+                "errors": error_count,
+                "total_images_extracted": total_extracted
+            },
+            "results": results
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing files: {str(e)}")
 
 
 @router.get("/training-data-images")

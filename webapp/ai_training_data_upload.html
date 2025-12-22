@@ -65,9 +65,15 @@
         
         .format-selector {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(3, 1fr);
             gap: 15px;
             margin-bottom: 25px;
+        }
+        
+        @media (max-width: 1024px) {
+            .format-selector {
+                grid-template-columns: 1fr;
+            }
         }
         
         .format-option {
@@ -512,6 +518,13 @@
                     <p>Human expert ratings with red-pixel annotations</p>
                     <p style="margin-top: 10px;"><small>Extracts: COPY or RECALL rating (1 image per file)</small></p>
                 </div>
+                
+                <div class="format-option" id="formatOxford" onclick="selectFormat('oxford')">
+                    <div class="format-icon">📚</div>
+                    <h3>Oxford-Style PNG Images</h3>
+                    <p>Pre-processed black-line images (like Oxford dataset)</p>
+                    <p style="margin-top: 10px;"><small>Filename format: {ID}_{COPY|RECALL}.png (e.g., C0078_COPY.png)</small></p>
+                </div>
             </div>
             
             <div class="info-box" id="formatInfo" style="display: none;">
@@ -586,6 +599,7 @@
             
             document.getElementById('formatMAT').classList.toggle('selected', format === 'mat');
             document.getElementById('formatOCS').classList.toggle('selected', format === 'ocs');
+            document.getElementById('formatOxford').classList.toggle('selected', format === 'oxford');
             
             document.getElementById('uploadSection').style.display = 'block';
             
@@ -609,7 +623,7 @@
                     <li>Storage: Original .mat + 2 processed PNGs</li>
                     <li>Duplicate check: Per extracted image (COPY and RECALL are separate)</li>
                 `;
-            } else {
+            } else if (format === 'ocs') {
                 formatDetails.innerHTML = `
                     <li>Resolution: 568×274 pixels (landscape)</li>
                     <li>Line thickness: 2.00px (normalized)</li>
@@ -617,6 +631,16 @@
                     <li>Output per file: 1 image (COPY or RECALL)</li>
                     <li>Storage: Original PNG + processed PNG</li>
                     <li>Duplicate check: Per original file</li>
+                `;
+            } else if (format === 'oxford') {
+                formatDetails.innerHTML = `
+                    <li>Resolution: 568×274 pixels (landscape)</li>
+                    <li>Line thickness: 2.00px (normalized)</li>
+                    <li>Auto-cropping: Enabled (5px padding)</li>
+                    <li>Filename format: {ID}_{COPY|RECALL}.png (e.g., C0078_COPY.png)</li>
+                    <li>Output per file: 1 image (COPY or RECALL from filename)</li>
+                    <li>Storage: Original PNG + processed PNG</li>
+                    <li>Duplicate check: Per processed image hash</li>
                 `;
             }
             
@@ -636,9 +660,18 @@
                     showAlert('error', `Invalid: ${file.name}. Select .mat files.`);
                     return;
                 }
-                if (selectedFormat === 'ocs' && !file.name.match(/\.(png|jpg|jpeg)$/i)) {
+                if ((selectedFormat === 'ocs' || selectedFormat === 'oxford') && !file.name.match(/\.(png|jpg|jpeg)$/i)) {
                     showAlert('error', `Invalid: ${file.name}. Select PNG/JPG files.`);
                     return;
+                }
+                
+                // For Oxford format, validate filename format
+                if (selectedFormat === 'oxford') {
+                    const name = file.name.replace(/\.(png|jpg|jpeg)$/i, '');
+                    const parts = name.split('_');
+                    if (parts.length < 2 || !['COPY', 'RECALL'].includes(parts[parts.length - 1].toUpperCase())) {
+                        showAlert('warning', `Warning: ${file.name} doesn't match expected format {ID}_{COPY|RECALL}.png`);
+                    }
                 }
                 
                 selectedFiles.push(file);
@@ -725,14 +758,22 @@
             hideResults();
             
             const formData = new FormData();
-            formData.append('format', selectedFormat);
+            
+            // For Oxford format, use different endpoint
+            const endpoint = selectedFormat === 'oxford' 
+                ? '/api/extract-training-data-oxford' 
+                : '/api/extract-training-data';
+            
+            if (selectedFormat !== 'oxford') {
+                formData.append('format', selectedFormat);
+            }
             
             selectedFiles.forEach(file => {
                 formData.append('files', file);
             });
             
             try {
-                const response = await fetch('/api/extract-training-data', {
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     body: formData
                 });

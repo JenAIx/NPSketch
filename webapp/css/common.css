@@ -315,6 +315,12 @@ h3 {
     border-radius: 6px;
     font-size: 1em;
     color: #333;
+    background: white;
+}
+
+.form-group select {
+    font-weight: 600;
+    cursor: pointer;
 }
 
 .form-group input:focus,
@@ -322,6 +328,28 @@ h3 {
 .form-group textarea:focus {
     border-color: #667eea;
     outline: none;
+}
+
+/* Select dropdown options styling */
+select option {
+    background: white;
+    color: #333;
+    padding: 8px;
+}
+
+select option:checked {
+    background: #667eea;
+    color: white;
+    font-weight: 600;
+}
+
+select option:first-child {
+    color: #999;
+    font-style: italic;
+}
+
+select option:hover {
+    background: #f0f4ff;
 }
 
 /* Tables */
@@ -410,6 +438,81 @@ table tbody th {
     background: #f8d7da;
     border-left-color: #dc3545;
     color: #721c24;
+}
+
+/* Expandable/Collapsible Sections */
+.expandable {
+    background: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.expandable:hover {
+    border-color: #667eea;
+}
+
+.expandable-header {
+    padding: 20px;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: white;
+    transition: background 0.3s ease;
+}
+
+.expandable-header:hover {
+    background: #f8f9fa;
+}
+
+.expandable-header:active {
+    background: #e9ecef;
+}
+
+.expandable-title {
+    font-size: 1.1em;
+    font-weight: 600;
+    color: #333;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.expandable-icon {
+    font-size: 1.2em;
+    transition: transform 0.3s ease;
+}
+
+.expandable.collapsed .expandable-icon {
+    transform: rotate(-90deg);
+}
+
+.expandable-content {
+    padding: 20px;
+    background: white;
+    max-height: 2000px;
+    opacity: 1;
+    transition: max-height 0.4s ease, opacity 0.3s ease, padding 0.3s ease;
+    overflow: hidden;
+}
+
+.expandable.collapsed .expandable-content {
+    max-height: 0;
+    opacity: 0;
+    padding: 0 20px;
+}
+
+.expandable-badge {
+    background: #667eea;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.85em;
+    font-weight: 600;
 }
 
 /* Utility Classes */
