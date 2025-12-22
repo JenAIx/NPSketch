@@ -132,11 +132,12 @@ class TrainingDataLoader:
             except:
                 pass
         
-        # Calculate means for numeric features
+        # Calculate means and median for numeric features
         for key in feature_stats:
             values = feature_stats[key]['values']
-            feature_stats[key]['mean'] = np.mean(values) if values else 0
-            feature_stats[key]['std'] = np.std(values) if values else 0
+            feature_stats[key]['mean'] = float(np.mean(values)) if values else 0
+            feature_stats[key]['median'] = float(np.median(values)) if values else 0
+            feature_stats[key]['std'] = float(np.std(values)) if values else 0
             del feature_stats[key]['values']  # Remove raw values
         
         # Add stats for Custom_Class features
@@ -148,6 +149,7 @@ class TrainingDataLoader:
                 'min': 0,
                 'max': int(info['num_classes']) - 1,
                 'mean': 0,
+                'median': 0,
                 'std': 0
             }
         
@@ -165,36 +167,29 @@ class TrainingDataLoader:
             TrainingDataImage.features_data != 'null'
         ).count()
         
-        # Count by format
-        mat_count = self.db.query(TrainingDataImage).filter(
-            TrainingDataImage.source_format == 'MAT'
-        ).count()
+        # Count by format - dynamically get all unique formats
+        from sqlalchemy import func
+        format_counts = self.db.query(
+            TrainingDataImage.source_format,
+            func.count(TrainingDataImage.id)
+        ).group_by(TrainingDataImage.source_format).all()
         
-        ocs_count = self.db.query(TrainingDataImage).filter(
-            TrainingDataImage.source_format == 'OCS'
-        ).count()
+        by_format = {fmt: count for fmt, count in format_counts if fmt}
         
         # Count by task
-        copy_count = self.db.query(TrainingDataImage).filter(
-            TrainingDataImage.task_type == 'COPY'
-        ).count()
+        task_counts = self.db.query(
+            TrainingDataImage.task_type,
+            func.count(TrainingDataImage.id)
+        ).group_by(TrainingDataImage.task_type).all()
         
-        recall_count = self.db.query(TrainingDataImage).filter(
-            TrainingDataImage.task_type == 'RECALL'
-        ).count()
+        by_task = {task: count for task, count in task_counts if task}
         
         return {
             'total_images': total,
             'labeled_images': with_features,
             'unlabeled_images': total - with_features,
-            'by_format': {
-                'MAT': mat_count,
-                'OCS': ocs_count
-            },
-            'by_task': {
-                'COPY': copy_count,
-                'RECALL': recall_count
-            }
+            'by_format': by_format,
+            'by_task': by_task
         }
     
     def load_training_data(

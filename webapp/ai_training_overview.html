@@ -51,29 +51,29 @@
         
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 15px;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 12px;
             margin-bottom: 20px;
         }
         
         .stat-card {
             background: white;
-            padding: 20px;
-            border-radius: 12px;
+            padding: 12px;
+            border-radius: 8px;
             text-align: center;
             border: 2px solid #e9ecef;
         }
         
         .stat-value {
-            font-size: 2.5em;
+            font-size: 1.8em;
             font-weight: bold;
             color: #667eea;
         }
         
         .stat-label {
             color: #666;
-            margin-top: 8px;
-            font-size: 0.95em;
+            margin-top: 5px;
+            font-size: 0.85em;
         }
         
         .btn {
@@ -138,9 +138,249 @@
             font-weight: 600;
             color: #333;
         }
+        
+        /* Distribution Preview Modal Styles (from ai_training_train.html) */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+        
+        .modal-overlay.show {
+            display: flex;
+        }
+        
+        body.modal-open {
+            overflow: hidden;
+        }
+        
+        .modal-content {
+            background: white;
+            border-radius: 15px;
+            max-width: 900px;
+            width: 90vw;
+            height: 90vh;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            color: #333;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 30px;
+            border-bottom: 2px solid #e9ecef;
+            background: white;
+            flex-shrink: 0;
+            color: #333;
+        }
+        
+        .modal-stats-section {
+            padding: 12px 30px;
+            background: white;
+            border-bottom: 2px solid #e9ecef;
+            flex-shrink: 0;
+            color: #333;
+        }
+        
+        .modal-body-scrollable {
+            padding: 20px 30px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            flex: 1 1 auto;
+            min-height: 0;
+            max-height: 100%;
+            color: #333;
+        }
+        
+        .modal-title {
+            font-size: 1.5em;
+            color: #333;
+            font-weight: 600;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 1.5em;
+            cursor: pointer;
+            color: #666 !important;
+            padding: 5px 10px;
+        }
+        
+        .modal-close:hover {
+            color: #333 !important;
+        }
+        
+        /* Stats Grid in Modal Header */
+        .stats-grid-modal {
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 8px;
+            margin: 0;
+            justify-content: space-between;
+        }
+        
+        .stat-item {
+            background: #f8f9fa;
+            padding: 6px 10px;
+            border-radius: 6px;
+            text-align: center;
+            flex: 1;
+            min-width: 0;
+            max-width: 120px;
+        }
+        
+        .stat-item-label {
+            font-size: 0.75em;
+            color: #666;
+            margin-bottom: 3px;
+        }
+        
+        .stat-item-value {
+            font-size: 1em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        /* Histogram Styles */
+        .histogram-container {
+            margin: 20px 0;
+        }
+        
+        .histogram-bar {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .histogram-label {
+            width: 80px;
+            font-size: 0.85em;
+            color: #666;
+            text-align: right;
+            padding-right: 10px;
+        }
+        
+        .histogram-bar-visual {
+            height: 25px;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 4px;
+            position: relative;
+            min-width: 2px;
+            transition: width 0.3s ease;
+        }
+        
+        .histogram-count {
+            width: 80px;
+            text-align: left;
+            padding-left: 10px;
+            font-size: 0.85em;
+            color: #666;
+        }
+        
+        /* Additional Modal Element Styles */
+        .modal-content * {
+            color: inherit;
+        }
+        
+        .modal-content input,
+        .modal-content button,
+        .modal-content select {
+            color: #333;
+        }
+        
+        .modal-content button {
+            color: white;
+        }
+        
+        /* Class Distribution Bar Styles (needed for preview) */
+        .class-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            color: #333;
+        }
+        
+        .class-distribution-bar {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        
+        .class-distribution-label {
+            width: 120px;
+            padding-right: 15px;
+            font-size: 0.9em;
+            flex-shrink: 0;
+            color: #333;
+        }
+        
+        .class-distribution-bar-container {
+            flex: 1;
+            position: relative;
+            height: 35px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .class-distribution-bar-visual {
+            height: 35px;
+            border-radius: 6px;
+            position: relative;
+            min-width: 2px;
+            transition: width 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .class-distribution-count {
+            width: 100px;
+            text-align: left;
+            padding-left: 15px;
+            font-size: 0.9em;
+            flex-shrink: 0;
+            color: #333;
+        }
+        
+        /* Hide auto-classification BUTTONS in overview (read-only mode) */
+        /* But keep the section visible for Custom_Class previews */
+        .auto-classes-section h3,
+        .auto-classes-section > p,
+        .auto-classes-buttons {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
+    <!-- Distribution Preview Modal -->
+    <div id="distributionModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title" id="modalTitle">Distribution Preview</div>
+                <button class="modal-close" onclick="DistributionPreview.hideModal()">×</button>
+            </div>
+            <div class="modal-stats-section" id="modalStats">
+                <!-- Stats will be inserted here -->
+            </div>
+            <div class="modal-body-scrollable" id="modalBody">
+                <!-- Content will be inserted here -->
+            </div>
+        </div>
+    </div>
+    
     <div class="container">
         <a href="/index.html" class="back-link">← Main</a>
         
@@ -150,32 +390,21 @@
         <!-- Dataset Overview -->
         <div class="section">
             <h2>📊 Training Dataset Overview</h2>
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-value" id="totalImages">-</div>
-                    <div class="stat-label">Total Images</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="labeledImages">-</div>
-                    <div class="stat-label">Labeled</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="unlabeledImages">-</div>
-                    <div class="stat-label">Unlabeled</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="matImages">-</div>
-                    <div class="stat-label">MAT (Machine)</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="ocsImages">-</div>
-                    <div class="stat-label">OCS (Human)</div>
-                </div>
+            <div class="stats-grid" id="statsGrid">
+                <!-- Dynamically populated -->
             </div>
             
             <a href="/ai_training_train.html" class="btn btn-success" style="margin-top: 15px;">
                 🚀 Train New Model
             </a>
+        </div>
+        
+        <!-- Available Features -->
+        <div class="section">
+            <h2>🏷️ Available Features</h2>
+            <div id="featuresList" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px;">
+                <!-- Dynamically populated -->
+            </div>
         </div>
         
         <!-- Saved Models -->
@@ -192,11 +421,47 @@
                 const response = await fetch('/api/ai-training/dataset-info');
                 const data = await response.json();
                 
-                document.getElementById('totalImages').textContent = data.total_images;
-                document.getElementById('labeledImages').textContent = data.labeled_images;
-                document.getElementById('unlabeledImages').textContent = data.unlabeled_images;
-                document.getElementById('matImages').textContent = data.by_format.MAT;
-                document.getElementById('ocsImages').textContent = data.by_format.OCS;
+                const statsGrid = document.getElementById('statsGrid');
+                
+                // Build stats cards dynamically
+                let cardsHtml = '';
+                
+                // Total, Labeled, Unlabeled
+                cardsHtml += `
+                    <div class="stat-card">
+                        <div class="stat-value">${data.total_images}</div>
+                        <div class="stat-label">Total</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${data.labeled_images}</div>
+                        <div class="stat-label">Labeled</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${data.unlabeled_images}</div>
+                        <div class="stat-label">Unlabeled</div>
+                    </div>
+                `;
+                
+                // Source formats (dynamically from backend)
+                const formatLabels = {
+                    'MAT': '🖥️ MAT',
+                    'OCS': '✏️ OCS',
+                    'OXFORD': '📚 Oxford',
+                    'DRAWN': '🎨 Drawn',
+                    'UPLOAD': '📤 Upload'
+                };
+                
+                for (const [format, count] of Object.entries(data.by_format)) {
+                    const label = formatLabels[format] || format;
+                    cardsHtml += `
+                        <div class="stat-card">
+                            <div class="stat-value">${count}</div>
+                            <div class="stat-label">${label}</div>
+                        </div>
+                    `;
+                }
+                
+                statsGrid.innerHTML = cardsHtml;
                 
             } catch (error) {
                 console.error('Error loading dataset info:', error);
@@ -248,7 +513,7 @@
                                 Created: ${date}
                                 ${model.has_metadata ? '<span style="color: #667eea; margin-left: 10px; cursor: pointer;" onclick="toggleMetadata(\'' + model.filename + '\'); event.stopPropagation();">▼ Show Details</span>' : ''}
                             </div>
-                            <div id="metadata-${safeName}" style="display: none; background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 15px;"></div>
+                            <div id="metadata-${safeName}" style="display: none; background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 15px; color: #333;"></div>
                             <div style="display: flex; gap: 10px;">
                                 <button class="btn" style="padding: 8px 16px; font-size: 0.9em;" onclick="testModel('${model.filename}')">
                                     🧪 Test Model
@@ -370,18 +635,18 @@
             metadata.num_classes = numClasses;
             
             metadataDiv.innerHTML = `
-                <div style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid ${metadata.training_mode === 'classification' ? '#28a745' : '#667eea'};">
+                <div style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid ${metadata.training_mode === 'classification' ? '#28a745' : '#667eea'}; color: #333;">
                     <div style="font-size: 0.9em; color: #666; margin-bottom: 8px; font-weight: 600;">
                         🧠 Model Architecture
                         <span style="float: right; background: ${metadata.training_mode === 'classification' ? '#28a745' : '#667eea'}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 0.85em;">
                             ${metadata.training_mode === 'classification' ? '🏷️ Classification' : '📊 Regression'}
                         </span>
                     </div>
-                    <div style="margin-bottom: 12px; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+                    <div style="margin-bottom: 12px; padding: 8px; background: #f8f9fa; border-radius: 4px; color: #333;">
                         <strong>Target Feature:</strong> ${metadata.target_feature || 'N/A'}
                         ${metadata.num_classes ? ` <span style="color: #666;">(${metadata.num_classes} classes)</span>` : ''}
                     </div>
-                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.85em;">
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.85em; color: #333;">
                         <div>
                             <span style="color: #666;">Architecture:</span> 
                             <strong>${modelInfo.architecture || 'ResNet-18'}</strong>
@@ -430,7 +695,7 @@
                 <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
                     <div>
                         <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Training Configuration</div>
-                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em;">
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
                             Epochs: <strong>${config.num_epochs || 'N/A'}</strong> | 
                             LR: <strong>${config.learning_rate || 'N/A'}</strong> | 
                             Batch: <strong>${config.batch_size || 'N/A'}</strong> | 
@@ -443,7 +708,7 @@
                             Performance (Validation)
                             ${metadata.training_mode ? `<span style="color: #999;"> - ${metadata.training_mode}</span>` : ''}
                         </div>
-                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em;">
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
                             ${valMetrics.accuracy !== undefined || metadata.training_mode === 'classification' ? `
                                 Accuracy: <strong style="color: ${valMetrics.accuracy > 0.7 ? '#28a745' : valMetrics.accuracy > 0.5 ? '#ffc107' : '#dc3545'};">${valMetrics.accuracy ? (valMetrics.accuracy * 100).toFixed(1) + '%' : 'N/A'}</strong> | 
                                 F1: <strong>${valMetrics.f1_score_macro ? (valMetrics.f1_score_macro * 100).toFixed(1) + '%' : 'N/A'}</strong>
@@ -459,7 +724,7 @@
                 <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
                     <div>
                         <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Data Augmentation</div>
-                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em;">
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
                             <span style="color: ${augmentation.enabled ? '#28a745' : '#6c757d'};">
                                 ${augmentation.enabled ? '✅ Enabled' : '❌ Disabled'}
                             </span>
@@ -474,7 +739,7 @@
                     
                     <div>
                         <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Target Normalization</div>
-                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em;">
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
                             ${metadata.training_mode === 'classification' ? `
                                 <span style="color: #6c757d;">N/A (Classification)</span>
                             ` : `
@@ -495,7 +760,7 @@
                     </div>
                 </div>
                 
-                <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; margin-bottom: 15px;">
+                <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; margin-bottom: 15px; color: #333;">
                     <strong>Dataset:</strong> ${dataset.total_samples || 'N/A'} samples 
                     (${dataset.train_samples || 'N/A'} train, ${dataset.val_samples || 'N/A'} val)
                     ${dataset.split_strategy ? `
@@ -510,7 +775,7 @@
                             <summary style="cursor: pointer; color: #667eea;">
                                 <strong>Training IDs (${metadata.train_image_ids.length}):</strong>
                             </summary>
-                            <div style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px; max-height: 100px; overflow-y: auto;">
+                            <div style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px; max-height: 100px; overflow-y: auto; color: #333;">
                                 ${metadata.train_image_ids.join(', ')}
                             </div>
                         </details>
@@ -521,7 +786,7 @@
                             <summary style="cursor: pointer; color: #28a745;">
                                 <strong>Validation IDs (${metadata.val_image_ids.length}):</strong>
                             </summary>
-                            <div style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px; max-height: 100px; overflow-y: auto;">
+                            <div style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px; max-height: 100px; overflow-y: auto; color: #333;">
                                 ${metadata.val_image_ids.join(', ')}
                             </div>
                         </details>
@@ -529,7 +794,7 @@
                 </div>
                 
                 ${metadata.training_mode === 'classification' && valMetrics.confusion_matrix ? `
-                    <div style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                    <div style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; color: #333;">
                         <div style="font-size: 0.9em; color: #666; margin-bottom: 10px; font-weight: 600;">🔢 Confusion Matrix (Validation)</div>
                         <div style="overflow-x: auto;">
                             ${renderConfusionMatrix(valMetrics.confusion_matrix, metadata.num_classes || valMetrics.confusion_matrix.length)}
@@ -570,7 +835,7 @@
                                     <summary style="cursor: pointer; color: #667eea; font-size: 0.85em;">
                                         <strong>Per-Class Metrics</strong>
                                     </summary>
-                                    <div style="margin-top: 8px; padding: 10px; background: white; border-radius: 4px; font-size: 0.85em;">
+                                    <div style="margin-top: 8px; padding: 10px; background: white; border-radius: 4px; font-size: 0.85em; color: #333;">
                                         ${val.per_class_f1.map((f1, i) => `
                                             <div style="margin-bottom: 5px;">
                                                 <strong>Class ${i}:</strong> 
@@ -596,7 +861,7 @@
                     }
                     
                     resultDiv.innerHTML = `
-                        <div style="background: #e7f3ff; border: 1px solid #2196F3; padding: 15px; border-radius: 6px;">
+                        <div style="background: #e7f3ff; border: 1px solid #2196F3; padding: 15px; border-radius: 6px; color: #333;">
                             <div style="font-weight: 600; color: #0c5460; margin-bottom: 10px;">
                                 Test Results (${isClassification ? 'Classification' : 'Regression'}):
                             </div>
@@ -630,9 +895,96 @@
             }
         }
         
+        async function loadFeatures() {
+            try {
+                const response = await fetch('/api/ai-training/available-features');
+                const data = await response.json();
+                
+                const featuresList = document.getElementById('featuresList');
+                
+                if (!data.features || data.features.length === 0) {
+                    featuresList.innerHTML = `
+                        <div style="text-align: center; padding: 20px; color: #999; grid-column: 1 / -1;">
+                            <p>No labeled features available</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                let html = '';
+                
+                // Iterate through features
+                data.features.forEach(featureName => {
+                    const stats = data.stats[featureName];
+                    
+                    if (!stats) return; // Skip if no stats
+                    
+                    const isCustomClass = featureName.startsWith('Custom_Class_');
+                    
+                    if (isCustomClass) {
+                        // Custom Classification
+                        const numClasses = stats.num_classes || 0;
+                        html += `
+                            <div style="background: white; padding: 12px; border-radius: 8px; border: 2px solid #28a745; color: #333;">
+                                <div style="font-weight: 600; color: #28a745; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+                                    <span>🏷️ ${numClasses}-Class</span>
+                                    <span onclick="DistributionPreview.showPreview('${featureName}', event)" 
+                                          style="background: #28a745; color: white; padding: 4px 10px; border-radius: 10px; font-size: 0.75em; cursor: pointer; transition: all 0.2s;"
+                                          onmouseover="this.style.transform='scale(1.1)'; this.style.boxShadow='0 2px 8px rgba(40,167,69,0.4)';"
+                                          onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none';">
+                                        👁️ ${stats.count}
+                                    </span>
+                                </div>
+                                ${stats.class_names && stats.class_names !== 'N/A' ? `
+                                    <div style="font-size: 0.8em; color: #666; margin-top: 6px;">
+                                        <strong>Classes:</strong> ${stats.class_names}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `;
+                    } else {
+                        // Regular feature
+                        const icon = featureName === 'Total_Score' ? '📊' : 
+                                     featureName === 'MMSE' ? '🧠' : '🏷️';
+                        
+                        html += `
+                            <div style="background: white; padding: 12px; border-radius: 8px; border: 2px solid #e9ecef; color: #333;">
+                                <div style="font-weight: 600; color: #667eea; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+                                    <span style="display: flex; align-items: center; gap: 6px;">
+                                        <span>${icon}</span>
+                                        <span>${featureName}</span>
+                                    </span>
+                                    <span onclick="DistributionPreview.showPreview('${featureName}', event)" 
+                                          style="background: #667eea; color: white; padding: 4px 10px; border-radius: 10px; font-size: 0.75em; cursor: pointer; transition: all 0.2s;"
+                                          onmouseover="this.style.transform='scale(1.1)'; this.style.boxShadow='0 2px 8px rgba(102,126,234,0.4)';"
+                                          onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none';">
+                                        👁️ ${stats.count}
+                                    </span>
+                                </div>
+                                <div style="font-size: 0.8em; color: #666; margin-top: 6px; padding: 6px; background: #f8f9fa; border-radius: 4px;">
+                                    Range: <strong>${stats.min}</strong> - <strong>${stats.max}</strong><br>
+                                    Mean: <strong>${stats.mean.toFixed(1)}</strong> | 
+                                    Median: <strong>${stats.median?.toFixed(1) || 'N/A'}</strong>
+                                </div>
+                            </div>
+                        `;
+                    }
+                });
+                
+                featuresList.innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error loading features:', error);
+            }
+        }
+        
         loadDatasetInfo();
+        loadFeatures();
         loadModels();
     </script>
+    
+    <!-- Distribution Preview Module -->
+    <script src="/js/ai_training_preview_target_distribution.js"></script>
 </body>
 </html>
 

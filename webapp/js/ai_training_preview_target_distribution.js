@@ -14,8 +14,11 @@ const DistributionPreview = {
     /**
      * Show distribution preview modal
      */
-    async showPreview(featureName, event) {
-        event.stopPropagation(); // Prevent feature selection
+    async showPreview(featureName, eventOrCount) {
+        // Handle both cases: called from onclick with event, or programmatically with count
+        if (eventOrCount && typeof eventOrCount.stopPropagation === 'function') {
+            eventOrCount.stopPropagation(); // Prevent feature selection if event is passed
+        }
         
         this.currentFeature = featureName;
         const modal = document.getElementById('distributionModal');
@@ -144,14 +147,14 @@ const DistributionPreview = {
         }).join('');
         
         modalBody.innerHTML = `
-            <div style="background: white; padding: 20px; border-radius: 8px; border: 1px solid #e9ecef;">
+            <div style="background: white; padding: 20px; border-radius: 8px; border: 1px solid #e9ecef; color: #333;">
                 <h3 style="margin: 0 0 15px 0; color: #333;">Class Distribution</h3>
                 <div style="margin-bottom: 10px; color: #666; font-size: 0.9em;">
-                    Total Samples: <strong>${totalSamples}</strong> in <strong>${numClasses}</strong> classes
+                    Total Samples: <strong style="color: #333;">${totalSamples}</strong> in <strong style="color: #333;">${numClasses}</strong> classes
                 </div>
                 ${barsHtml}
             </div>
-            <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+            <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea; color: #333;">
                 <strong>ℹ️ Note:</strong> This classification is already saved in the database. 
                 To modify, create a new classification with different number of classes.
             </div>
@@ -390,10 +393,10 @@ const DistributionPreview = {
                 </p>
                 
                 <!-- Distribution Plot -->
-                <div style="background: white; padding: 20px; border-radius: 8px; border: 1px solid #e9ecef;">
+                <div style="background: white; padding: 20px; border-radius: 8px; border: 1px solid #e9ecef; color: #333;">
                     <h5 style="margin: 0 0 15px 0; color: #333; font-size: 1em;">Class Distribution</h5>
                     <div style="margin-bottom: 10px; color: #666; font-size: 0.9em;">
-                        Total Samples: <strong>${totalSamples}</strong>
+                        Total Samples: <strong style="color: #333;">${totalSamples}</strong>
                     </div>
                     ${distributionPlot}
                 </div>
@@ -472,10 +475,10 @@ const DistributionPreview = {
                     <p style="color: #666; margin-bottom: 20px;">
                         Updated <strong>${result.updated_count}</strong> entries in database.
                     </p>
-                    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: left;">
+                    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: left; color: #333;">
                         <h4 style="margin-bottom: 10px; color: #333;">Class Distribution:</h4>
                         ${result.class_info.map(cls => `
-                            <div style="padding: 8px; border-bottom: 1px solid #e9ecef;">
+                            <div style="padding: 8px; border-bottom: 1px solid #e9ecef; color: #333;">
                                 <strong>Class ${cls.class_id}</strong> (${cls.range}): 
                                 ${cls.count} samples (${cls.percentage}%)
                             </div>
