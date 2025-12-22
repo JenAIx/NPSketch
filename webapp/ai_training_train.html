@@ -222,6 +222,322 @@
             font-size: 0.9em;
         }
         
+        .preview-icon-btn {
+            background: transparent;
+            border: none;
+            font-size: 1.2em;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: all 0.2s;
+            opacity: 0.7;
+            position: relative;
+        }
+        
+        .preview-icon-btn:hover {
+            opacity: 1;
+            background: rgba(102, 126, 234, 0.1);
+            transform: scale(1.1);
+        }
+        
+        /* Tooltip */
+        .preview-icon-btn::after {
+            content: "View distribution preview";
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: white;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.75em;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+            margin-bottom: 5px;
+            z-index: 1000;
+        }
+        
+        .preview-icon-btn::before {
+            content: "";
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 5px solid transparent;
+            border-top-color: #333;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+            margin-bottom: -5px;
+            z-index: 1000;
+        }
+        
+        .preview-icon-btn:hover::after,
+        .preview-icon-btn:hover::before {
+            opacity: 1;
+        }
+        
+        /* Modal Styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+        
+        .modal-overlay.show {
+            display: flex;
+        }
+        
+        body.modal-open {
+            overflow: hidden;
+        }
+        
+        .modal-content {
+            background: white;
+            border-radius: 15px;
+            max-width: 900px;
+            width: 90vw;
+            height: 90vh;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 30px;
+            border-bottom: 2px solid #e9ecef;
+            background: white;
+            flex-shrink: 0;
+        }
+        
+        .modal-stats-section {
+            padding: 12px 30px;
+            background: white;
+            border-bottom: 2px solid #e9ecef;
+            flex-shrink: 0;
+        }
+        
+        .modal-body-scrollable {
+            padding: 20px 30px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            flex: 1 1 auto;
+            min-height: 0;
+            max-height: 100%;
+        }
+        
+        .modal-title {
+            font-size: 1.5em;
+            color: #333;
+            font-weight: 600;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 1.5em;
+            cursor: pointer;
+            color: #666;
+            padding: 5px 10px;
+        }
+        
+        .modal-close:hover {
+            color: #333;
+        }
+        
+        .histogram-container {
+            margin: 20px 0;
+        }
+        
+        .histogram-bar {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .histogram-label {
+            width: 80px;
+            font-size: 0.85em;
+            color: #666;
+            text-align: right;
+            padding-right: 10px;
+        }
+        
+        .histogram-bar-visual {
+            height: 25px;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 4px;
+            position: relative;
+            min-width: 2px;
+            transition: width 0.3s ease;
+        }
+        
+        .histogram-count {
+            width: 80px;
+            text-align: left;
+            padding-left: 10px;
+            font-size: 0.85em;
+            color: #666;
+        }
+        
+        .stats-grid-modal {
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 8px;
+            margin: 0;
+            justify-content: space-between;
+        }
+        
+        .stat-item {
+            background: #f8f9fa;
+            padding: 6px 10px;
+            border-radius: 6px;
+            text-align: center;
+            flex: 1;
+            min-width: 0;
+            max-width: 120px;
+        }
+        
+        .stat-item-label {
+            font-size: 0.75em;
+            color: #666;
+            margin-bottom: 3px;
+        }
+        
+        .stat-item-value {
+            font-size: 1em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .auto-classes-section {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 2px solid #e9ecef;
+        }
+        
+        .auto-classes-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        
+        .class-btn {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.95em;
+            transition: all 0.2s;
+        }
+        
+        .class-btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        
+        .class-btn-selected {
+            background: #28a745 !important;
+            border: 2px solid #1e7e34;
+        }
+        
+        .class-btn-selected:hover {
+            background: #218838 !important;
+        }
+        
+        .class-btn-save {
+            background: #28a745;
+            font-weight: 600;
+        }
+        
+        .class-btn-save:hover {
+            background: #218838;
+        }
+        
+        .class-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+        
+        .class-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            margin: 5px 0;
+            background: white;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .class-item-label {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .class-item-stats {
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        .class-distribution-bar {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        
+        .class-distribution-label {
+            width: 120px;
+            padding-right: 15px;
+            font-size: 0.9em;
+            flex-shrink: 0;
+        }
+        
+        .class-distribution-bar-container {
+            flex: 1;
+            position: relative;
+            height: 35px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .class-distribution-bar-visual {
+            height: 35px;
+            border-radius: 6px;
+            position: relative;
+            min-width: 2px;
+            transition: width 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .class-distribution-count {
+            width: 100px;
+            text-align: left;
+            padding-left: 15px;
+            font-size: 0.9em;
+            flex-shrink: 0;
+        }
+        
         .config-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -420,6 +736,22 @@
             </button>
         </div>
         
+        <!-- Distribution Preview Modal -->
+        <div id="distributionModal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="modal-title" id="modalTitle">Distribution Preview</div>
+                    <button class="modal-close" onclick="DistributionPreview.hideModal()">×</button>
+                </div>
+                <div class="modal-stats-section" id="modalStats">
+                    <!-- Stats will be inserted here -->
+                </div>
+                <div class="modal-body-scrollable" id="modalBody">
+                    <!-- Content will be inserted here -->
+                </div>
+            </div>
+        </div>
+        
         <!-- Training Progress -->
         <div class="loading" id="trainingProgress">
             <div class="spinner"></div>
@@ -497,7 +829,13 @@
                     <div class="feature-card" onclick="selectFeature('${feature}')">
                         <div class="feature-card-header">
                             <div class="feature-name">${feature}</div>
-                            <div class="feature-count">${stats.count} samples</div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <div class="feature-count">${stats.count} samples</div>
+                                <button class="preview-icon-btn" onclick="event.stopPropagation(); DistributionPreview.showPreview('${feature}', event);" 
+                                        title="View distribution preview">
+                                    👁️
+                                </button>
+                            </div>
                         </div>
                         <div class="feature-stats">
                             Mean: ${stats.mean.toFixed(3)} | Std: ${stats.std.toFixed(3)} | 
@@ -1222,6 +1560,9 @@
         // Load data on page load
         loadDatasetInfo();
     </script>
+    
+    <!-- Distribution Preview Module -->
+    <script src="/js/ai_training_preview_target_distribution.js"></script>
 </body>
 </html>
 

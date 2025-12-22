@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 from database import get_db, TrainingDataImage
 import json
+import numpy as np
 
 # Import data_loader (it will handle PyTorch imports gracefully)
 # We need to add ai_training to path first
@@ -633,6 +634,276 @@ async def delete_model(model_filename: str):
         return {"success": True, "message": f"Model deleted: {model_filename}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/feature-distribution/{feature_name}")
+async def get_feature_distribution(
+    feature_name: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get distribution data for a feature (histogram, stats, auto-classifications).
+    Returns only aggregated data, not individual values.
+    
+    Args:
+        feature_name: Name of the feature (e.g., 'Total_Score')
+    
+    Returns:
+        Distribution data with histogram bins, statistics, and pre-calculated class splits
+    """
+    try:
+        # 1. Fetch all scores from DB
+        images = db.query(TrainingDataImage).filter(
+            TrainingDataImage.features_data.isnot(None)
+        ).all()
+        
+        scores = []
+        for img in images:
+            try:
+                features = json.loads(img.features_data)
+                if feature_name in features:
+                    score = float(features[feature_name])
+                    scores.append(score)
+            except (json.JSONDecodeError, ValueError, KeyError):
+                continue
+        
+        if len(scores) == 0:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No samples found with feature '{feature_name}'"
+            )
+        
+        scores = np.array(scores)
+        
+        # 2. Calculate statistics
+        stats = {
+            "min": float(np.min(scores)),
+            "max": float(np.max(scores)),
+            "mean": float(np.mean(scores)),
+            "median": float(np.median(scores)),
+            "std": float(np.std(scores)),
+            "range": float(np.max(scores) - np.min(scores)),
+            "q25": float(np.percentile(scores, 25)),
+            "q75": float(np.percentile(scores, 75))
+        }
+        
+        # 3. Generate histogram (25 bins)
+        hist_counts, hist_edges = np.histogram(scores, bins=25)
+        histogram_data = []
+        total_samples = len(scores)
+        
+        for i in range(len(hist_counts)):
+            bin_min = float(hist_edges[i])
+            bin_max = float(hist_edges[i + 1])
+            count = int(hist_counts[i])
+            percentage = (count / total_samples) * 100.0
+            
+            histogram_data.append({
+                "min": bin_min,
+                "max": bin_max,
+                "count": count,
+                "percentage": round(percentage, 2)
+            })
+        
+        histogram = {
+            "bins": 25,
+            "data": histogram_data
+        }
+        
+        # 4. Pre-calculate auto-classifications (2-5 classes, quantile-based)
+        auto_classifications = {}
+        
+        for num_classes in [2, 3, 4, 5]:
+            # Calculate quantile-based boundaries
+            percentiles = np.linspace(0, 100, num_classes + 1)
+            boundaries = np.percentile(scores, percentiles)
+            
+            # Ensure boundaries are unique and sorted
+            boundaries = np.unique(boundaries)
+            if len(boundaries) < num_classes + 1:
+                # Fallback to equal-width if quantiles produce duplicates
+                boundaries = np.linspace(np.min(scores), np.max(scores), num_classes + 1)
+            
+            # Assign classes and count distribution
+            class_data = []
+            
+            for class_id in range(num_classes):
+                class_min = float(boundaries[class_id])
+                class_max = float(boundaries[class_id + 1])
+                
+                # Count samples in this class
+                if class_id == num_classes - 1:
+                    # Last class: include upper boundary
+                    mask = (scores >= class_min) & (scores <= class_max)
+                else:
+                    mask = (scores >= class_min) & (scores < class_max)
+                
+                count = int(np.sum(mask))
+                percentage = (count / total_samples) * 100.0
+                
+                class_data.append({
+                    "id": class_id,
+                    "min": class_min,
+                    "max": class_max,
+                    "count": count,
+                    "percentage": round(percentage, 2),
+                    "label": f"Class_{class_id}"
+                })
+            
+            auto_classifications[f"{num_classes}_classes"] = {
+                "method": "quantile",
+                "boundaries": [float(b) for b in boundaries],
+                "classes": class_data
+            }
+        
+        return {
+            "feature_name": feature_name,
+            "total_samples": total_samples,
+            "statistics": stats,
+            "histogram": histogram,
+            "auto_classifications": auto_classifications
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating distribution: {str(e)}")
+
+
+@router.post("/generate-classes")
+async def generate_and_save_classes(
+    config: dict = Body(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate class boundaries and save class labels to database.
+    
+    Request Body:
+    {
+        "feature_name": "Total_Score",
+        "num_classes": 4,
+        "method": "quantile"  # or "equal-width"
+    }
+    
+    Returns:
+        Success status and class distribution
+    """
+    try:
+        feature_name = config.get("feature_name")
+        num_classes = config.get("num_classes")
+        method = config.get("method", "quantile")
+        
+        if not feature_name:
+            raise HTTPException(status_code=400, detail="feature_name is required")
+        
+        if not num_classes or num_classes < 2 or num_classes > 10:
+            raise HTTPException(
+                status_code=400,
+                detail="num_classes must be between 2 and 10"
+            )
+        
+        # 1. Get all scores
+        images = db.query(TrainingDataImage).filter(
+            TrainingDataImage.features_data.isnot(None)
+        ).all()
+        
+        scores = []
+        valid_images = []
+        
+        for img in images:
+            try:
+                features = json.loads(img.features_data)
+                if feature_name in features:
+                    score = float(features[feature_name])
+                    scores.append(score)
+                    valid_images.append(img)
+            except (json.JSONDecodeError, ValueError, KeyError):
+                continue
+        
+        if len(scores) == 0:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No samples found with feature '{feature_name}'"
+            )
+        
+        scores = np.array(scores)
+        
+        # 2. Calculate class boundaries
+        if method == "quantile":
+            percentiles = np.linspace(0, 100, num_classes + 1)
+            boundaries = np.percentile(scores, percentiles)
+            # Ensure boundaries are unique
+            boundaries = np.unique(boundaries)
+            if len(boundaries) < num_classes + 1:
+                # Fallback to equal-width if quantiles produce duplicates
+                boundaries = np.linspace(np.min(scores), np.max(scores), num_classes + 1)
+        else:  # equal-width
+            boundaries = np.linspace(np.min(scores), np.max(scores), num_classes + 1)
+        
+        boundaries = np.array(boundaries)
+        
+        # 3. Assign classes and update DB (ZUSÄTZLICH, nicht ersetzend!)
+        updated_count = 0
+        class_distribution = {i: 0 for i in range(num_classes)}
+        
+        for img in valid_images:
+            try:
+                features = json.loads(img.features_data)
+                score = float(features[feature_name])
+                
+                # Determine class (digitize returns bin index, 0-based)
+                class_id = np.digitize(score, boundaries) - 1
+                # Clamp to valid range
+                class_id = max(0, min(int(class_id), num_classes - 1))
+                
+                # Update features_data - NUR HINZUFÜGEN!
+                # Total_Score bleibt unverändert!
+                features[f"class_label_{num_classes}_classes"] = int(class_id)
+                
+                # Create class name with range
+                class_min = float(boundaries[class_id])
+                class_max = float(boundaries[class_id + 1])
+                features[f"class_name_{num_classes}_classes"] = f"Class_{class_id} ({class_min:.1f}-{class_max:.1f})"
+                
+                # Optional: Store boundaries for reference
+                features[f"classification_boundaries_{num_classes}_classes"] = [float(b) for b in boundaries]
+                
+                img.features_data = json.dumps(features)
+                class_distribution[class_id] += 1
+                updated_count += 1
+            except (json.JSONDecodeError, ValueError, KeyError) as e:
+                continue
+        
+        db.commit()
+        
+        # Calculate class percentages
+        class_info = []
+        total = updated_count
+        for class_id in range(num_classes):
+            count = class_distribution[class_id]
+            percentage = (count / total * 100.0) if total > 0 else 0.0
+            class_info.append({
+                "class_id": class_id,
+                "count": count,
+                "percentage": round(percentage, 2),
+                "range": f"{float(boundaries[class_id]):.1f}-{float(boundaries[class_id + 1]):.1f}"
+            })
+        
+        return {
+            "success": True,
+            "updated_count": updated_count,
+            "num_classes": num_classes,
+            "method": method,
+            "boundaries": [float(b) for b in boundaries],
+            "class_distribution": class_distribution,
+            "class_info": class_info
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error generating classes: {str(e)}")
 
 
 @router.post("/cleanup-orphaned-metadata")
