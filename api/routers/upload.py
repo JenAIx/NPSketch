@@ -11,7 +11,7 @@ Contains endpoints for:
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from database import get_db, UploadedImage
+from database import get_db, UploadedImage, TrainingDataImage
 from models import UploadResponse, EvaluationResultResponse
 from services import ReferenceService, EvaluationService
 import io
@@ -49,18 +49,36 @@ async def check_duplicate(
             content = await file.read()
             image_hash = hashlib.sha256(content).hexdigest()
         
-        # Check if exists
-        existing = db.query(UploadedImage).filter(
+        # Check if exists in UploadedImage table
+        existing_upload = db.query(UploadedImage).filter(
             UploadedImage.image_hash == image_hash
         ).first()
         
-        if existing:
+        # ALSO check if exists in TrainingDataImage table
+        existing_training = db.query(TrainingDataImage).filter(
+            TrainingDataImage.image_hash == image_hash
+        ).first()
+        
+        if existing_upload:
             return {
                 "is_duplicate": True,
-                "existing_id": existing.id,
-                "existing_filename": existing.filename,
-                "uploaded_at": existing.uploaded_at.isoformat(),
-                "uploader": existing.uploader
+                "existing_id": existing_upload.id,
+                "existing_filename": existing_upload.filename,
+                "uploaded_at": existing_upload.uploaded_at.isoformat(),
+                "uploader": existing_upload.uploader,
+                "source": "upload"
+            }
+        elif existing_training:
+            return {
+                "is_duplicate": True,
+                "existing_id": existing_training.id,
+                "existing_filename": existing_training.original_filename or f"{existing_training.patient_id}_{existing_training.task_type}",
+                "uploaded_at": existing_training.uploaded_at.isoformat() if existing_training.uploaded_at else "N/A",
+                "uploader": "Training Database",
+                "source": "training_data",
+                "patient_id": existing_training.patient_id,
+                "task_type": existing_training.task_type,
+                "source_format": existing_training.source_format
             }
         else:
             return {
@@ -242,15 +260,20 @@ async def normalize_image(
 @router.post("/register-image")
 async def register_image(
     file: UploadFile = File(...),
-    enable_translation: bool = Form(True),
-    enable_rotation: bool = Form(True),
-    enable_scale: bool = Form(True),
+    enable_translation: bool = Form(False),
+    enable_rotation: bool = Form(False),
+    enable_scale: bool = Form(False),
+    enable_thinning: bool = Form(True),
     db: Session = Depends(get_db)
 ):
     """
-    STEP 3: Auto Match - Apply registration + line detection + thin to 1px
+    STEP 3: Auto Processing - Optional registration + optional line thinning
     Input: Already normalized 568×274 image from frontend
-    Output: Registered + thinned 1px lines
+    Output: Optionally registered + optionally thinned lines
+    
+    New: Registration and Thinning are now separate options!
+    - Registration: Slow (~10 sec), aligns to reference
+    - Thinning: Fast, reduces lines to 1px
     """
     import cv2
     import numpy as np
@@ -260,9 +283,10 @@ async def register_image(
     
     try:
         print("=" * 60)
-        print("🔄 STEP 3: AUTO MATCH (Registration + Thinning)")
+        print("🔄 STEP 3: AUTO PROCESSING")
         print("=" * 60)
-        print(f"  Options: translation={enable_translation}, rotation={enable_rotation}, scale={enable_scale}")
+        print(f"  Registration: translation={enable_translation}, rotation={enable_rotation}, scale={enable_scale}")
+        print(f"  Thinning: {enable_thinning}")
         
         # Read uploaded file (should already be 568×274 normalized from frontend)
         content = await file.read()
@@ -320,24 +344,27 @@ async def register_image(
             except Exception as reg_error:
                 print(f"     ⚠️  Registration failed: {reg_error}")
         else:
-            print("\n  ⏭️  STEP 3a: Registration skipped (all disabled)")
+            print("\n  ⏭️  STEP 3a: Registration skipped (disabled)")
         
-        # STEP 3b: Line Thinning to 1px
-        print("\n  ✂️  STEP 3b: Thinning to 1px...")
+        # STEP 3b: Line Thinning to 1px (optional)
+        if enable_thinning:
+            print("\n  ✂️  STEP 3b: Thinning to 1px...")
+            
+            gray = cv2.cvtColor(result_img, cv2.COLOR_BGR2GRAY)
+            _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
+            
+            # Skeletonize to 1px
+            skeleton_bool = skeletonize(binary > 0)
+            skeleton = (skeleton_bool * 255).astype(np.uint8)
+            thinned = cv2.bitwise_not(skeleton)
+            
+            # Convert back to color
+            result_img = cv2.cvtColor(thinned, cv2.COLOR_GRAY2BGR)
+            print(f"     ✅ Thinned to 1px: {result_img.shape}")
+        else:
+            print("\n  ⏭️  STEP 3b: Thinning skipped (disabled)")
         
-        gray = cv2.cvtColor(result_img, cv2.COLOR_BGR2GRAY)
-        _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
-        
-        # Skeletonize to 1px
-        skeleton_bool = skeletonize(binary > 0)
-        skeleton = (skeleton_bool * 255).astype(np.uint8)
-        thinned = cv2.bitwise_not(skeleton)
-        
-        # Convert back to color
-        result_img = cv2.cvtColor(thinned, cv2.COLOR_GRAY2BGR)
-        print(f"     ✅ Thinned to 1px: {result_img.shape}")
-        
-        print("\n✅ AUTO MATCH COMPLETE!")
+        print("\n✅ AUTO PROCESSING COMPLETE!")
         print("=" * 60)
         
         # Encode as PNG

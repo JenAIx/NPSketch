@@ -29,9 +29,18 @@
         
         .workspace {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 60% 40%;
             gap: 30px;
             margin-top: 30px;
+        }
+        
+        .analysis-section {
+            grid-column: 1 / -1; /* Span full width */
+            margin-top: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
         }
         
         .panel {
@@ -434,19 +443,29 @@
             <input type="file" id="fileInput" accept="image/*">
         </div>
         
-        <!-- Auto Match Option (below upload area to avoid triggering file dialog) -->
+        <!-- Auto Processing Options (below upload area to avoid triggering file dialog) -->
         <div id="autoMatchOption" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 2px dashed #ddd;">
-            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px;">
-                <input type="checkbox" id="autoMatchOnUpload" checked style="width: 18px; height: 18px; cursor: pointer;">
-                <span style="font-weight: 600;">⚡ Apply Auto Match after upload</span>
+            <div style="font-weight: 600; margin-bottom: 10px; color: #333;">⚡ Auto-Processing Options</div>
+            
+            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px; margin-bottom: 8px;">
+                <input type="checkbox" id="enableThinning" checked style="width: 18px; height: 18px; cursor: pointer;">
+                <span>✂️ Line Thinning to 1px</span>
             </label>
-            <p style="margin: 8px 0 0 28px; font-size: 12px; color: #666;">
-                Automatically applies registration + line thinning to 1px
+            <p style="margin: 0 0 12px 28px; font-size: 12px; color: #666;">
+                Fast - Reduces line thickness to 1 pixel
+            </p>
+            
+            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px;">
+                <input type="checkbox" id="enableRegistration" style="width: 18px; height: 18px; cursor: pointer;">
+                <span>🎯 Registration (Align to Reference)</span>
+            </label>
+            <p style="margin: 0 0 0 28px; font-size: 12px; color: #666;">
+                Slow (~10 sec) - Aligns drawing with reference pentagon
             </p>
         </div>
         
-        <!-- Duplicate Warning (shown when duplicate detected) -->
-        <div class="duplicate-warning" id="duplicateWarning">
+        <!-- Old Duplicate Warning (kept for backwards compatibility, hidden by default) -->
+        <div class="duplicate-warning" id="duplicateWarning" style="display: none;">
             <h3>⚠️ Duplicate Image Detected</h3>
             <p>This image already exists in the database:</p>
             <p><strong>Original upload:</strong> <span id="duplicateDate"></span></p>
@@ -521,59 +540,110 @@
                 </div>
             </div>
             
-            <!-- Right Panel: Reference Image with Overlay -->
-            <div class="panel">
-                <div class="panel-title">
-                    <span>
-                        🎯 Reference
-                        <span class="resolution-badge" id="referenceResolution"></span>
-                    </span>
-                    <button class="overlay-btn" id="overlayBtn" onclick="toggleOverlay()">Show Overlay</button>
-                </div>
-                
-                <div class="canvas-container">
-                    <canvas id="referenceCanvas" width="568" height="274"></canvas>
-                </div>
-                
-                <div class="controls">
-            <div class="form-group">
-                <label for="uploader">Your Name (Optional)</label>
-                        <input type="text" id="uploader" placeholder="Enter your name">
-            </div>
-            
-                    <button class="btn-save-db" id="saveDbBtn" onclick="saveToTrainingDatabase()">💾 Save to Training Database</button>
-                    
-                    <!-- Analysis Method Selection -->
-                    <div style="margin-top: 20px; padding: 15px; background: #fff; border-radius: 8px; border: 1px solid #ddd;">
-                        <label style="font-weight: 600; color: #333; margin-bottom: 10px; display: block;">🔬 Analysis Method</label>
-                        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; border: 2px solid #667eea; border-radius: 6px; background: #667eea; color: white;">
-                                <input type="radio" name="analysisMethod" value="ai" checked onchange="toggleAnalysisMethod()" style="display: none;">
-                                <span>🤖 AI Model</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; border: 2px solid #ddd; border-radius: 6px; background: white; color: #333;">
-                                <input type="radio" name="analysisMethod" value="algorithm" onchange="toggleAnalysisMethod()" style="display: none;">
-                                <span>📐 Algorithm</span>
-                            </label>
-                        </div>
-                        
-                        <!-- AI Model Selector (visible by default since AI is default) -->
-                        <div id="aiModelSelector" style="display: block; margin-top: 10px;">
-                            <label style="font-size: 0.9em; color: #666;">Select trained model:</label>
-                            <select id="modelSelect" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; margin-top: 5px;">
-                                <option value="">Loading models...</option>
-                            </select>
-                            <div id="modelInfo" style="margin-top: 8px; font-size: 0.85em; color: #666;"></div>
-                        </div>
+            <!-- Right Column: 2 Separate Panels -->
+            <div>
+                <!-- Panel 1: Reference Image -->
+                <div class="panel">
+                    <div class="panel-title">
+                        <span>
+                            🎯 Reference
+                            <span class="resolution-badge" id="referenceResolution"></span>
+                        </span>
+                        <button class="overlay-btn" id="overlayBtn" onclick="toggleOverlay()">Show Overlay</button>
                     </div>
                     
-                    <button class="btn" id="analyzeBtn" onclick="analyzeDrawing()">🤖 Predict with AI Model</button>
-                    
-                    <!-- Training Data button - shown after successful save -->
-                    <a href="/training_evaluations.html" class="btn" id="evaluateBtn" style="display: none; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); margin-top: 10px; text-decoration: none; text-align: center;">
-                        ✓ View in Training Evaluations
-                    </a>
+                    <div class="canvas-container">
+                        <canvas id="referenceCanvas" width="568" height="274"></canvas>
+                    </div>
                 </div>
+                
+                <!-- White Spacer Divider -->
+                <div style="height: 20px; background: white;"></div>
+                
+                <!-- Panel 2: Save to Database -->
+                <div class="panel">
+                    <div class="panel-title">
+                        <span>💾 Save to Database</span>
+                    </div>
+                    
+                    <!-- Save Section (hidden when duplicate detected) -->
+                    <div id="saveSectionContainer" style="display: block;">
+                        <div class="form-group">
+                            <label for="uploader">Your Name (Optional)</label>
+                            <input type="text" id="uploader" placeholder="Enter your name">
+                        </div>
+                        
+                        <button class="btn-save-db" id="saveDbBtn" onclick="saveToTrainingDatabase()">💾 Save to Training Database</button>
+                        
+                        <!-- Training Data button - shown after successful save -->
+                        <a href="/training_evaluations.html" class="btn" id="evaluateBtn" style="display: none; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); margin-top: 10px; text-decoration: none; text-align: center;">
+                            ✓ View in Training Evaluations
+                        </a>
+                    </div>
+                    
+                    <!-- Duplicate Warning - Regular Upload (replaces save section when duplicate detected) -->
+                    <div id="duplicateWarningInline" style="display: none; padding: 15px; background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px;">
+                        <h4 style="margin-top: 0; color: #856404;">⚠️ Duplicate Upload Detected</h4>
+                        <p style="font-size: 0.9em; color: #856404; margin: 8px 0;">This image was already uploaded:</p>
+                        <div style="background: white; padding: 10px; border-radius: 4px; margin: 10px 0; font-size: 0.85em; color: #333;">
+                            <div style="margin-bottom: 5px;"><strong>Uploader:</strong> <span id="duplicateUploaderInline"></span></div>
+                            <div style="margin-bottom: 5px;"><strong>Date:</strong> <span id="duplicateDateInline"></span></div>
+                            <div><strong>ID:</strong> <span id="duplicateIdInline"></span></div>
+                        </div>
+                        <p style="font-size: 0.85em; color: #856404; margin-top: 10px;">
+                            ℹ️ You can still analyze the image, but saving is disabled to prevent duplicates.
+                        </p>
+                    </div>
+                    
+                    <!-- Training Data Warning (replaces save section when training data duplicate detected) -->
+                    <div id="trainingDataWarningInline" style="display: none; padding: 15px; background: #f8d7da; border: 2px solid #dc3545; border-radius: 8px;">
+                        <h4 style="margin-top: 0; color: #721c24;">🚫 Training Data Detected</h4>
+                        <p style="font-size: 0.9em; color: #721c24; margin: 8px 0; font-weight: 600;">
+                            ⚠️ This image is part of the AI Training Dataset and cannot be uploaded!
+                        </p>
+                        <div style="background: white; padding: 10px; border-radius: 4px; margin: 10px 0; font-size: 0.85em; color: #333;">
+                            <div style="margin-bottom: 5px;"><strong>Source:</strong> <span id="trainingDataSourceInline"></span></div>
+                            <div style="margin-bottom: 5px;"><strong>Patient:</strong> <span id="trainingDataPatientInline"></span></div>
+                            <div style="margin-bottom: 5px;"><strong>Task:</strong> <span id="trainingDataTaskInline"></span></div>
+                            <div><strong>ID:</strong> <span id="trainingDataIdInline"></span></div>
+                        </div>
+                        <p style="font-size: 0.85em; color: #721c24; margin-top: 10px;">
+                            ℹ️ Images used for training cannot be uploaded again to maintain data integrity.
+                            You can still analyze this image for testing purposes.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Analysis Section (Full Width Below) -->
+            <div class="analysis-section">
+                <h3 style="margin-top: 0; margin-bottom: 15px; color: #333;">🔬 Analysis</h3>
+                
+                <!-- Analysis Method Selection -->
+                <div style="padding: 15px; background: #fff; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 15px;">
+                    <label style="font-weight: 600; color: #333; margin-bottom: 10px; display: block;">Analysis Method</label>
+                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; border: 2px solid #667eea; border-radius: 6px; background: #667eea; color: white;">
+                            <input type="radio" name="analysisMethod" value="ai" checked onchange="toggleAnalysisMethod()" style="display: none;">
+                            <span>🤖 AI Model</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; border: 2px solid #ddd; border-radius: 6px; background: white; color: #333;">
+                            <input type="radio" name="analysisMethod" value="algorithm" onchange="toggleAnalysisMethod()" style="display: none;">
+                            <span>📐 Algorithm</span>
+                        </label>
+                    </div>
+                    
+                    <!-- AI Model Selector (visible by default since AI is default) -->
+                    <div id="aiModelSelector" style="display: block; margin-top: 10px;">
+                        <label style="font-size: 0.9em; color: #666;">Select trained model:</label>
+                        <select id="modelSelect" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; margin-top: 5px;">
+                            <option value="">Loading models...</option>
+                        </select>
+                        <div id="modelInfo" style="margin-top: 8px; font-size: 0.85em; color: #666;"></div>
+                    </div>
+                </div>
+                
+                <button class="btn" id="analyzeBtn" onclick="analyzeDrawing()" style="width: 100%;">🤖 Predict with AI Model</button>
             </div>
         </div>
         
@@ -747,9 +817,11 @@
                     
                     showRegStatus('✅ Image normalized to 568×274!', 'success');
                     
-                    // Check if Auto Match should be applied
-                    const autoMatchEnabled = document.getElementById('autoMatchOnUpload').checked;
-                    if (autoMatchEnabled) {
+                    // Check if auto-processing should be applied
+                    const thinningEnabled = document.getElementById('enableThinning').checked;
+                    const registrationEnabled = document.getElementById('enableRegistration').checked;
+                    
+                    if (thinningEnabled || registrationEnabled) {
                         // Wait a bit for image to be rendered
                         setTimeout(() => {
                             autoMatch();
@@ -767,23 +839,61 @@
             }
         }
         
-        // Show duplicate warning
+        // Show duplicate warning (now inline in save section)
         function showDuplicateWarning(dupData) {
-            const warningDiv = document.getElementById('duplicateWarning');
-            const uploadDate = new Date(dupData.uploaded_at);
-            const dateStr = uploadDate.toLocaleString();
+            const saveSectionContainer = document.getElementById('saveSectionContainer');
+            const duplicateWarningInline = document.getElementById('duplicateWarningInline');
+            const trainingDataWarningInline = document.getElementById('trainingDataWarningInline');
             
-            document.getElementById('duplicateDate').textContent = dateStr;
-            document.getElementById('duplicateUploader').textContent = 
-                dupData.uploader || 'Anonymous';
+            // Hide save section
+            saveSectionContainer.style.display = 'none';
             
-            warningDiv.classList.add('show');
+            if (dupData.source === 'training_data') {
+                // Show TRAINING DATA warning (red, more severe)
+                document.getElementById('trainingDataSourceInline').textContent = 
+                    dupData.source_format || 'N/A';
+                document.getElementById('trainingDataPatientInline').textContent = 
+                    dupData.patient_id || 'N/A';
+                document.getElementById('trainingDataTaskInline').textContent = 
+                    dupData.task_type || 'N/A';
+                document.getElementById('trainingDataIdInline').textContent = 
+                    dupData.existing_id || 'N/A';
+                
+                duplicateWarningInline.style.display = 'none';
+                trainingDataWarningInline.style.display = 'block';
+            } else {
+                // Show REGULAR DUPLICATE warning (yellow, less severe)
+                let dateStr = 'N/A';
+                if (dupData.uploaded_at && dupData.uploaded_at !== 'N/A') {
+                    try {
+                        const uploadDate = new Date(dupData.uploaded_at);
+                        dateStr = uploadDate.toLocaleString();
+                    } catch(e) {
+                        dateStr = dupData.uploaded_at;
+                    }
+                }
+                
+                document.getElementById('duplicateDateInline').textContent = dateStr;
+                document.getElementById('duplicateUploaderInline').textContent = 
+                    dupData.uploader || 'Anonymous';
+                document.getElementById('duplicateIdInline').textContent = 
+                    dupData.existing_id || 'N/A';
+                
+                duplicateWarningInline.style.display = 'block';
+                trainingDataWarningInline.style.display = 'none';
+            }
         }
         
         // Hide duplicate warning
         function hideDuplicateWarning() {
-            const warningDiv = document.getElementById('duplicateWarning');
-            warningDiv.classList.remove('show');
+            const saveSectionContainer = document.getElementById('saveSectionContainer');
+            const duplicateWarningInline = document.getElementById('duplicateWarningInline');
+            const trainingDataWarningInline = document.getElementById('trainingDataWarningInline');
+            
+            // Show save section, hide both duplicate warnings
+            saveSectionContainer.style.display = 'block';
+            duplicateWarningInline.style.display = 'none';
+            trainingDataWarningInline.style.display = 'none';
         }
         
         // Load reference image from API
@@ -1068,25 +1178,41 @@
                 return;
             }
             
-            // Disable analyze button during auto match
+            // Read user preferences FIRST
+            const enableRegistration = document.getElementById('enableRegistration').checked;
+            const enableThinning = document.getElementById('enableThinning').checked;
+            
+            // If nothing is enabled, skip
+            if (!enableRegistration && !enableThinning) {
+                showRegStatus('No processing selected', 'info');
+                return;
+            }
+            
+            // Disable analyze button during processing
             const analyzeBtn = document.getElementById('analyzeBtn');
             analyzeBtn.disabled = true;
             
-            // Show status
-            showRegStatus('⚡ Applying Auto Match...', 'info');
+            // Build status message
+            const statusText = [];
+            if (enableRegistration) statusText.push('Registration');
+            if (enableThinning) statusText.push('Thinning');
+            const statusMsg = statusText.join(' + ');
+            
+            showRegStatus(`⚡ Applying ${statusMsg}...`, 'info');
             
             // Show spinner overlay
             canvasLoading.classList.add('show');
-            spinnerText.textContent = 'Applying Auto Match...';
+            spinnerText.textContent = `Applying ${statusMsg}...`;
             
             try {
-                // Always enable all transformations
-                const enableTranslation = true;
-                const enableRotation = true;
-                const enableScale = true;
+                
+                // Registration options (only used if registration is enabled)
+                const enableTranslation = enableRegistration;
+                const enableRotation = enableRegistration;
+                const enableScale = enableRegistration;
                 
                 // IMPORTANT: Render current state with manual transformations
-                // This ensures auto match starts from current manual settings
+                // This ensures processing starts from current manual settings
                 renderUploadCanvas();
                 
                 // Wait a bit for render to complete
@@ -1103,6 +1229,7 @@
                 formData.append('enable_translation', enableTranslation);
                 formData.append('enable_rotation', enableRotation);
                 formData.append('enable_scale', enableScale);
+                formData.append('enable_thinning', enableThinning);
                 
                 // Call API
                 const response = await fetch('/api/register-image', {
@@ -1143,13 +1270,13 @@
                     if (overlayMode) renderReferenceCanvas();
                     URL.revokeObjectURL(url);
                     
-                    showRegStatus('✅ Auto match completed!', 'success');
+                    showRegStatus(`✅ ${statusMsg} completed!`, 'success');
                 };
                 registeredImg.src = url;
                 
             } catch (error) {
-                console.error('Auto match error:', error);
-                showRegStatus('❌ Auto match failed: ' + error.message, 'error');
+                console.error('Auto processing error:', error);
+                showRegStatus('❌ Processing failed: ' + error.message, 'error');
             } finally {
                 // Hide spinner and re-enable button
                 canvasLoading.classList.remove('show');

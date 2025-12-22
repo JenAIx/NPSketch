@@ -172,9 +172,10 @@ def populate_oxford_data(
             processed_size = len(processed_data)
             print(f"      → Normalized size: {processed_size:,} bytes")
             
-            # Calculate hash (use processed image for duplicate detection)
-            print(f"    Calculating image hash...")
-            image_hash = hashlib.sha256(processed_data).hexdigest()
+            # Calculate hash from ORIGINAL image (not processed!)
+            # This ensures consistency with duplicate checking in upload.py
+            print(f"    Calculating image hash (from original)...")
+            image_hash = hashlib.sha256(original_data).hexdigest()
             print(f"      → Hash: {image_hash[:16]}...")
             
             # Check for duplicates
