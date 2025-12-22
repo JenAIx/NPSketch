@@ -258,30 +258,40 @@ h3 {
 /* Stats Grid */
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    gap: 15px;
     margin-bottom: 20px;
 }
 
 .stat-card {
     background: white;
-    padding: 12px;
-    border-radius: 8px;
+    padding: 12px 15px;
+    border-radius: 12px;
     text-align: center;
     border: 2px solid #e9ecef;
     color: #333;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    transition: all 0.3s ease;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.15);
+    border-color: #667eea;
 }
 
 .stat-value {
-    font-size: 1.8em;
+    font-size: 1.2em;
     font-weight: bold;
     color: #667eea;
+    margin-bottom: 5px;
 }
 
 .stat-label {
     color: #666;
-    margin-top: 5px;
-    font-size: 0.85em;
+    margin-top: 8px;
+    font-size: 0.8em;
+    font-weight: 500;
 }
 
 /* Forms */

@@ -78,6 +78,13 @@
             margin-bottom: 20px;
             gap: 15px;
             position: relative;
+            touch-action: none; /* Prevent default touch behaviors */
+        }
+        
+        .canvas-wrapper > div {
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
         
         .rotate-btn {
@@ -131,6 +138,9 @@
             cursor: crosshair;
             background: white;
             image-rendering: pixelated;
+            max-width: 100%;
+            height: auto;
+            display: block;
         }
         
         .tools {
@@ -444,6 +454,7 @@
             display: none;
         }
         
+        /* Mobile Optimizations */
         @media (max-width: 1024px) {
             .main-grid {
                 grid-template-columns: 1fr;
@@ -456,6 +467,178 @@
             
             .left-column {
                 gap: 20px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+            
+            .container {
+                padding: 20px;
+                border-radius: 10px;
+            }
+            
+            h1 {
+                font-size: 1.5em;
+            }
+            
+            .subtitle {
+                font-size: 0.9em;
+                margin-bottom: 20px;
+            }
+            
+            .main-grid {
+                gap: 15px;
+            }
+            
+            .canvas-section {
+                padding: 15px;
+            }
+            
+            .canvas-wrapper {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .rotate-btn {
+                width: 40px;
+                height: 40px;
+                font-size: 20px;
+            }
+            
+            #drawCanvas {
+                max-width: 100%;
+                height: auto;
+                width: 100%;
+            }
+            
+            .tools {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            
+            .tool-btn {
+                padding: 10px 16px;
+                font-size: 13px;
+                flex: 1;
+                min-width: calc(50% - 4px);
+            }
+            
+            .brush-size {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            
+            .brush-size label {
+                width: 100%;
+                text-align: center;
+            }
+            
+            .brush-size input {
+                width: 100%;
+                max-width: 200px;
+            }
+            
+            .score-form {
+                padding: 15px;
+            }
+            
+            .form-title {
+                font-size: 16px;
+            }
+            
+            .form-group {
+                margin-bottom: 12px;
+            }
+            
+            .form-group input {
+                padding: 12px;
+                font-size: 16px; /* Prevents zoom on iOS */
+            }
+            
+            .form-group input[type="number"] {
+                font-size: 18px;
+            }
+            
+            .lines-input-row {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .lines-input-row > div {
+                width: 100%;
+                margin-left: 0 !important;
+            }
+            
+            .save-btn {
+                padding: 14px;
+                font-size: 15px;
+            }
+            
+            .test-images-list {
+                height: 300px;
+                padding: 15px;
+            }
+            
+            .list-title {
+                font-size: 16px;
+            }
+            
+            .test-item {
+                padding: 10px;
+            }
+            
+            .test-item-header {
+                flex-wrap: wrap;
+                gap: 5px;
+            }
+            
+            .test-id {
+                font-size: 14px;
+            }
+            
+            .test-stats {
+                font-size: 12px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .container {
+                padding: 15px;
+            }
+            
+            h1 {
+                font-size: 1.3em;
+            }
+            
+            .canvas-section {
+                padding: 10px;
+            }
+            
+            .tool-btn {
+                padding: 10px 12px;
+                font-size: 12px;
+                min-width: calc(50% - 4px);
+            }
+            
+            .score-form {
+                padding: 12px;
+            }
+            
+            .form-group input {
+                padding: 10px;
+            }
+            
+            .test-images-list {
+                height: 250px;
+                padding: 10px;
+            }
+            
+            .rotation-display {
+                font-size: 11px;
+                padding: 3px 10px;
             }
         }
     </style>
@@ -642,11 +825,24 @@
         
         function handleTouch(e) {
             e.preventDefault();
-            const touch = e.touches[0];
-            const mouseEvent = new MouseEvent(e.type === 'touchstart' ? 'mousedown' : 'mousemove', {
-                clientX: touch.clientX,
-                clientY: touch.clientY
-            });
+            e.stopPropagation();
+            const touch = e.touches[0] || e.changedTouches[0];
+            if (!touch) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            const mouseEvent = new MouseEvent(
+                e.type === 'touchstart' ? 'mousedown' : 
+                e.type === 'touchmove' ? 'mousemove' : 'mouseup',
+                {
+                    clientX: touch.clientX,
+                    clientY: touch.clientY,
+                    bubbles: true,
+                    cancelable: true
+                }
+            );
             canvas.dispatchEvent(mouseEvent);
         }
         

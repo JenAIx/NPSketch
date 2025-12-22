@@ -466,6 +466,10 @@
                 <div class="stat-value" id="testImages">-</div>
                 <div class="stat-label">Test Images</div>
             </div>
+            <div class="stat-card clickable" onclick="window.location.href='/ai_training_overview.html'">
+                <div class="stat-value" id="trainedModels">-</div>
+                <div class="stat-label">Trained AI Models</div>
+            </div>
         </div>
         
         <div class="info-section">
@@ -559,10 +563,15 @@
                 const testResponse = await fetch('/api/test-images');
                 const testImages = await testResponse.json();
                 
+                // Get trained AI models
+                const modelsResponse = await fetch('/api/ai-training/models');
+                const modelsData = await modelsResponse.json();
+                
                 // Update stats
                 document.getElementById('totalEvaluations').textContent = evalsData.total || 0;
                 document.getElementById('referenceCount').textContent = healthData.reference_images_count || 1;
                 document.getElementById('testImages').textContent = testImages.length;
+                document.getElementById('trainedModels').textContent = modelsData.total || 0;
                 
                 // Show stats grid
                 document.getElementById('statsGrid').style.display = 'grid';
