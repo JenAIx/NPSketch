@@ -350,9 +350,14 @@
                     <div>
                         <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Performance (Validation)</div>
                         <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em;">
-                            R²: <strong style="color: ${valMetrics.r2_score > 0.7 ? '#28a745' : valMetrics.r2_score > 0.5 ? '#ffc107' : '#dc3545'};">${valMetrics.r2_score ? valMetrics.r2_score.toFixed(3) : 'N/A'}</strong> | 
-                            RMSE: <strong>${valMetrics.rmse ? valMetrics.rmse.toFixed(3) : 'N/A'}</strong> | 
-                            MAE: <strong>${valMetrics.mae ? valMetrics.mae.toFixed(3) : 'N/A'}</strong>
+                            ${valMetrics.accuracy !== undefined ? `
+                                Accuracy: <strong style="color: ${valMetrics.accuracy > 0.7 ? '#28a745' : valMetrics.accuracy > 0.5 ? '#ffc107' : '#dc3545'};">${(valMetrics.accuracy * 100).toFixed(1)}%</strong> | 
+                                F1: <strong>${valMetrics.macro_f1 ? valMetrics.macro_f1.toFixed(3) : 'N/A'}</strong>
+                            ` : `
+                                R²: <strong style="color: ${valMetrics.r2_score > 0.7 ? '#28a745' : valMetrics.r2_score > 0.5 ? '#ffc107' : '#dc3545'};">${valMetrics.r2_score ? valMetrics.r2_score.toFixed(3) : 'N/A'}</strong> | 
+                                RMSE: <strong>${valMetrics.rmse ? valMetrics.rmse.toFixed(3) : 'N/A'}</strong> | 
+                                MAE: <strong>${valMetrics.mae ? valMetrics.mae.toFixed(3) : 'N/A'}</strong>
+                            `}
                         </div>
                     </div>
                 </div>

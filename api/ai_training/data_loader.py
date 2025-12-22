@@ -223,10 +223,29 @@ class TrainingDataLoader:
         y = []
         image_ids = []
         
+        # Check if classification
+        is_classification_mode = target_feature.startswith('Custom_Class_')
+        if is_classification_mode:
+            num_classes_str = target_feature.replace('Custom_Class_', '')
+        
         for img in images:
             try:
                 features = json.loads(img.features_data)
-                if target_feature in features:
+                
+                # Check if feature exists
+                has_feature = False
+                target_value = None
+                
+                if is_classification_mode:
+                    if "Custom_Class" in features and num_classes_str in features.get("Custom_Class", {}):
+                        has_feature = True
+                        target_value = float(features["Custom_Class"][num_classes_str]["label"])
+                else:
+                    if target_feature in features:
+                        has_feature = True
+                        target_value = float(features[target_feature])
+                
+                if has_feature and target_value is not None:
                     # Load processed image
                     pil_img = Image.open(io.BytesIO(img.processed_image_data))
                     img_array = np.array(pil_img)
@@ -239,7 +258,7 @@ class TrainingDataLoader:
                     img_array = img_array.astype(np.float32) / 255.0
                     
                     X.append(img_array)
-                    y.append(float(features[target_feature]))
+                    y.append(target_value)
                     image_ids.append(img.id)
             except Exception as e:
                 print(f"Error loading image {img.id}: {e}")
@@ -335,10 +354,26 @@ class TrainingDataLoader:
         
         # Filter images with target feature
         images_data = []
+        
+        # Check if classification
+        is_classification_mode = target_feature.startswith('Custom_Class_')
+        if is_classification_mode:
+            num_classes_str = target_feature.replace('Custom_Class_', '')
+        
         for img in images:
             try:
                 features = json.loads(img.features_data)
-                if target_feature in features:
+                
+                # Check if feature exists
+                has_feature = False
+                if is_classification_mode:
+                    if "Custom_Class" in features and num_classes_str in features.get("Custom_Class", {}):
+                        has_feature = True
+                else:
+                    if target_feature in features:
+                        has_feature = True
+                
+                if has_feature:
                     images_data.append({
                         'id': img.id,
                         'patient_id': img.patient_id,
@@ -357,7 +392,12 @@ class TrainingDataLoader:
         y_values = []
         for img_data in images_data:
             features = json.loads(img_data['features_data'])
-            y_values.append(float(features[target_feature]))
+            
+            # Extract target value
+            if is_classification_mode:
+                y_values.append(float(features["Custom_Class"][num_classes_str]["label"]))
+            else:
+                y_values.append(float(features[target_feature]))
         
         y_array = np.array(y_values)
         

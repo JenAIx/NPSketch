@@ -90,8 +90,7 @@ async def test_model(
 ):
     """
     Test a saved model on current test data.
-    
-    Returns comprehensive evaluation metrics.
+    Supports both regression and classification models.
     """
     import os
     from pathlib import Path
@@ -105,16 +104,46 @@ async def test_model(
             raise HTTPException(status_code=400, detail="model_filename is required")
         
         model_path = Path("/app/data/models") / model_filename
+        metadata_path = Path("/app/data/models") / f"{model_path.stem}_metadata.json"
         
         if not model_path.exists():
             raise HTTPException(status_code=404, detail="Model not found")
         
-        # Load model checkpoint to get feature info
-        checkpoint = torch.load(model_path, map_location='cpu')
+        # Load metadata to get training configuration
+        training_mode = "regression"  # Default
+        num_outputs = 1
+        normalizer = None
         
-        # Extract feature from filename
-        parts = model_filename.split('_')
-        feature = '_'.join(parts[1:-2]) if len(parts) > 3 else parts[1]
+        if metadata_path.exists():
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+            
+            # Extract configuration from metadata
+            feature = metadata['target_feature']
+            num_outputs = metadata['model']['output_neurons']
+            
+            # Detect if classification
+            is_classification = feature.startswith('Custom_Class_')
+            if is_classification:
+                training_mode = "classification"
+                num_classes = int(feature.replace('Custom_Class_', ''))
+                print(f"Testing CLASSIFICATION model: {num_classes} classes")
+            else:
+                training_mode = "regression"
+                # Get normalizer if used
+                if metadata.get('normalization', {}).get('enabled', False):
+                    from ai_training.normalization import TargetNormalizer
+                    normalizer = TargetNormalizer.from_config(metadata['normalization'])
+                print(f"Testing REGRESSION model")
+        else:
+            # Fallback: extract from filename
+            parts = model_filename.split('_')
+            feature = '_'.join(parts[1:-2]) if len(parts) > 3 else parts[1]
+            is_classification = feature.startswith('Custom_Class_')
+            if is_classification:
+                training_mode = "classification"
+                num_classes = int(feature.replace('Custom_Class_', ''))
+                num_outputs = num_classes
         
         # Load training data
         images = db.query(TrainingDataImage).filter(
@@ -129,16 +158,23 @@ async def test_model(
                 'features_data': img.features_data
             })
         
-        # Create dataloaders (same split as training for consistency)
+        # Create dataloaders with correct configuration
         train_loader, val_loader, stats = create_dataloaders(
             images_data,
             feature,
             train_split=0.8,
-            batch_size=8
+            batch_size=8,
+            normalizer=normalizer,
+            is_classification=is_classification if 'is_classification' in locals() else False,
+            num_classes=num_classes if 'num_classes' in locals() else None
         )
         
-        # Create trainer and load model
-        trainer = CNNTrainer(num_outputs=1)
+        # Create trainer with correct configuration
+        trainer = CNNTrainer(
+            num_outputs=num_outputs,
+            normalizer=normalizer,
+            training_mode=training_mode
+        )
         trainer.load_model(str(model_path))
         
         # Evaluate on both sets
@@ -149,6 +185,8 @@ async def test_model(
             'success': True,
             'model': model_filename,
             'target_feature': feature,
+            'training_mode': training_mode,
+            'num_outputs': num_outputs,
             'train_metrics': train_metrics,
             'val_metrics': val_metrics,
             'dataset_stats': stats

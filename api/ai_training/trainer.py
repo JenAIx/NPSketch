@@ -27,7 +27,8 @@ class CNNTrainer:
         num_outputs: int = 1,
         learning_rate: float = 0.001,
         device: str = None,
-        normalizer=None
+        normalizer=None,
+        training_mode: str = "regression"
     ):
         """
         Initialize CNN trainer.
@@ -36,10 +37,13 @@ class CNNTrainer:
             num_outputs: Number of output features to predict
             learning_rate: Learning rate for optimizer
             device: 'cuda', 'cpu', or None (auto-detect)
+            normalizer: Target normalizer (None for classification)
+            training_mode: 'regression' or 'classification'
         """
         self.num_outputs = num_outputs
         self.learning_rate = learning_rate
         self.normalizer = normalizer
+        self.training_mode = training_mode
         
         # Auto-detect device
         if device is None:
@@ -61,9 +65,15 @@ class CNNTrainer:
         self.model = DrawingClassifier(num_outputs=num_outputs, pretrained=True)
         self.model.to(self.device)
         
-        # Optimizer and loss
+        # Optimizer and loss - conditional based on training mode
         self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
-        self.criterion = nn.MSELoss()
+        
+        if training_mode == "classification":
+            self.criterion = nn.CrossEntropyLoss()
+            print(f"   Loss function: CrossEntropyLoss (classification, {num_outputs} classes)")
+        else:
+            self.criterion = nn.MSELoss()
+            print(f"   Loss function: MSELoss (regression)")
         
         # Training history
         self.history = {
@@ -174,18 +184,34 @@ class CNNTrainer:
                 
                 outputs = self.model(images)
                 
-                all_predictions.extend(outputs.cpu().numpy().flatten())
-                all_targets.extend(targets.cpu().numpy().flatten())
+                if self.training_mode == "classification":
+                    # Get predicted class (argmax)
+                    predicted_classes = torch.argmax(outputs, dim=1)
+                    all_predictions.extend(predicted_classes.cpu().numpy())
+                    all_targets.extend(targets.cpu().numpy())
+                else:
+                    # Regression: get raw output values
+                    all_predictions.extend(outputs.cpu().numpy().flatten())
+                    all_targets.extend(targets.cpu().numpy().flatten())
         
         predictions = np.array(all_predictions)
         targets = np.array(all_targets)
         
+        if self.training_mode == "classification":
+            # Classification metrics
+            return self._calculate_classification_metrics(predictions, targets)
+        else:
+            # Regression metrics
+            return self._calculate_regression_metrics(predictions, targets)
+    
+    def _calculate_regression_metrics(self, predictions: np.ndarray, targets: np.ndarray) -> Dict:
+        """Calculate regression metrics (MAE, RMSE, R², etc.)"""
         # Denormalize if normalizer is provided
         if self.normalizer is not None:
             predictions = self.normalizer.inverse_transform(predictions)
             targets = self.normalizer.inverse_transform(targets)
         
-        # Calculate metrics (on original scale)
+        # Calculate metrics
         mse = np.mean((predictions - targets) ** 2)
         rmse = np.sqrt(mse)
         mae = np.mean(np.abs(predictions - targets))
@@ -195,8 +221,7 @@ class CNNTrainer:
         ss_tot = np.sum((targets - np.mean(targets)) ** 2)
         r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
         
-        # MAPE (Mean Absolute Percentage Error)
-        # Avoid division by zero
+        # MAPE
         mask = targets != 0
         if np.any(mask):
             mape = np.mean(np.abs((targets[mask] - predictions[mask]) / targets[mask])) * 100
@@ -209,8 +234,52 @@ class CNNTrainer:
             'mae': float(mae),
             'r2_score': float(r2),
             'mape': float(mape),
-            'predictions': predictions.tolist(),
-            'targets': targets.tolist(),
+            'predictions': predictions.tolist()[:1000],
+            'targets': targets.tolist()[:1000],
+            'num_samples': len(targets)
+        }
+    
+    def _calculate_classification_metrics(self, predictions: np.ndarray, targets: np.ndarray) -> Dict:
+        """Calculate classification metrics (Accuracy, F1, Precision, Recall)"""
+        # Accuracy
+        accuracy = np.mean(predictions == targets)
+        
+        # Per-class metrics
+        num_classes = self.num_outputs
+        per_class_metrics = {}
+        
+        for class_id in range(num_classes):
+            tp = np.sum((predictions == class_id) & (targets == class_id))
+            fp = np.sum((predictions == class_id) & (targets != class_id))
+            fn = np.sum((predictions != class_id) & (targets == class_id))
+            
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+            
+            per_class_metrics[f'class_{class_id}'] = {
+                'precision': float(precision),
+                'recall': float(recall),
+                'f1': float(f1),
+                'support': int(np.sum(targets == class_id))
+            }
+        
+        # Macro F1
+        f1_scores = [m['f1'] for m in per_class_metrics.values()]
+        macro_f1 = float(np.mean(f1_scores))
+        
+        # Confusion matrix
+        confusion_matrix = np.zeros((num_classes, num_classes), dtype=int)
+        for true_class, pred_class in zip(targets, predictions):
+            confusion_matrix[int(true_class), int(pred_class)] += 1
+        
+        return {
+            'accuracy': float(accuracy),
+            'macro_f1': float(macro_f1),
+            'per_class': per_class_metrics,
+            'confusion_matrix': confusion_matrix.tolist(),
+            'predictions': predictions.tolist()[:1000],
+            'targets': targets.tolist()[:1000],
             'num_samples': len(targets)
         }
     

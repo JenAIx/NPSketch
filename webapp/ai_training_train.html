@@ -785,11 +785,11 @@
             </div>
             
             <!-- Target Normalization Section -->
-            <div style="margin-top: 20px; padding: 20px; background: #fff3cd; border-radius: 8px; border-left: 4px solid #ffc107;">
+            <div id="normalizationSection" style="margin-top: 20px; padding: 20px; background: #fff3cd; border-radius: 8px; border-left: 4px solid #ffc107;">
                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
                     <input type="checkbox" id="enableNormalization" checked style="width: 20px; height: 20px; cursor: pointer;">
                     <label for="enableNormalization" style="margin: 0; font-weight: 600; font-size: 1.05em; cursor: pointer; color: #333;">
-                        📊 Enable Target Normalization (Recommended)
+                        📊 Enable Target Normalization (Recommended for Regression)
                     </label>
                 </div>
                 <div style="font-size: 0.9em; color: #856404; margin-left: 30px;">
@@ -939,6 +939,9 @@
         async function selectFeature(feature) {
             selectedFeature = feature;
             
+            // Detect if this is classification or regression
+            const isClassification = feature.startsWith('Custom_Class_');
+            
             // Update UI
             document.querySelectorAll('.feature-card').forEach(card => {
                 card.classList.remove('selected');
@@ -946,16 +949,35 @@
             event.target.closest('.feature-card').classList.add('selected');
             
             // Load and show model info
-            await loadModelInfo();
+            if (isClassification) {
+                const numClasses = parseInt(feature.replace('Custom_Class_', ''));
+                await loadModelInfoForClassification(numClasses, feature);
+                
+                // HIDE normalization section
+                const normSection = document.getElementById('normalizationSection');
+                if (normSection) {
+                    normSection.style.display = 'none';
+                }
+                
+                showAlert('info', `Selected: ${feature} (Classification with ${numClasses} classes) - Configure training below`);
+            } else {
+                await loadModelInfoForRegression();
+                
+                // SHOW normalization section
+                const normSection = document.getElementById('normalizationSection');
+                if (normSection) {
+                    normSection.style.display = 'block';
+                }
+                
+                showAlert('info', `Selected: ${feature} (Regression) - Review model architecture and configure training below`);
+            }
             
-            // Show training config
+            // Show sections
             document.getElementById('modelInfo').style.display = 'block';
             document.getElementById('trainingConfig').style.display = 'block';
-            
-            showAlert('info', `Selected: ${feature} - Review model architecture and configure training below`);
         }
         
-        async function loadModelInfo() {
+        async function loadModelInfoForRegression() {
             try {
                 const response = await fetch('/api/ai-training/model-info');
                 const info = await response.json();
@@ -1061,6 +1083,57 @@
                 
             } catch (error) {
                 console.error('Error loading model info:', error);
+            }
+        }
+        
+        async function loadModelInfoForClassification(numClasses, featureName) {
+            try {
+                // Fetch Custom_Class data to get class names
+                const response = await fetch(`/api/ai-training/custom-class-distribution/${encodeURIComponent(featureName)}`);
+                const data = await response.json();
+                
+                const details = document.getElementById('modelDetails');
+                
+                // Get class names
+                const classNames = data.classes.map(cls => cls.name_custom || cls.name_generic).join(', ');
+                
+                details.innerHTML = `
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 20px;">
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                            <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Training Mode</div>
+                            <div style="font-size: 1.3em; font-weight: bold; color: #667eea;">
+                                Classification
+                            </div>
+                        </div>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                            <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Output Neurons</div>
+                            <div style="font-size: 1.8em; font-weight: bold; color: #28a745;">
+                                ${numClasses}
+                            </div>
+                        </div>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                            <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Architecture</div>
+                            <div style="font-size: 1.3em; font-weight: bold; color: #667eea;">
+                                ResNet-18
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="background: #e7f3ff; padding: 15px; border-radius: 6px; border-left: 4px solid #667eea; margin-bottom: 15px;">
+                        <strong>🏷️ Classes (${numClasses}):</strong> ${classNames}
+                    </div>
+                    
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                        <strong>Model Architecture:</strong> ResNet-18 (ImageNet pre-trained)<br>
+                        <strong>Input:</strong> 568×274×1 (grayscale)<br>
+                        <strong>Output:</strong> ${numClasses} neurons (one per class)<br>
+                        <strong>Loss Function:</strong> CrossEntropyLoss<br>
+                        <strong>Normalization:</strong> None (classification uses raw class indices)
+                    </div>
+                `;
+                
+            } catch (error) {
+                console.error('Error loading classification info:', error);
             }
         }
         
@@ -1286,6 +1359,8 @@
                 const progress = status.progress;
                 const trainMetrics = progress.train_metrics || {};
                 const valMetrics = progress.val_metrics || {};
+                const trainingMode = progress.training_mode || 'regression';
+                const isClassification = (trainingMode === 'classification');
                 
                 resultsContent.innerHTML = `
                     <div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
@@ -1646,6 +1721,62 @@
                 detailsDiv.style.display = 'none';
             }
         });
+        
+        function renderConfusionMatrix(matrix, perClassMetrics) {
+            if (!matrix || matrix.length === 0) return '';
+            
+            const numClasses = matrix.length;
+            const maxVal = Math.max(...matrix.flat());
+            
+            let html = `
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 30px;">
+                    <h3 style="margin-bottom: 15px;">Confusion Matrix (Validation)</h3>
+                    <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+                        Rows = True Class, Columns = Predicted Class
+                    </p>
+                    <div style="display: inline-block; background: white; padding: 20px; border-radius: 8px;">
+                        <table style="border-collapse: collapse;">
+                            <thead>
+                                <tr>
+                                    <th style="padding: 10px; text-align: center; font-size: 0.85em; color: #666;"></th>
+                                    ${Array.from({length: numClasses}, (_, i) => 
+                                        `<th style="padding: 10px; text-align: center; font-size: 0.85em; color: #666;">Pred ${i}</th>`
+                                    ).join('')}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${matrix.map((row, i) => `
+                                    <tr>
+                                        <td style="padding: 10px; font-weight: 600; font-size: 0.85em; color: #666;">True ${i}</td>
+                                        ${row.map((val, j) => {
+                                            const isCorrect = (i === j);
+                                            const intensity = val / maxVal;
+                                            const bgColor = isCorrect 
+                                                ? `rgba(40, 167, 69, ${0.1 + intensity * 0.7})`  // Green for correct
+                                                : `rgba(220, 53, 69, ${0.1 + intensity * 0.5})`;  // Red for incorrect
+                                            return `
+                                                <td style="
+                                                    padding: 15px 20px;
+                                                    text-align: center;
+                                                    background: ${bgColor};
+                                                    border: 1px solid #dee2e6;
+                                                    font-weight: bold;
+                                                    color: ${val > maxVal * 0.5 ? 'white' : '#333'};
+                                                ">
+                                                    ${val}
+                                                </td>
+                                            `;
+                                        }).join('')}
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+            
+            return html;
+        }
         
         // Load data on page load
         loadDatasetInfo();

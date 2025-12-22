@@ -248,10 +248,35 @@ def run_training_job(config):
         
         use_normalization = config.get('use_normalization', True)
         use_augmentation = config.get('use_augmentation', True)
+        target_feature = config['target_feature']
         
-        normalizer = None
-        if use_normalization:
-            normalizer = get_normalizer_for_feature(config['target_feature'])
+        # Detect if this is classification or regression
+        is_classification = target_feature.startswith('Custom_Class_')
+        num_classes = None  # Initialize for regression case
+        
+        if is_classification:
+            # Extract num_classes from feature name (e.g., "Custom_Class_5" -> 5)
+            num_classes = int(target_feature.replace('Custom_Class_', ''))
+            num_outputs = num_classes
+            training_mode = "classification"
+            normalizer = None  # NO normalization for classification!
+            
+            print(f"   Training mode: CLASSIFICATION ({num_classes} classes)")
+            print(f"   Output neurons: {num_outputs}")
+            print(f"   Target normalization: Disabled (classification uses raw class indices)")
+        else:
+            # Regression mode
+            num_outputs = 1
+            training_mode = "regression"
+            
+            normalizer = None
+            if use_normalization:
+                normalizer = get_normalizer_for_feature(target_feature)
+            
+            print(f"   Training mode: REGRESSION")
+            print(f"   Output neurons: {num_outputs}")
+            if normalizer:
+                print(f"   Target normalization: Enabled")
         
         if use_augmentation:
             training_state['progress']['message'] = 'Preparing augmented dataset...'
@@ -280,7 +305,8 @@ def run_training_job(config):
                 train_loader, val_loader, stats = create_augmented_dataloaders(
                     data_dir=output_dir,
                     batch_size=config['batch_size'],
-                    shuffle_train=True
+                    shuffle_train=True,
+                    is_classification=is_classification
                 )
                 
                 stats['augmentation'] = {
@@ -304,17 +330,22 @@ def run_training_job(config):
                 train_split=config['train_split'],
                 batch_size=config['batch_size'],
                 random_seed=42,
-                normalizer=normalizer
+                normalizer=normalizer,
+                is_classification=is_classification,
+                num_classes=num_classes if is_classification else None
             )
             
             stats['augmentation'] = {'enabled': False}
         
         training_state['progress']['dataset_stats'] = stats
+        training_state['progress']['training_mode'] = training_mode
+        training_state['progress']['num_classes'] = num_classes if is_classification else None
         
         trainer = CNNTrainer(
-            num_outputs=1,
+            num_outputs=num_outputs,
             learning_rate=config['learning_rate'],
-            normalizer=normalizer
+            normalizer=normalizer,
+            training_mode=training_mode
         )
         
         for epoch in range(config['num_epochs']):
@@ -334,6 +365,8 @@ def run_training_job(config):
         
         metadata = {
             'target_feature': config['target_feature'],
+            'training_mode': training_mode,
+            'num_classes': num_classes,
             'training_config': {
                 'train_split': config['train_split'],
                 'num_epochs': config['num_epochs'],

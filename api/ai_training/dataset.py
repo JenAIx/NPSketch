@@ -29,21 +29,27 @@ class DrawingDataset(Dataset):
         images_data: List[Dict],
         target_feature: str,
         transform=None,
-        normalizer: Optional[TargetNormalizer] = None
+        normalizer: Optional[TargetNormalizer] = None,
+        is_classification: bool = False,
+        num_classes: int = None
     ):
         """
         Initialize dataset.
         
         Args:
             images_data: List of dicts with 'processed_image_data', 'features_data'
-            target_feature: Name of feature to predict (e.g., 'Total_Score')
+            target_feature: Name of feature to predict (e.g., 'Total_Score' or 'Custom_Class_5')
             transform: Optional torchvision transforms
-            normalizer: Optional TargetNormalizer for target values
+            normalizer: Optional TargetNormalizer for target values (None for classification)
+            is_classification: True if classification mode
+            num_classes: Number of classes (for classification)
         """
         self.images_data = images_data
         self.target_feature = target_feature
         self.transform = transform
         self.normalizer = normalizer
+        self.is_classification = is_classification
+        self.num_classes = num_classes
         
         # Filter: Only keep images that have the target feature
         self.valid_indices = []
@@ -55,8 +61,15 @@ class DrawingDataset(Dataset):
                 except:
                     pass
             
-            if target_feature in features:
-                self.valid_indices.append(idx)
+            # Check if feature exists
+            if is_classification:
+                # For Custom_Class, check if classification exists
+                if "Custom_Class" in features and str(num_classes) in features.get("Custom_Class", {}):
+                    self.valid_indices.append(idx)
+            else:
+                # For regression, check if feature exists
+                if target_feature in features:
+                    self.valid_indices.append(idx)
     
     def __len__(self):
         return len(self.valid_indices)
@@ -89,13 +102,29 @@ class DrawingDataset(Dataset):
         
         # Get target value
         features = json.loads(img_data['features_data'])
-        target_value = float(features[self.target_feature])
         
-        # Apply normalization if normalizer is provided
-        if self.normalizer is not None:
-            target_value = self.normalizer.transform(np.array([target_value]))[0]
-        
-        target_tensor = torch.tensor([target_value], dtype=torch.float32)
+        if self.is_classification:
+            # Classification mode: Read Custom_Class label
+            custom_class = features.get("Custom_Class", {})
+            class_data = custom_class.get(str(self.num_classes))
+            
+            if class_data:
+                target_value = int(class_data["label"])
+            else:
+                target_value = 0  # Fallback
+            
+            # NO normalization for classification!
+            # CrossEntropyLoss expects class indices (Long tensor, scalar)
+            target_tensor = torch.tensor(target_value, dtype=torch.long)
+        else:
+            # Regression mode: Read numeric feature
+            target_value = float(features[self.target_feature])
+            
+            # Apply normalization if normalizer is provided
+            if self.normalizer is not None:
+                target_value = self.normalizer.transform(np.array([target_value]))[0]
+            
+            target_tensor = torch.tensor([target_value], dtype=torch.float32)
         
         return img_tensor, target_tensor
 
@@ -107,7 +136,9 @@ def create_dataloaders(
     batch_size: int = 8,
     shuffle: bool = True,
     random_seed: int = 42,
-    normalizer: Optional[TargetNormalizer] = None
+    normalizer: Optional[TargetNormalizer] = None,
+    is_classification: bool = False,
+    num_classes: int = None
 ) -> Tuple[DataLoader, DataLoader, Dict]:
     """
     Create train and validation dataloaders with stratified split.
@@ -124,7 +155,13 @@ def create_dataloaders(
         (train_loader, val_loader, stats)
     """
     # Create full dataset WITHOUT normalizer to get raw target values for stratified split
-    full_dataset_raw = DrawingDataset(images_data, target_feature, normalizer=None)
+    full_dataset_raw = DrawingDataset(
+        images_data, 
+        target_feature, 
+        normalizer=None,
+        is_classification=is_classification,
+        num_classes=num_classes
+    )
     
     if len(full_dataset_raw) == 0:
         raise ValueError(f"No samples with feature '{target_feature}'")
@@ -185,7 +222,13 @@ def create_dataloaders(
         val_indices.extend(bin_idxs[split_point:].tolist())
     
     # Create new datasets WITH normalizer for training
-    full_dataset_normalized = DrawingDataset(images_data, target_feature, normalizer=normalizer)
+    full_dataset_normalized = DrawingDataset(
+        images_data, 
+        target_feature, 
+        normalizer=normalizer,
+        is_classification=is_classification,
+        num_classes=num_classes
+    )
     
     # Create subsets using indices
     train_dataset = torch.utils.data.Subset(full_dataset_normalized, train_indices)
@@ -253,7 +296,7 @@ class AugmentedDrawingDataset(Dataset):
     PyTorch Dataset for augmented training data from disk.
     """
     
-    def __init__(self, data_dir: str, split: str = 'train', transform=None):
+    def __init__(self, data_dir: str, split: str = 'train', transform=None, is_classification: bool = False):
         """
         Initialize dataset from augmented data directory.
         
@@ -265,6 +308,7 @@ class AugmentedDrawingDataset(Dataset):
         self.data_dir = Path(data_dir)
         self.split = split
         self.transform = transform
+        self.is_classification = is_classification
         
         self.split_dir = self.data_dir / split
         if not self.split_dir.exists():
@@ -308,7 +352,14 @@ class AugmentedDrawingDataset(Dataset):
             label_data = json.load(f)
         
         target_value = float(label_data['target_value'])
-        target_tensor = torch.tensor([target_value], dtype=torch.float32)
+        
+        # Use explicit is_classification flag instead of heuristic
+        if self.is_classification:
+            # Classification: scalar long tensor
+            target_tensor = torch.tensor(int(target_value), dtype=torch.long)
+        else:
+            # Regression: [1] float tensor
+            target_tensor = torch.tensor([target_value], dtype=torch.float32)
         
         return img_tensor, target_tensor
 
@@ -317,7 +368,8 @@ def create_augmented_dataloaders(
     data_dir: str,
     batch_size: int = 8,
     shuffle_train: bool = True,
-    transform=None
+    transform=None,
+    is_classification: bool = False
 ) -> Tuple[DataLoader, DataLoader, Dict]:
     """
     Create dataloaders from augmented data directory.
@@ -332,8 +384,8 @@ def create_augmented_dataloaders(
         (train_loader, val_loader, stats)
     """
     # Create datasets
-    train_dataset = AugmentedDrawingDataset(data_dir, split='train', transform=transform)
-    val_dataset = AugmentedDrawingDataset(data_dir, split='val', transform=transform)
+    train_dataset = AugmentedDrawingDataset(data_dir, split='train', transform=transform, is_classification=is_classification)
+    val_dataset = AugmentedDrawingDataset(data_dir, split='val', transform=transform, is_classification=is_classification)
     
     # Create dataloaders
     train_loader = DataLoader(

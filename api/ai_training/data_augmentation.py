@@ -426,11 +426,23 @@ class AugmentedDatasetBuilder:
             try:
                 # Get target value
                 features = json.loads(img_data.get('features_data', '{}'))
-                if target_feature not in features:
-                    errors.append(f"Image {img_data.get('id', idx)} missing feature {target_feature}")
-                    continue
                 
-                target_value = features[target_feature]
+                # Check if feature exists (handle Custom_Class)
+                is_classification = target_feature.startswith('Custom_Class_')
+                target_value = None
+                
+                if is_classification:
+                    num_classes_str = target_feature.replace('Custom_Class_', '')
+                    if "Custom_Class" in features and num_classes_str in features.get("Custom_Class", {}):
+                        target_value = features["Custom_Class"][num_classes_str]["label"]
+                    else:
+                        errors.append(f"Image {img_data.get('id', idx)} missing Custom_Class[{num_classes_str}]")
+                        continue
+                else:
+                    if target_feature not in features:
+                        errors.append(f"Image {img_data.get('id', idx)} missing feature {target_feature}")
+                        continue
+                    target_value = features[target_feature]
                 
                 # Apply normalization if normalizer is provided
                 target_value_normalized = target_value
