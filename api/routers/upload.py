@@ -130,106 +130,98 @@ async def normalize_image(
     db: Session = Depends(get_db)
 ):
     """
-    STEP 1: Simple normalization - Auto-crop + Scale + Center to 568×274
-    No registration, no thinning - just prepare the image
+    STEP 1: Normalize image to 568×274 using the same proven routine as AI training data.
+    
+    Process (same as ai_training_data_upload):
+    1. Auto-crop to content with 5px padding
+    2. Scale to 568×274 (preserving aspect ratio)
+    3. Center on canvas
+    
+    NOTE: Line thickness normalization is NOT done here - that's handled by register-image
+    if Auto Match is enabled, or left as-is for display.
     """
     import cv2
     import numpy as np
-    from image_processing.utils import load_image_from_bytes
+    from PIL import Image
     
     try:
         print("=" * 60)
-        print("🔄 STEP 1: NORMALIZE IMAGE TO 568×274")
+        print("🔄 NORMALIZE IMAGE TO 568×274 (same as AI training)")
         print("=" * 60)
         
         # Read uploaded file
         content = await file.read()
-        nparr = np.frombuffer(content, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
-        if img is None:
-            raise HTTPException(status_code=400, detail="Invalid image file")
+        # Use PIL for consistent handling (same as training_data.py)
+        pil_image = Image.open(io.BytesIO(content))
         
-        print(f"✓ Uploaded: {img.shape}")
+        # Convert to RGB if needed (canvas may send RGBA)
+        if pil_image.mode == 'RGBA':
+            background = Image.new('RGB', pil_image.size, (255, 255, 255))
+            background.paste(pil_image, mask=pil_image.split()[3])
+            pil_image = background
+        elif pil_image.mode != 'RGB':
+            pil_image = pil_image.convert('RGB')
         
-        # Get reference for size matching
-        reference_service = ReferenceService(db)
-        ref_image = reference_service.get_reference_by_name("default_reference")
-        if not ref_image:
-            raise HTTPException(status_code=404, detail="Reference image not found")
+        image_array = np.array(pil_image)
+        print(f"✓ Uploaded: {image_array.shape[1]}×{image_array.shape[0]}")
         
-        ref_img_data = load_image_from_bytes(ref_image.processed_image_data)
-        ref_h, ref_w = ref_img_data.shape[:2]
+        # Target dimensions
+        TARGET_W, TARGET_H = 568, 274
         
-        # Convert to grayscale for object detection
-        gray_upload = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        _, binary_upload = cv2.threshold(gray_upload, 127, 255, cv2.THRESH_BINARY_INV)
-        coords_upload = np.column_stack(np.where(binary_upload > 0))
+        # Step 1: Auto-crop to content with padding (same as training_data.py)
+        gray = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
+        _, binary = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
         
-        gray_ref = cv2.cvtColor(ref_img_data, cv2.COLOR_BGR2GRAY)
-        _, binary_ref = cv2.threshold(gray_ref, 127, 255, cv2.THRESH_BINARY_INV)
-        coords_ref = np.column_stack(np.where(binary_ref > 0))
+        coords = cv2.findNonZero(binary)
         
-        if len(coords_upload) > 0 and len(coords_ref) > 0:
-            # 1. AUTO-CROP Upload WITH PADDING to preserve edges
-            padding = 10  # Add 10 pixels padding on each side to prevent losing lines at edges
-            
-            up_min_y, up_min_x = coords_upload.min(axis=0)
-            up_max_y, up_max_x = coords_upload.max(axis=0)
+        if coords is not None:
+            # Calculate bounding box with padding
+            x, y, w, h = cv2.boundingRect(coords)
+            padding = 5  # Same as AI training: 5px padding
             
             # Add padding (with bounds checking)
-            img_h, img_w = img.shape[:2]
-            up_min_y = max(0, up_min_y - padding)
-            up_min_x = max(0, up_min_x - padding)
-            up_max_y = min(img_h - 1, up_max_y + padding)
-            up_max_x = min(img_w - 1, up_max_x + padding)
+            x = max(0, x - padding)
+            y = max(0, y - padding)
+            w = min(image_array.shape[1] - x, w + 2 * padding)
+            h = min(image_array.shape[0] - y, h + 2 * padding)
             
-            cropped = img[up_min_y:up_max_y+1, up_min_x:up_max_x+1]
-            print(f"  1️⃣  Cropped with {padding}px padding: {img.shape[:2]} → {cropped.shape[:2]}")
+            # Crop to bounding box
+            cropped_array = image_array[y:y+h, x:x+w]
+            print(f"  1️⃣  Auto-cropped with {padding}px padding: {image_array.shape[1]}×{image_array.shape[0]} → {w}×{h}")
             
-            # 2. SCALE to FIT 568×274 canvas (max width OR height)
-            up_h, up_w = cropped.shape[:2]
+            # Step 2: Scale to 568×274 (preserving aspect ratio)
+            scale = min(TARGET_W / w, TARGET_H / h)
+            new_w = int(w * scale)
+            new_h = int(h * scale)
             
-            # Calculate scale to fit canvas (use MIN to ensure it fits!)
-            scale_h = ref_h / up_h if up_h > 0 else 1.0  # 256 / object_height
-            scale_w = ref_w / up_w if up_w > 0 else 1.0  # 256 / object_width
-            scale = min(scale_h, scale_w)  # MIN = fits in both directions!
-            scale = np.clip(scale, 0.1, 10.0)  # Safety limits
+            # Resize cropped content using PIL (LANCZOS for quality)
+            cropped_img = Image.fromarray(cropped_array)
+            resized_img = cropped_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            print(f"  2️⃣  Scaled: {w}×{h} × {scale:.2f} = {new_w}×{new_h}")
             
-            # Use round() instead of int() to avoid truncation and pixel loss
-            # Ensure we don't exceed canvas dimensions
-            scaled_h = min(round(up_h * scale), ref_h)
-            scaled_w = min(round(up_w * scale), ref_w)
-            scaled = cv2.resize(cropped, (scaled_w, scaled_h), interpolation=cv2.INTER_LINEAR)
-            print(f"  2️⃣  Scaled to fit canvas: {up_h}×{up_w} × {scale:.2f} = {scaled_h}×{scaled_w}")
-            print(f"     (scale_h={scale_h:.2f}, scale_w={scale_w:.2f} → using min={scale:.2f}, rounded to preserve content)")
+            # Step 3: Center on 568×274 canvas
+            final_canvas = np.ones((TARGET_H, TARGET_W, 3), dtype=np.uint8) * 255
+            offset_x = (TARGET_W - new_w) // 2
+            offset_y = (TARGET_H - new_h) // 2
+            final_canvas[offset_y:offset_y+new_h, offset_x:offset_x+new_w] = np.array(resized_img)
+            print(f"  3️⃣  Centered at: ({offset_x}, {offset_y}) on {TARGET_W}×{TARGET_H} canvas")
             
-            # 3. CENTER on 568×274 canvas
-            result = np.ones((ref_h, ref_w, 3), dtype=np.uint8) * 255
-            
-            # With min() scaling, object should always fit - but check anyway
-            if scaled_h > ref_h or scaled_w > ref_w:
-                # Shouldn't happen with min(), but handle it
-                src_y = max(0, (scaled_h - ref_h) // 2)
-                src_x = max(0, (scaled_w - ref_w) // 2)
-                result = scaled[src_y:src_y+ref_h, src_x:src_x+ref_w].copy()
-                print(f"  3️⃣  Centered (cropped - unexpected!): {scaled_h}×{scaled_w} → {ref_h}×{ref_w}")
-            else:
-                # Normal case: place centered
-                y_offset = (ref_h - scaled_h) // 2
-                x_offset = (ref_w - scaled_w) // 2
-                result[y_offset:y_offset+scaled_h, x_offset:x_offset+scaled_w] = scaled
-                print(f"  3️⃣  Centered at: ({x_offset}, {y_offset}) - object fills max width/height ✓")
-            
+            result = final_canvas
         else:
-            print("  ⚠️  No objects detected, simple resize")
-            result = cv2.resize(img, (ref_w, ref_h), interpolation=cv2.INTER_LINEAR)
+            # No content detected - simple resize
+            print("  ⚠️  No content detected, simple resize")
+            resized = pil_image.resize((TARGET_W, TARGET_H), Image.Resampling.LANCZOS)
+            result = np.array(resized)
         
-        print(f"✅ Normalized to: {result.shape}")
+        print(f"✅ Normalized to: {TARGET_W}×{TARGET_H}")
         print("=" * 60)
         
+        # Convert RGB to BGR for cv2.imencode
+        result_bgr = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
+        
         # Encode as PNG
-        success, buffer = cv2.imencode('.png', result)
+        success, buffer = cv2.imencode('.png', result_bgr)
         if not success:
             raise HTTPException(status_code=500, detail="Failed to encode image")
         

@@ -4,7 +4,7 @@ AI Training Models Router
 Endpoints for model management (list, metadata, test, delete).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from database import get_db, TrainingDataImage
 import json
@@ -193,6 +193,189 @@ async def test_model(
         }
         
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/models/predict-single")
+async def predict_single_image(
+    file: UploadFile = File(...),
+    model_filename: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Predict score/class for a single uploaded image using a trained model.
+    
+    Returns:
+        - For regression: predicted score
+        - For classification: predicted class and probabilities with custom names
+    """
+    import torch
+    import numpy as np
+    from pathlib import Path
+    from PIL import Image
+    import io
+    
+    from ai_training.trainer import CNNTrainer
+    from ai_training.model import DrawingClassifier
+    
+    try:
+        model_path = Path("/app/data/models") / model_filename
+        metadata_path = Path("/app/data/models") / f"{model_path.stem}_metadata.json"
+        
+        if not model_path.exists():
+            raise HTTPException(status_code=404, detail="Model not found")
+        
+        # Load metadata
+        training_mode = "regression"
+        num_outputs = 1
+        class_names = {}
+        class_boundaries = []
+        target_feature = "Total_Score"
+        
+        if metadata_path.exists():
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+            
+            target_feature = metadata.get('target_feature', 'Total_Score')
+            num_outputs = metadata.get('model', {}).get('output_neurons', 1)
+            training_mode = metadata.get('training_mode', 'regression')
+            
+            # For classification, extract class names from database
+            if target_feature.startswith('Custom_Class_'):
+                training_mode = "classification"
+                num_classes_str = target_feature.replace('Custom_Class_', '')
+                num_classes = int(num_classes_str)
+                num_outputs = num_classes
+                
+                # Query DB to get class names and boundaries
+                for img in db.query(TrainingDataImage).filter(
+                    TrainingDataImage.features_data.isnot(None)
+                ).limit(500).all():
+                    try:
+                        features = json.loads(img.features_data)
+                        if 'Custom_Class' in features and num_classes_str in features.get('Custom_Class', {}):
+                            cc = features['Custom_Class'][num_classes_str]
+                            label = cc['label']
+                            class_names[label] = cc.get('name_custom', f'Class_{label}')
+                            if not class_boundaries and 'boundaries' in cc:
+                                class_boundaries = cc['boundaries']
+                            # Stop when we have all classes
+                            if len(class_names) >= num_classes:
+                                break
+                    except:
+                        continue
+        
+        # Load and preprocess image
+        image_bytes = await file.read()
+        pil_img = Image.open(io.BytesIO(image_bytes))
+        
+        # Convert to grayscale
+        if pil_img.mode != 'L':
+            pil_img = pil_img.convert('L')
+        
+        # Resize to expected dimensions (568x274)
+        pil_img = pil_img.resize((568, 274), Image.Resampling.LANCZOS)
+        
+        # Convert to tensor
+        img_array = np.array(pil_img, dtype=np.float32) / 255.0
+        img_tensor = torch.from_numpy(img_array).unsqueeze(0).unsqueeze(0)  # [1, 1, H, W]
+        
+        # Load model
+        model = DrawingClassifier(num_outputs=num_outputs, pretrained=False)
+        checkpoint = torch.load(model_path, map_location='cpu')
+        
+        # Handle different checkpoint formats
+        if 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            model.load_state_dict(checkpoint)
+        
+        model.eval()
+        
+        # Predict
+        with torch.no_grad():
+            output = model(img_tensor)
+            
+            if training_mode == "classification":
+                # Get probabilities and predicted class
+                probabilities = torch.softmax(output, dim=1)[0]
+                predicted_class = torch.argmax(probabilities).item()
+                
+                # Get class probabilities with custom names
+                class_probs = {}
+                class_info = []
+                for i, prob in enumerate(probabilities.tolist()):
+                    custom_name = class_names.get(i, f"Class_{i}")
+                    class_probs[custom_name] = round(prob * 100, 1)
+                    
+                    # Build range info from boundaries
+                    range_str = ""
+                    if class_boundaries and len(class_boundaries) > i + 1:
+                        range_str = f"[{class_boundaries[i]}-{class_boundaries[i+1]}]"
+                    
+                    class_info.append({
+                        'label': i,
+                        'name': custom_name,
+                        'probability': round(prob * 100, 1),
+                        'range': range_str
+                    })
+                
+                predicted_name = class_names.get(predicted_class, f"Class_{predicted_class}")
+                
+                return {
+                    'success': True,
+                    'model': model_filename,
+                    'target_feature': target_feature,
+                    'training_mode': 'classification',
+                    'num_classes': num_outputs,
+                    'class_names': class_names,
+                    'boundaries': class_boundaries,
+                    'prediction': {
+                        'class': predicted_class,
+                        'class_name': predicted_name,
+                        'confidence': round(probabilities[predicted_class].item() * 100, 1),
+                        'probabilities': class_probs,
+                        'class_details': class_info
+                    }
+                }
+            else:
+                # Regression - get predicted score
+                raw_value = output[0][0].item()
+                predicted_value = raw_value
+                
+                # Denormalize if normalization was used
+                norm_config = metadata.get('normalization', {}) if metadata_path.exists() else {}
+                
+                # Check if normalization was applied (has method or min/max values)
+                if norm_config.get('method') == 'min_max' or (norm_config.get('min_value') is not None and norm_config.get('max_value') is not None):
+                    min_val = norm_config.get('min_value', 0)
+                    max_val = norm_config.get('max_value', 60)
+                    
+                    # Denormalize: value * (max - min) + min
+                    predicted_value = raw_value * (max_val - min_val) + min_val
+                    
+                    # Clamp to valid range
+                    predicted_value = max(min_val, min(max_val, predicted_value))
+                
+                return {
+                    'success': True,
+                    'model': model_filename,
+                    'target_feature': target_feature,
+                    'training_mode': 'regression',
+                    'normalization': {
+                        'applied': bool(norm_config.get('method')),
+                        'min': norm_config.get('min_value'),
+                        'max': norm_config.get('max_value')
+                    },
+                    'prediction': {
+                        'value': round(predicted_value, 2),
+                        'raw_output': round(raw_value, 4)
+                    }
+                }
+                
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
