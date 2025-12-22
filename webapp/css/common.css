@@ -28,7 +28,12 @@ body {
 }
 
 /* Hexagon Honeycomb Pattern - AI/Tesseract Style Background */
-/* Apply by adding class "hexagon-pattern" to container, or it auto-applies if container has position: relative */
+/* Apply by adding class "hexagon-pattern" to container */
+.container.hexagon-pattern {
+    position: relative;
+    overflow: hidden;
+}
+
 .container.hexagon-pattern::before,
 .container[style*="position: relative"]::before {
     content: '';
