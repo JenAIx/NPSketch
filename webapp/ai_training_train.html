@@ -732,21 +732,37 @@
                 <div class="form-group">
                     <label>Batch Size</label>
                     <select id="batchSize">
-                        <option value="4">4</option>
-                        <option value="8" selected>8</option>
-                        <option value="16">16</option>
+                        <option value="2">2 (Small datasets)</option>
+                        <option value="4">4 (Good for < 50 samples)</option>
+                        <option value="8" selected>8 (Recommended)</option>
+                        <option value="16">16 (Large datasets, faster)</option>
+                        <option value="32">32 (Very large datasets)</option>
                     </select>
+                    <p style="margin-top: 8px; font-size: 0.85em; color: #666; font-weight: normal;">
+                        💡 <strong>Smaller batches:</strong> More stable gradients, better for small datasets<br>
+                        💡 <strong>Larger batches:</strong> Faster training, needs more samples (50+)
+                    </p>
                 </div>
             </div>
             
-            <!-- Epoch Recommendations Info -->
+            <!-- Training Parameters Info -->
             <div style="margin-top: 20px; padding: 15px; background: #e7f3ff; border-radius: 8px; border-left: 4px solid #2196f3;">
-                <div style="font-weight: 600; color: #0c5460; margin-bottom: 8px;">📚 Why Epoch Count Matters</div>
+                <div style="font-weight: 600; color: #0c5460; margin-bottom: 8px;">📚 Training Parameters Explained</div>
                 <div style="font-size: 0.85em; color: #0c5460; line-height: 1.6;">
-                    <strong>Epochs</strong> = number of times the model sees the entire training dataset<br>
-                    <strong>More epochs:</strong> Better learning, but risk of overfitting (memorizing training data)<br>
-                    <strong>With augmentation (6x):</strong> Need 30-50 epochs minimum to see all variations<br>
-                    <strong>Monitor:</strong> Stop if validation loss stops improving (early stopping)
+                    <strong>Epochs:</strong> Number of times the model sees the entire training dataset
+                    <ul style="margin: 5px 0 10px 20px;">
+                        <li>More epochs = Better learning, but risk of overfitting</li>
+                        <li>With augmentation (6x): Use 30-50 epochs minimum</li>
+                        <li>Without augmentation: Use 20-30 epochs</li>
+                    </ul>
+                    
+                    <strong>Batch Size:</strong> Number of samples processed before updating model weights
+                    <ul style="margin: 5px 0 0 20px;">
+                        <li>Smaller (2-4): More stable gradients, better for small datasets (< 50 samples)</li>
+                        <li>Medium (8): Good balance, works for most datasets (50-200 samples)</li>
+                        <li>Larger (16-32): Faster training, needs large datasets (200+ samples)</li>
+                        <li>Rule of thumb: batch_size ≤ dataset_size / 10</li>
+                    </ul>
                 </div>
             </div>
             

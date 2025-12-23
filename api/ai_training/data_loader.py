@@ -428,6 +428,11 @@ class TrainingDataLoader:
         # Create stratified split indices
         indices = np.arange(len(images_data))
         
+        # Initialize for scope
+        recommendation = None
+        train_indices = []
+        val_indices = []
+        
         # Choose split strategy based on task type
         if is_classification_mode:
             # For classification: stratify by class labels
@@ -442,30 +447,9 @@ class TrainingDataLoader:
                 train_split=train_split,
                 random_seed=random_seed
             )
-        else:
-            # For regression: stratify by binning continuous values
-            from ai_training.split_strategy import stratified_split_regression
             
-            recommendation = get_split_recommendation(len(images_data), y_array.max() - y_array.min())
-            
-            print(f"   Split strategy: {recommendation['strategy']} with {recommendation['n_bins']} bins")
-            
-            _, _, _, _, split_info = stratified_split_regression(
-                indices.reshape(-1, 1),
-                y_array,
-                train_split=train_split,
-                n_bins=recommendation['n_bins'],
-                random_seed=random_seed
-            )
-        
-        # Get actual train/val indices - different logic for classification vs regression
-        np.random.seed(random_seed)
-        
-        train_indices = []
-        val_indices = []
-        
-        if is_classification_mode:
-            # For classification: split by class labels
+            # Get actual indices for classification
+            np.random.seed(random_seed)
             unique_classes = np.unique(y_array)
             
             for cls in unique_classes:
@@ -481,12 +465,25 @@ class TrainingDataLoader:
                 
                 train_indices.extend(class_idxs[:split_point].tolist())
                 val_indices.extend(class_idxs[split_point:].tolist())
+                
         else:
-            # For regression: split by bins
-            try:
-                from ai_training.split_strategy import create_bins
-            except ImportError:
-                from split_strategy import create_bins
+            # For regression: stratify by binning continuous values
+            from ai_training.split_strategy import stratified_split_regression, create_bins
+            
+            recommendation = get_split_recommendation(len(images_data), y_array.max() - y_array.min())
+            
+            print(f"   Split strategy: {recommendation['strategy']} with {recommendation['n_bins']} bins")
+            
+            _, _, _, _, split_info = stratified_split_regression(
+                indices.reshape(-1, 1),
+                y_array,
+                train_split=train_split,
+                n_bins=recommendation['n_bins'],
+                random_seed=random_seed
+            )
+            
+            # Get actual indices for regression
+            np.random.seed(random_seed)
             
             bin_assignments = create_bins(y_array, n_bins=recommendation['n_bins'], method='quantile')
             unique_bins = np.unique(bin_assignments)
@@ -537,8 +534,14 @@ class TrainingDataLoader:
         
         # Add split info to stats
         stats['split_info'] = split_info
-        stats['split_strategy'] = recommendation['strategy']
-        stats['n_bins'] = recommendation['n_bins']
+        
+        # Add strategy info based on task type
+        if is_classification_mode:
+            stats['split_strategy'] = 'stratified_classification'
+            stats['n_bins'] = None  # Not applicable for classification
+        else:
+            stats['split_strategy'] = recommendation['strategy']
+            stats['n_bins'] = recommendation['n_bins']
         
         # Update metadata.json with split information
         metadata_file = Path(output_dir) / "metadata.json"
@@ -547,9 +550,14 @@ class TrainingDataLoader:
                 metadata = json.load(f)
             
             # Add split information
-            metadata['split_strategy'] = recommendation['strategy']
+            if is_classification_mode:
+                metadata['split_strategy'] = 'stratified_classification'
+                metadata['n_bins'] = None
+            else:
+                metadata['split_strategy'] = recommendation['strategy']
+                metadata['n_bins'] = recommendation['n_bins']
+            
             metadata['split_info'] = split_info
-            metadata['n_bins'] = recommendation['n_bins']
             
             # Save updated metadata
             with open(metadata_file, 'w') as f:

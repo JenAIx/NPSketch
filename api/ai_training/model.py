@@ -8,6 +8,7 @@ fine-tuned for neuropsychological drawing assessment.
 import torch
 import torch.nn as nn
 import torchvision.models as models
+from torchvision.models import ResNet18_Weights
 from typing import Dict, List
 
 
@@ -28,8 +29,11 @@ class DrawingClassifier(nn.Module):
         """
         super(DrawingClassifier, self).__init__()
         
-        # Load pre-trained ResNet-18
-        self.backbone = models.resnet18(pretrained=pretrained)
+        # Load pre-trained ResNet-18 (using modern API)
+        if pretrained:
+            self.backbone = models.resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
+        else:
+            self.backbone = models.resnet18(weights=None)
         
         # Modify first conv layer to accept grayscale input (1 channel)
         # Convert RGB weights to grayscale by averaging
