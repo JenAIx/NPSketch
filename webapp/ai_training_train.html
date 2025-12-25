@@ -775,16 +775,17 @@
                     </label>
                 </div>
                 <div style="font-size: 0.9em; color: #666; margin-left: 30px;">
-                    Multiplies dataset size by 6x using realistic transformations (rotation ±3°, translation ±10px, scaling 95-105%).
+                    Multiplies dataset size by 6x using realistic transformations (rotation, translation, scaling, and local warping).
                     Significantly reduces overfitting and improves model generalization.
                 </div>
                 <div id="augmentationInfo" style="margin-top: 10px; margin-left: 30px; font-size: 0.85em; color: #667eea; display: none;">
-                    <strong>ℹ️ Augmentation Details:</strong>
+                    <strong>ℹ️ Augmentation Details (New Strategy):</strong>
                     <ul style="margin: 5px 0 0 20px;">
-                        <li>5 augmented versions per image</li>
-                        <li>Rotation: ±3 degrees</li>
-                        <li>Translation: ±10 pixels</li>
-                        <li>Scaling: 95-105%</li>
+                        <li><strong>5 augmented versions per image:</strong></li>
+                        <li style="margin-left: 20px;">3× Global only: Rotation ±3°, Translation ±10px, Scaling 95-105%</li>
+                        <li style="margin-left: 20px;">2× Warp + Global: Local warping (9 points, ±15px) + global transforms</li>
+                        <li><strong>Local Warping:</strong> Simulates paper deformations (folds, uneven surface)</li>
+                        <li><strong>Line Quality:</strong> Consistent 2px lines guaranteed by post-processing</li>
                     </ul>
                 </div>
             </div>

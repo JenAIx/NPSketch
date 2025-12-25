@@ -27,6 +27,149 @@ import shutil
 from pathlib import Path
 
 
+def apply_local_warp(
+    image: np.ndarray,
+    num_control_points: int = 9,
+    max_displacement: int = 15,
+    safety_margin: int = 15,
+    random_seed: int = None
+) -> np.ndarray:
+    """
+    Apply local warping (TPS) to image for data augmentation.
+    
+    Args:
+        image: Input image (H×W×3 or H×W)
+        num_control_points: Number of control points (4 or 9)
+        max_displacement: Maximum pixel displacement for control points
+        safety_margin: Minimum distance from edge
+        random_seed: Random seed for reproducibility
+    
+    Returns:
+        Warped image
+    """
+    if random_seed is not None:
+        np.random.seed(random_seed)
+    
+    h, w = image.shape[:2]
+    
+    # Get control points in 3×3 grid at 25%, 50%, 75%
+    control_points = []
+    for v_pos in [0.25, 0.5, 0.75]:  # vertical
+        for h_pos in [0.25, 0.5, 0.75]:  # horizontal
+            control_points.append((w * h_pos, h * v_pos))
+    control_points = np.array(control_points, dtype=np.float32)
+    
+    # Generate random displacements with border protection
+    displaced_points = []
+    for x, y in control_points:
+        # Calculate distance to edges
+        dist_to_left = x
+        dist_to_right = w - x
+        dist_to_top = y
+        dist_to_bottom = h - y
+        
+        # Limit displacement based on distance to edge
+        max_dx = min(max_displacement, dist_to_left - safety_margin, dist_to_right - safety_margin)
+        max_dy = min(max_displacement, dist_to_top - safety_margin, dist_to_bottom - safety_margin)
+        
+        max_dx = max(0, max_dx)
+        max_dy = max(0, max_dy)
+        
+        if max_dx < 2:
+            max_dx = min(2, max_displacement * 0.3)
+        if max_dy < 2:
+            max_dy = min(2, max_displacement * 0.3)
+        
+        dx = np.random.randint(-int(max_dx), int(max_dx) + 1)
+        dy = np.random.randint(-int(max_dy), int(max_dy) + 1)
+        displaced_points.append((x + dx, y + dy))
+    
+    displaced_points = np.array(displaced_points, dtype=np.float32)
+    
+    # Calculate displacements
+    displacements = displaced_points - control_points
+    
+    # Create displacement field using Inverse Distance Weighting
+    map_x = np.zeros((h, w), dtype=np.float32)
+    map_y = np.zeros((h, w), dtype=np.float32)
+    
+    safety_margin_edge = 10
+    
+    for y in range(h):
+        for x in range(w):
+            pixel = np.array([x, y], dtype=np.float32)
+            
+            # Calculate distances to all control points
+            distances = np.linalg.norm(control_points - pixel, axis=1)
+            distances = np.maximum(distances, 1e-6)
+            
+            # Inverse Distance Weighting: weight = 1 / distance^2
+            weights = 1.0 / (distances ** 2)
+            weights = weights / np.sum(weights)
+            
+            # Calculate weighted displacement
+            dx = np.sum(displacements[:, 0] * weights)
+            dy = np.sum(displacements[:, 1] * weights)
+            
+            # Calculate distance to edges for edge reduction
+            dist_to_left = x
+            dist_to_right = w - 1 - x
+            dist_to_top = y
+            dist_to_bottom = h - 1 - y
+            
+            # Reduce displacement near edges
+            edge_factor_x = min(1.0, 
+                               (dist_to_left - safety_margin_edge) / max(1, safety_margin_edge),
+                               (dist_to_right - safety_margin_edge) / max(1, safety_margin_edge))
+            edge_factor_y = min(1.0,
+                               (dist_to_top - safety_margin_edge) / max(1, safety_margin_edge),
+                               (dist_to_bottom - safety_margin_edge) / max(1, safety_margin_edge))
+            
+            edge_factor_x = max(0.0, min(1.0, edge_factor_x))
+            edge_factor_y = max(0.0, min(1.0, edge_factor_y))
+            
+            dx = dx * edge_factor_x
+            dy = dy * edge_factor_y
+            
+            # Calculate final mapping coordinates
+            new_x = x + dx
+            new_y = y + dy
+            
+            map_x[y, x] = np.clip(new_x, 0, w - 1)
+            map_y[y, x] = np.clip(new_y, 0, h - 1)
+    
+    # Ensure image is RGB
+    if len(image.shape) == 2:
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+    elif image.shape[2] == 4:
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
+    else:
+        image_rgb = image.copy()
+    
+    # Apply warping
+    border_value = (255, 255, 255) if len(image_rgb.shape) == 3 else 255
+    warped = cv2.remap(
+        image_rgb, map_x, map_y,
+        interpolation=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=border_value
+    )
+    
+    # Ensure output is RGB
+    if len(warped.shape) == 2:
+        warped = cv2.cvtColor(warped, cv2.COLOR_GRAY2RGB)
+    
+    # Re-binarize and normalize line thickness
+    gray = cv2.cvtColor(warped, cv2.COLOR_RGB2GRAY)
+    _, binary = cv2.threshold(gray, 175, 255, cv2.THRESH_BINARY)
+    warped = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
+    
+    from line_normalizer import normalize_line_thickness
+    warped = normalize_line_thickness(warped, target_thickness=2.0)
+    
+    return warped
+
+
 class ImageAugmentor:
     """
     Augments training images with realistic variations.
@@ -123,6 +266,23 @@ class ImageAugmentor:
             borderMode=cv2.BORDER_CONSTANT,
             borderValue=border_value
         )
+        
+        # Re-binarize to ensure consistent binary images (no grayscale from interpolation)
+        # Use threshold 175: optimal balance between line preservation and anti-fragmentation
+        if len(augmented.shape) == 3:
+            # RGB image: convert to grayscale, binarize, convert back to RGB
+            gray = cv2.cvtColor(augmented, cv2.COLOR_RGB2GRAY)
+            _, binary = cv2.threshold(gray, 175, 255, cv2.THRESH_BINARY)
+            augmented = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
+        else:
+            # Grayscale image: binarize directly
+            _, augmented = cv2.threshold(augmented, 175, 255, cv2.THRESH_BINARY)
+        
+        # Re-normalize line thickness after augmentation to ensure consistent 2px lines
+        # This is CRITICAL: Augmentation changes line thickness through interpolation
+        # Skeleton + Dilation brings it back to consistent 2px
+        from line_normalizer import normalize_line_thickness
+        augmented = normalize_line_thickness(augmented, target_thickness=2.0)
         
         return augmented
     
@@ -223,20 +383,25 @@ class ImageAugmentor:
     def augment_batch(
         self,
         image: np.ndarray,
-        num_augmentations: int = None
+        num_augmentations: int = None,
+        use_warping: bool = True
     ) -> List[Tuple[np.ndarray, Dict]]:
         """
         Create multiple augmented versions of an image with content protection.
         
-        Uses content-aware bounds checking to prevent clipping lines.
-        If aggressive parameters would clip content, falls back to conservative values.
+        NEW STRATEGY (Option 1): Combines global and local augmentations:
+        - First 60% (3/5): Pure global augmentation (rotation, translation, scaling)
+        - Last 40% (2/5): Local warping + global augmentation
+        
+        This provides diverse transformations while keeping the same number of images.
         
         Args:
             image: Input image
             num_augmentations: Number of augmentations (uses self.num_augmentations if None)
+            use_warping: Enable warping for subset of augmentations (default: True)
         
         Returns:
-            List of (augmented_image, parameters) tuples with safety info
+            List of (augmented_image, parameters) tuples with augmentation info
         """
         if num_augmentations is None:
             num_augmentations = self.num_augmentations
@@ -244,7 +409,12 @@ class ImageAugmentor:
         augmented_images = []
         safety_stats = {'safe': 0, 'conservative': 0}
         
-        for i in range(num_augmentations):
+        # Calculate split: 60% global, 40% warp+global
+        num_global_only = int(num_augmentations * 0.6)
+        num_warp_global = num_augmentations - num_global_only
+        
+        # Generate pure global augmentations
+        for i in range(num_global_only):
             # Generate random parameters
             rotation = np.random.uniform(*self.rotation_range)
             tx = np.random.randint(*self.translation_range)
@@ -259,7 +429,6 @@ class ImageAugmentor:
                 rotation = rotation * 0.5
                 tx = int(tx * 0.5)
                 ty = int(ty * 0.5)
-                # Keep scale as-is (centered, less risky)
                 
                 # Verify conservative params are safe
                 if not self._is_safe_augmentation(image, rotation, tx, ty, scale):
@@ -267,17 +436,17 @@ class ImageAugmentor:
                     rotation = rotation * 0.5
                     tx = int(tx * 0.5)
                     ty = int(ty * 0.5)
-                    scale = 1.0 + (scale - 1.0) * 0.5  # Reduce scale deviation
+                    scale = 1.0 + (scale - 1.0) * 0.5
                 
                 safety_stats['conservative'] += 1
             else:
                 safety_stats['safe'] += 1
             
-            # Apply augmentation
+            # Apply global augmentation only
             aug_img = self.augment_image(image, rotation, tx, ty, scale)
             
-            # Store parameters
             params = {
+                'augmentation_type': 'global',
                 'rotation': float(rotation),
                 'translation_x': int(tx),
                 'translation_y': int(ty),
@@ -286,6 +455,95 @@ class ImageAugmentor:
             }
             
             augmented_images.append((aug_img, params))
+        
+        # Generate warp + global augmentations
+        if use_warping:
+            for i in range(num_warp_global):
+                # Step 1: Apply local warping
+                warped = apply_local_warp(
+                    image,
+                    num_control_points=9,
+                    max_displacement=15,
+                    safety_margin=15,
+                    random_seed=None  # Random each time
+                )
+                
+                # Step 2: Apply global augmentation on warped image
+                rotation = np.random.uniform(*self.rotation_range)
+                tx = np.random.randint(*self.translation_range)
+                ty = np.random.randint(*self.translation_range)
+                scale = np.random.uniform(*self.scale_range)
+                
+                # Check if safe (on warped image)
+                is_safe = self._is_safe_augmentation(warped, rotation, tx, ty, scale)
+                
+                if not is_safe:
+                    rotation = rotation * 0.5
+                    tx = int(tx * 0.5)
+                    ty = int(ty * 0.5)
+                    
+                    if not self._is_safe_augmentation(warped, rotation, tx, ty, scale):
+                        rotation = rotation * 0.5
+                        tx = int(tx * 0.5)
+                        ty = int(ty * 0.5)
+                        scale = 1.0 + (scale - 1.0) * 0.5
+                    
+                    safety_stats['conservative'] += 1
+                else:
+                    safety_stats['safe'] += 1
+                
+                # Apply global augmentation
+                aug_img = self.augment_image(warped, rotation, tx, ty, scale)
+                
+                params = {
+                    'augmentation_type': 'warp+global',
+                    'warp_control_points': 9,
+                    'warp_max_displacement': 15,
+                    'rotation': float(rotation),
+                    'translation_x': int(tx),
+                    'translation_y': int(ty),
+                    'scale': float(scale),
+                    'safety_adjusted': not is_safe
+                }
+                
+                augmented_images.append((aug_img, params))
+        else:
+            # If warping disabled, fill remaining with global augmentations
+            for i in range(num_warp_global):
+                rotation = np.random.uniform(*self.rotation_range)
+                tx = np.random.randint(*self.translation_range)
+                ty = np.random.randint(*self.translation_range)
+                scale = np.random.uniform(*self.scale_range)
+                
+                is_safe = self._is_safe_augmentation(image, rotation, tx, ty, scale)
+                
+                if not is_safe:
+                    rotation = rotation * 0.5
+                    tx = int(tx * 0.5)
+                    ty = int(ty * 0.5)
+                    
+                    if not self._is_safe_augmentation(image, rotation, tx, ty, scale):
+                        rotation = rotation * 0.5
+                        tx = int(tx * 0.5)
+                        ty = int(ty * 0.5)
+                        scale = 1.0 + (scale - 1.0) * 0.5
+                    
+                    safety_stats['conservative'] += 1
+                else:
+                    safety_stats['safe'] += 1
+                
+                aug_img = self.augment_image(image, rotation, tx, ty, scale)
+                
+                params = {
+                    'augmentation_type': 'global',
+                    'rotation': float(rotation),
+                    'translation_x': int(tx),
+                    'translation_y': int(ty),
+                    'scale': float(scale),
+                    'safety_adjusted': not is_safe
+                }
+                
+                augmented_images.append((aug_img, params))
         
         # Log safety statistics
         if safety_stats['conservative'] > 0:

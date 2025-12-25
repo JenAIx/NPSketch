@@ -333,6 +333,10 @@ docker logs npsketch-api
 - All normalized images: **568×274 pixels**
 - Line thickness: **2.00px** (Zhang-Suen + dilation)
 - Format: **RGB PNG** (black lines on white background)
+- Augmentation: **3× global + 2× local warping** (per image)
+  - Global: Rotation ±3°, Translation ±10px, Scaling 0.95-1.05×
+  - Warping: TPS with 9 control points, ±15px displacement
+  - Pipeline: Transform → Binarize (threshold 175) → Line normalize (2px)
 
 ### Import Methods
 - **MAT/OCS:** Web interface (`/api/extract-training-data`)
@@ -386,10 +390,11 @@ db.close()
 - **README.md** - Full project documentation
 - **DATA_IMPORT_FLOW.md** - Detailed data import workflows
 - **templates/training_data_oxford_manual_rater_202512/OXFORD_IMPORT_SUMMARY.md** - Oxford import details
+- **api/ai_training/LOCAL_WARPING.md** - Local warping augmentation documentation
 
 ---
 
-**Last Updated:** 2025-12-22  
+**Last Updated:** 2025-12-25  
 **Container Name:** `npsketch-api`  
 **Working Directory:** `/app`
 
