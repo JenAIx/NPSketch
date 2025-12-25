@@ -474,6 +474,20 @@
                     body: JSON.stringify({model_filename: filename})
                 });
                 
+                // Check if response is OK
+                if (!response.ok) {
+                    let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                    try {
+                        const errorData = await response.json();
+                        if (errorData.detail) {
+                            errorMessage = errorData.detail;
+                        }
+                    } catch (e) {
+                        // If JSON parsing fails, use status text
+                    }
+                    throw new Error(errorMessage);
+                }
+                
                 const data = await response.json();
                 
                 if (data.success) {

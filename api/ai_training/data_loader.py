@@ -504,6 +504,12 @@ class TrainingDataLoader:
         
         print(f"   Train: {len(train_indices)} images, Val: {len(val_indices)} images")
         
+        # Extract actual image IDs from split indices
+        train_image_ids = [images_data[i]['id'] for i in train_indices if i < len(images_data) and 'id' in images_data[i]]
+        val_image_ids = [images_data[i]['id'] for i in val_indices if i < len(images_data) and 'id' in images_data[i]]
+        
+        print(f"   Extracted {len(train_image_ids)} train IDs and {len(val_image_ids)} val IDs")
+        
         # Fit normalizer if provided
         if normalizer is not None:
             normalizer.fit(y_array)
@@ -543,7 +549,11 @@ class TrainingDataLoader:
             stats['split_strategy'] = recommendation['strategy']
             stats['n_bins'] = recommendation['n_bins']
         
-        # Update metadata.json with split information
+        # Add image IDs to stats (for model metadata)
+        stats['train_image_ids'] = train_image_ids
+        stats['val_image_ids'] = val_image_ids
+        
+        # Update metadata.json with split information AND image IDs
         metadata_file = Path(output_dir) / "metadata.json"
         if metadata_file.exists():
             with open(metadata_file, 'r') as f:
@@ -558,6 +568,10 @@ class TrainingDataLoader:
                 metadata['n_bins'] = recommendation['n_bins']
             
             metadata['split_info'] = split_info
+            
+            # Add image IDs to metadata (for later retrieval during testing)
+            metadata['train_image_ids'] = train_image_ids
+            metadata['val_image_ids'] = val_image_ids
             
             # Save updated metadata
             with open(metadata_file, 'w') as f:

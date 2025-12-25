@@ -39,8 +39,8 @@ router = APIRouter(prefix="/api", tags=["training_data"])
 UPLOAD_DIR = "/app/data/tmp/uploads"
 OUTPUT_DIR = "/app/data/tmp/extracted"
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+# Note: Directories are created lazily when needed, not at import time
+# This prevents creating ./api/data/ when modules are imported during Docker startup
 
 
 def extract_patient_id(filename: str) -> str:
@@ -223,11 +223,12 @@ async def extract_training_data(
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
     
-    # Create unique session
+    # Create unique session (directories created lazily here, not at module import)
     session_id = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
     session_upload_dir = os.path.join(UPLOAD_DIR, session_id)
     session_output_dir = os.path.join(OUTPUT_DIR, session_id)
     
+    # Create base directories and session directories
     os.makedirs(session_upload_dir, exist_ok=True)
     os.makedirs(session_output_dir, exist_ok=True)
     
@@ -1315,6 +1316,15 @@ async def save_drawn_image(
 async def cleanup_old_sessions(max_age_hours: int = 24):
     """Clean up old temporary extraction directories."""
     import time
+    
+    # Ensure directories exist before trying to clean them
+    if not os.path.exists(OUTPUT_DIR):
+        return {
+            "success": True,
+            "sessions_cleaned": 0,
+            "max_age_hours": max_age_hours,
+            "message": "No temporary directories to clean"
+        }
     
     cutoff_time = time.time() - (max_age_hours * 3600)
     sessions_cleaned = 0

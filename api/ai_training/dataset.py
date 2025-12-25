@@ -51,6 +51,10 @@ class DrawingDataset(Dataset):
         self.is_classification = is_classification
         self.num_classes = num_classes
         
+        # Validate classification parameters
+        if is_classification and num_classes is None:
+            raise ValueError(f"num_classes must be provided when is_classification=True for feature '{target_feature}'")
+        
         # Filter: Only keep images that have the target feature
         self.valid_indices = []
         for idx, img_data in enumerate(images_data):
@@ -188,69 +192,164 @@ def create_dataloaders(
     # Create index array
     indices = np.arange(len(full_dataset_raw))
     
+    # Initialize variables that may be used later
+    recommendation = None
+    split_info = None
+    
     # Choose split strategy based on task type
     if is_classification:
         # For classification: stratify by actual class labels
         print(f"   Using CLASSIFICATION stratification (by class labels)")
-        _, _, _, _, split_info = stratified_split_classification(
-            indices.reshape(-1, 1),  # Dummy X
-            all_targets,
-            train_split=train_split,
-            random_seed=random_seed
-        )
+        stratified_split_succeeded = False
+        try:
+            _, _, _, _, split_info = stratified_split_classification(
+                indices.reshape(-1, 1),  # Dummy X
+                all_targets,
+                train_split=train_split,
+                random_seed=random_seed
+            )
+            stratified_split_succeeded = True
+        except Exception as e:
+            print(f"   Warning: Stratified classification split failed: {e}, falling back to random split")
+            split_info = {
+                'method': 'random',
+                'reason': 'stratified_classification_split_failed'
+            }
         
-        # Re-do split to get actual indices
-        np.random.seed(random_seed)
-        unique_classes = np.unique(all_targets)
-        
-        train_indices = []
-        val_indices = []
-        
-        for cls in unique_classes:
-            class_mask = all_targets == cls
-            class_idxs = np.where(class_mask)[0]
-            np.random.shuffle(class_idxs)
+        if stratified_split_succeeded:
+            # Re-do stratified split to get actual indices
+            np.random.seed(random_seed)
+            unique_classes = np.unique(all_targets)
             
-            split_point = int(len(class_idxs) * train_split)
+            train_indices = []
+            val_indices = []
             
-            # Ensure at least 1 sample in test if possible
-            if split_point == len(class_idxs) and len(class_idxs) > 1:
-                split_point = len(class_idxs) - 1
+            for cls in unique_classes:
+                class_mask = all_targets == cls
+                class_idxs = np.where(class_mask)[0]
+                np.random.shuffle(class_idxs)
+                
+                split_point = int(len(class_idxs) * train_split)
+                
+                # Ensure at least 1 sample in test if possible
+                if split_point == len(class_idxs) and len(class_idxs) > 1:
+                    split_point = len(class_idxs) - 1
+                
+                train_indices.extend(class_idxs[:split_point].tolist())
+                val_indices.extend(class_idxs[split_point:].tolist())
             
-            train_indices.extend(class_idxs[:split_point].tolist())
-            val_indices.extend(class_idxs[split_point:].tolist())
+            # Create recommendation dict for classification
+            recommendation = {
+                'strategy': 'stratified_classification',
+                'n_bins': len(unique_classes)
+            }
+        else:
+            # Fall back to random split (consistent with regression path)
+            np.random.seed(random_seed)
+            np.random.shuffle(indices)
+            split_point = int(len(indices) * train_split)
+            train_indices = indices[:split_point].tolist()
+            val_indices = indices[split_point:].tolist()
+            
+            # Create recommendation dict for random split
+            recommendation = {
+                'strategy': 'random',
+                'n_bins': len(np.unique(all_targets))
+            }
         
     else:
         # For regression: stratify by binning continuous values
         print(f"   Using REGRESSION stratification (by value bins)")
-        recommendation = get_split_recommendation(len(all_targets), all_targets.max() - all_targets.min())
         
-        _, _, _, _, split_info = stratified_split_regression(
-            indices.reshape(-1, 1),  # Dummy X
-            all_targets,
-            train_split=train_split,
-            n_bins=recommendation['n_bins'],
-            random_seed=random_seed
-        )
+        # Validate all_targets
+        if len(all_targets) == 0:
+            raise ValueError(f"No valid target values found for feature '{target_feature}'")
         
-        # Re-do split to get actual indices
-        np.random.seed(random_seed)
+        # Calculate value range
+        target_min = all_targets.min()
+        target_max = all_targets.max()
+        value_range = target_max - target_min
         
-        from .split_strategy import create_bins
-        bin_assignments = create_bins(all_targets, n_bins=recommendation['n_bins'], method='quantile')
-        unique_bins = np.unique(bin_assignments)
-        
-        train_indices = []
-        val_indices = []
-        
-        for bin_idx in unique_bins:
-            bin_mask = bin_assignments == bin_idx
-            bin_idxs = np.where(bin_mask)[0]
-            np.random.shuffle(bin_idxs)
+        # If all values are the same, use simple random split
+        if value_range == 0:
+            print(f"   Warning: All target values are identical ({target_min}), using random split")
+            np.random.seed(random_seed)
+            np.random.shuffle(indices)
+            split_point = int(len(indices) * train_split)
+            train_indices = indices[:split_point].tolist()
+            val_indices = indices[split_point:].tolist()
+            # Create a simple split_info for stats
+            split_info = {
+                'method': 'random',
+                'reason': 'all_values_identical'
+            }
+            recommendation = {
+                'strategy': 'random',
+                'n_bins': 1
+            }
+        else:
+            # Get split recommendation
+            try:
+                recommendation = get_split_recommendation(len(all_targets), value_range)
+                n_bins = recommendation['n_bins']
+            except Exception as e:
+                print(f"   Warning: Failed to get split recommendation: {e}, using default n_bins=5")
+                n_bins = 5
             
-            split_point = int(len(bin_idxs) * train_split)
-            train_indices.extend(bin_idxs[:split_point].tolist())
-            val_indices.extend(bin_idxs[split_point:].tolist())
+            try:
+                _, _, _, _, split_info = stratified_split_regression(
+                    indices.reshape(-1, 1),  # Dummy X
+                    all_targets,
+                    train_split=train_split,
+                    n_bins=n_bins,
+                    random_seed=random_seed
+                )
+            except Exception as e:
+                print(f"   Warning: Stratified split failed: {e}, falling back to random split")
+                np.random.seed(random_seed)
+                np.random.shuffle(indices)
+                split_point = int(len(indices) * train_split)
+                train_indices = indices[:split_point].tolist()
+                val_indices = indices[split_point:].tolist()
+                # Create a simple split_info for stats
+                split_info = {
+                    'method': 'random',
+                    'reason': 'stratified_split_failed'
+                }
+                if recommendation is None:
+                    recommendation = {
+                        'strategy': 'random',
+                        'n_bins': n_bins
+                    }
+            else:
+                # Re-do split to get actual indices
+                np.random.seed(random_seed)
+                
+                from .split_strategy import create_bins
+                bin_assignments = create_bins(all_targets, n_bins=n_bins, method='quantile')
+                unique_bins = np.unique(bin_assignments)
+                
+                train_indices = []
+                val_indices = []
+                
+                for bin_idx in unique_bins:
+                    bin_mask = bin_assignments == bin_idx
+                    bin_idxs = np.where(bin_mask)[0]
+                    np.random.shuffle(bin_idxs)
+                    
+                    split_point = int(len(bin_idxs) * train_split)
+                    train_indices.extend(bin_idxs[:split_point].tolist())
+                    val_indices.extend(bin_idxs[split_point:].tolist())
+    
+    # Validate that split resulted in non-empty sets
+    if len(train_indices) == 0:
+        raise ValueError(f"No training samples found for feature '{target_feature}'. "
+                         f"Total samples: {len(full_dataset_raw)}, "
+                         f"Valid samples: {len(all_targets)}")
+    if len(val_indices) == 0:
+        raise ValueError(f"No validation samples found for feature '{target_feature}'. "
+                         f"Total samples: {len(full_dataset_raw)}, "
+                         f"Valid samples: {len(all_targets)}")
     
     # Create new datasets WITH normalizer for training
     full_dataset_normalized = DrawingDataset(
@@ -310,11 +409,166 @@ def create_dataloaders(
         "train_batches": len(train_loader),
         "val_batches": len(val_loader),
         "batch_size": batch_size,
-        "split_strategy": recommendation['strategy'],
-        "n_bins": recommendation['n_bins'],
-        "split_info": split_info,
         "train_target_range": [float(min(train_targets)), float(max(train_targets))],
         "val_target_range": [float(min(val_targets)), float(max(val_targets))],
+        "train_image_ids": train_image_ids,
+        "val_image_ids": val_image_ids
+    }
+    
+    # Add split strategy info if available
+    if recommendation is not None:
+        stats["split_strategy"] = recommendation.get('strategy', 'unknown')
+        stats["n_bins"] = recommendation.get('n_bins', None)
+    else:
+        stats["split_strategy"] = 'unknown'
+        stats["n_bins"] = None
+    
+    if split_info is not None:
+        stats["split_info"] = split_info
+    else:
+        stats["split_info"] = {'method': 'unknown'}
+    
+    return train_loader, val_loader, stats
+
+
+def create_dataloaders_from_ids(
+    images_data: List[Dict],
+    target_feature: str,
+    train_image_ids: List[int],
+    val_image_ids: List[int],
+    batch_size: int = 8,
+    shuffle: bool = True,
+    normalizer: Optional[TargetNormalizer] = None,
+    is_classification: bool = False,
+    num_classes: int = None
+) -> Tuple[DataLoader, DataLoader, Dict]:
+    """
+    Create train and validation dataloaders from specific image IDs.
+    This is used for testing models on the same train/val split as during training.
+    
+    Args:
+        images_data: List of image data dicts (must include 'id' field)
+        target_feature: Feature name to predict
+        train_image_ids: List of image IDs for training set
+        val_image_ids: List of image IDs for validation set
+        batch_size: Batch size
+        shuffle: Shuffle training data
+        normalizer: Optional TargetNormalizer for target values
+        is_classification: True if classification mode
+        num_classes: Number of classes (for classification)
+    
+    Returns:
+        (train_loader, val_loader, stats)
+    """
+    # Create a mapping from image ID to index in images_data
+    id_to_idx = {img['id']: idx for idx, img in enumerate(images_data) if 'id' in img}
+    
+    # Filter images_data to only include train and val IDs
+    train_indices_in_data = []
+    val_indices_in_data = []
+    
+    for img_id in train_image_ids:
+        if img_id in id_to_idx:
+            train_indices_in_data.append(id_to_idx[img_id])
+    
+    for img_id in val_image_ids:
+        if img_id in id_to_idx:
+            val_indices_in_data.append(id_to_idx[img_id])
+    
+    if len(train_indices_in_data) == 0:
+        raise ValueError(f"No training images found for the provided train_image_ids. "
+                         f"Requested {len(train_image_ids)} IDs, found {len(train_indices_in_data)}")
+    
+    if len(val_indices_in_data) == 0:
+        raise ValueError(f"No validation images found for the provided val_image_ids. "
+                         f"Requested {len(val_image_ids)} IDs, found {len(val_indices_in_data)}")
+    
+    # Create datasets with only the specified images
+    train_images_data = [images_data[i] for i in train_indices_in_data]
+    val_images_data = [images_data[i] for i in val_indices_in_data]
+    
+    # Create datasets
+    train_dataset = DrawingDataset(
+        train_images_data,
+        target_feature,
+        normalizer=normalizer,
+        is_classification=is_classification,
+        num_classes=num_classes
+    )
+    
+    val_dataset = DrawingDataset(
+        val_images_data,
+        target_feature,
+        normalizer=normalizer,
+        is_classification=is_classification,
+        num_classes=num_classes
+    )
+    
+    # Create dataloaders
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=0,
+        pin_memory=False
+    )
+    
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=False
+    )
+    
+    # Extract target values for stats
+    train_targets = []
+    val_targets = []
+    
+    for img_data in train_images_data:
+        try:
+            features = json.loads(img_data.get('features_data', '{}'))
+            if is_classification:
+                custom_class = features.get("Custom_Class", {})
+                class_data = custom_class.get(str(num_classes))
+                if class_data:
+                    train_targets.append(int(class_data["label"]))
+            else:
+                if target_feature in features:
+                    train_targets.append(float(features[target_feature]))
+        except:
+            pass
+    
+    for img_data in val_images_data:
+        try:
+            features = json.loads(img_data.get('features_data', '{}'))
+            if is_classification:
+                custom_class = features.get("Custom_Class", {})
+                class_data = custom_class.get(str(num_classes))
+                if class_data:
+                    val_targets.append(int(class_data["label"]))
+            else:
+                if target_feature in features:
+                    val_targets.append(float(features[target_feature]))
+        except:
+            pass
+    
+    stats = {
+        "total_samples": len(train_dataset) + len(val_dataset),
+        "train_samples": len(train_dataset),
+        "val_samples": len(val_dataset),
+        "train_batches": len(train_loader),
+        "val_batches": len(val_loader),
+        "batch_size": batch_size,
+        "split_strategy": "from_metadata",
+        "n_bins": len(np.unique(train_targets + val_targets)) if train_targets and val_targets else None,
+        "split_info": {
+            'method': 'from_metadata',
+            'train_image_ids': train_image_ids,
+            'val_image_ids': val_image_ids
+        },
+        "train_target_range": [float(min(train_targets)), float(max(train_targets))] if train_targets else [],
+        "val_target_range": [float(min(val_targets)), float(max(val_targets))] if val_targets else [],
         "train_image_ids": train_image_ids,
         "val_image_ids": val_image_ids
     }
@@ -455,7 +709,10 @@ def create_augmented_dataloaders(
         # Restore split strategy information
         "split_strategy": metadata.get('split_strategy', 'unknown'),
         "split_info": metadata.get('split_info', {}),
-        "n_bins": metadata.get('n_bins', 0)
+        "n_bins": metadata.get('n_bins', 0),
+        # Restore train/val image IDs for testing on same split
+        "train_image_ids": metadata.get('train_image_ids', []),
+        "val_image_ids": metadata.get('val_image_ids', [])
     }
     
     return train_loader, val_loader, stats

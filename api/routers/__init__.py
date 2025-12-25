@@ -11,7 +11,7 @@ This package contains modular FastAPI routers for different functional areas:
 """
 
 from .admin import router as admin_router
-from .upload import router as upload_router
+from .upload import router as upload_router  
 from .evaluations import router as evaluations_router
 from .references import router as references_router
 from .test_images import router as test_images_router

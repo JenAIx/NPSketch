@@ -37,7 +37,9 @@ Thumbs.db
 # Docker
 *.log
 
-
+# Docker creates empty mount point directories - ignore them
+api/data/
+api/templates/
 
 # Keep data directory structure
 !data/.gitignore

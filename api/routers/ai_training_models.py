@@ -22,7 +22,7 @@ async def list_models():
     from pathlib import Path
     
     models_dir = Path("/app/data/models")
-    models_dir.mkdir(exist_ok=True)
+    models_dir.mkdir(parents=True, exist_ok=True)  # Create lazily when endpoint is called
     
     models = []
     for model_file in models_dir.glob("*.pth"):
@@ -109,10 +109,14 @@ async def test_model(
         if not model_path.exists():
             raise HTTPException(status_code=404, detail="Model not found")
         
-        # Load metadata to get training configuration
+        # Initialize variables at the start
         training_mode = "regression"  # Default
         num_outputs = 1
         normalizer = None
+        is_classification = False
+        num_classes = None
+        feature = None
+        metadata = None
         
         if metadata_path.exists():
             with open(metadata_path, 'r') as f:
@@ -122,52 +126,164 @@ async def test_model(
             feature = metadata['target_feature']
             num_outputs = metadata['model']['output_neurons']
             
-            # Detect if classification
-            is_classification = feature.startswith('Custom_Class_')
-            if is_classification:
-                training_mode = "classification"
-                num_classes = int(feature.replace('Custom_Class_', ''))
-                print(f"Testing CLASSIFICATION model: {num_classes} classes")
+            # Prefer training_mode from metadata, fallback to detection
+            training_mode = metadata.get('training_mode')
+            if training_mode:
+                # Use training_mode from metadata
+                is_classification = (training_mode == "classification")
+                if is_classification:
+                    num_classes = metadata.get('num_classes')
+                    if not num_classes:
+                        # Fallback: extract from feature name
+                        if feature.startswith('Custom_Class_'):
+                            num_classes = int(feature.replace('Custom_Class_', ''))
+                        else:
+                            # Use output_neurons as fallback
+                            num_classes = num_outputs
+                    print(f"Testing CLASSIFICATION model: {num_classes} classes (from metadata)")
+                else:
+                    # Regression mode
+                    # Get normalizer if used
+                    if metadata.get('normalization', {}).get('enabled', False):
+                        from ai_training.normalization import TargetNormalizer
+                        normalizer = TargetNormalizer.from_config(metadata['normalization'])
+                    print(f"Testing REGRESSION model (from metadata)")
             else:
-                training_mode = "regression"
-                # Get normalizer if used
-                if metadata.get('normalization', {}).get('enabled', False):
-                    from ai_training.normalization import TargetNormalizer
-                    normalizer = TargetNormalizer.from_config(metadata['normalization'])
-                print(f"Testing REGRESSION model")
+                # Fallback: detect from feature name
+                is_classification = feature.startswith('Custom_Class_')
+                if is_classification:
+                    training_mode = "classification"
+                    num_classes = int(feature.replace('Custom_Class_', ''))
+                    print(f"Testing CLASSIFICATION model: {num_classes} classes (detected from feature)")
+                else:
+                    training_mode = "regression"
+                    # Get normalizer if used
+                    if metadata.get('normalization', {}).get('enabled', False):
+                        from ai_training.normalization import TargetNormalizer
+                        normalizer = TargetNormalizer.from_config(metadata['normalization'])
+                    print(f"Testing REGRESSION model (detected from feature)")
         else:
             # Fallback: extract from filename
             parts = model_filename.split('_')
+            
+            # Validate filename format: expect at least model_{feature}_...
+            if len(parts) < 2:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Invalid model filename format: '{model_filename}'. "
+                           f"Expected format: model_{{feature}}_{{timestamp}}.pth"
+                )
+            
+            # Extract feature name (everything between 'model_' and last 2 parts which are timestamp)
             feature = '_'.join(parts[1:-2]) if len(parts) > 3 else parts[1]
+            
             is_classification = feature.startswith('Custom_Class_')
             if is_classification:
                 training_mode = "classification"
                 num_classes = int(feature.replace('Custom_Class_', ''))
                 num_outputs = num_classes
+                print(f"Testing CLASSIFICATION model: {num_classes} classes (from filename)")
+            else:
+                training_mode = "regression"
+                print(f"Testing REGRESSION model (from filename)")
+        
+        if not feature:
+            raise HTTPException(status_code=400, detail="Could not determine target feature from model")
+        
+        # Check if we have original train/val image IDs in metadata
+        train_image_ids = None
+        val_image_ids = None
+        if metadata is not None:
+            train_image_ids = metadata.get('train_image_ids')
+            val_image_ids = metadata.get('val_image_ids')
         
         # Load training data
-        images = db.query(TrainingDataImage).filter(
-            TrainingDataImage.features_data.isnot(None)
-        ).all()
+        if train_image_ids and val_image_ids:
+            # Use original train/val split from metadata
+            print(f"Using original train/val split from metadata: {len(train_image_ids)} train, {len(val_image_ids)} val")
+            
+            # Load only the specific images from metadata
+            all_ids = set(train_image_ids + val_image_ids)
+            images = db.query(TrainingDataImage).filter(
+                TrainingDataImage.id.in_(all_ids),
+                TrainingDataImage.features_data.isnot(None)
+            ).all()
+            
+            if not images:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"None of the original training images (IDs: {list(all_ids)[:10]}...) found in database. "
+                           f"The database may have been modified since training."
+                )
+            
+            images_data = []
+            for img in images:
+                images_data.append({
+                    'id': img.id,
+                    'processed_image_data': img.processed_image_data,
+                    'features_data': img.features_data
+                })
+            
+            # Create dataloaders from specific image IDs
+            try:
+                from ai_training.dataset import create_dataloaders_from_ids
+                train_loader, val_loader, stats = create_dataloaders_from_ids(
+                    images_data,
+                    feature,
+                    train_image_ids,
+                    val_image_ids,
+                    batch_size=8,
+                    shuffle=False,  # Don't shuffle for testing
+                    normalizer=normalizer,
+                    is_classification=is_classification,
+                    num_classes=num_classes
+                )
+                print(f"Created dataloaders from metadata: {stats['train_samples']} train, {stats['val_samples']} val samples")
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=f"Dataset error: {str(e)}")
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to create dataloaders from metadata: {str(e)}")
+        else:
+            # Fallback: Create new split (for older models without image IDs in metadata)
+            print("No train/val image IDs in metadata, creating new split")
+            
+            images = db.query(TrainingDataImage).filter(
+                TrainingDataImage.features_data.isnot(None)
+            ).all()
+            
+            if not images:
+                raise HTTPException(status_code=400, detail="No training data found in database")
+            
+            images_data = []
+            for img in images:
+                images_data.append({
+                    'id': img.id,
+                    'processed_image_data': img.processed_image_data,
+                    'features_data': img.features_data
+                })
+            
+            # Create dataloaders with new split
+            try:
+                train_loader, val_loader, stats = create_dataloaders(
+                    images_data,
+                    feature,
+                    train_split=0.8,
+                    batch_size=8,
+                    normalizer=normalizer,
+                    is_classification=is_classification,
+                    num_classes=num_classes
+                )
+                print(f"Created dataloaders with new split: {stats['train_samples']} train, {stats['val_samples']} val samples")
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=f"Dataset error: {str(e)}")
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to create dataloaders: {str(e)}")
         
-        images_data = []
-        for img in images:
-            images_data.append({
-                'id': img.id,
-                'processed_image_data': img.processed_image_data,
-                'features_data': img.features_data
-            })
-        
-        # Create dataloaders with correct configuration
-        train_loader, val_loader, stats = create_dataloaders(
-            images_data,
-            feature,
-            train_split=0.8,
-            batch_size=8,
-            normalizer=normalizer,
-            is_classification=is_classification if 'is_classification' in locals() else False,
-            num_classes=num_classes if 'num_classes' in locals() else None
-        )
+        # Validate that dataloaders are not empty
+        if len(train_loader) == 0:
+            raise HTTPException(status_code=400, detail=f"No training samples found for feature '{feature}'")
+        if len(val_loader) == 0:
+            raise HTTPException(status_code=400, detail=f"No validation samples found for feature '{feature}'")
         
         # Create trainer with correct configuration
         trainer = CNNTrainer(
@@ -178,8 +294,11 @@ async def test_model(
         trainer.load_model(str(model_path))
         
         # Evaluate on both sets
-        train_metrics = trainer.evaluate_metrics(train_loader)
-        val_metrics = trainer.evaluate_metrics(val_loader)
+        try:
+            train_metrics = trainer.evaluate_metrics(train_loader)
+            val_metrics = trainer.evaluate_metrics(val_loader)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to evaluate model: {str(e)}")
         
         return {
             'success': True,
@@ -192,8 +311,13 @@ async def test_model(
             'dataset_stats': stats
         }
         
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        error_detail = f"{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=error_detail)
 
 
 @router.post("/models/predict-single")
