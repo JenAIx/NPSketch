@@ -168,6 +168,8 @@ async def start_training(config: dict = Body(...), db: Session = Depends(get_db)
         batch_size = config.get('batch_size', 8)
         use_augmentation = config.get('use_augmentation', True)
         use_normalization = config.get('use_normalization', True)
+        add_synthetic_bad_images = config.get('add_synthetic_bad_images', False)
+        synthetic_n_samples = config.get('synthetic_n_samples', 50)
         
         if not target_feature:
             raise HTTPException(status_code=400, detail="target_feature is required")
@@ -199,6 +201,8 @@ async def start_training(config: dict = Body(...), db: Session = Depends(get_db)
             'batch_size': batch_size,
             'use_augmentation': use_augmentation,
             'use_normalization': use_normalization,
+            'add_synthetic_bad_images': add_synthetic_bad_images,
+            'synthetic_n_samples': synthetic_n_samples,
             'images_data': images_data,
             'db_session': db
         }
@@ -221,6 +225,8 @@ async def start_training(config: dict = Body(...), db: Session = Depends(get_db)
                 'batch_size': batch_size,
                 'use_augmentation': use_augmentation,
                 'use_normalization': use_normalization,
+                'add_synthetic_bad_images': add_synthetic_bad_images,
+                'synthetic_n_samples': synthetic_n_samples,
                 'total_samples': len(images_data)
             }
         }
@@ -299,7 +305,9 @@ def run_training_job(config):
                         'num_augmentations': 5
                     },
                     output_dir='/app/data/ai_training_data',
-                    normalizer=normalizer
+                    normalizer=normalizer,
+                    add_synthetic_bad_images=config.get('add_synthetic_bad_images', False),
+                    synthetic_n_samples=config.get('synthetic_n_samples', 50)
                 )
                 
                 train_loader, val_loader, stats = create_augmented_dataloaders(
@@ -377,6 +385,7 @@ def run_training_job(config):
             },
             'normalization': normalizer.get_config() if normalizer else {'enabled': False},
             'augmentation': stats.get('augmentation', {'enabled': False}),
+            'synthetic_bad_images': stats.get('synthetic_bad_images', {'enabled': False}),
             'dataset': {
                 'total_samples': stats['total_samples'],
                 'train_samples': stats['train_samples'],

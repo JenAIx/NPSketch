@@ -270,6 +270,7 @@
             
             const augmentation = metadata.augmentation || {};
             const normalization = metadata.normalization || {};
+            const synthetic = metadata.synthetic_bad_images || {};
             const modelInfo = metadata.model || {};
             
             // Detect training mode if not set (for older models)
@@ -416,6 +417,29 @@
                                 ` : ''}
                             `}
                         </div>
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">🧪 Synthetic Bad Images</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
+                            <span style="color: ${synthetic.enabled ? '#28a745' : '#6c757d'};">
+                                ${synthetic.enabled ? '✅ Enabled' : '❌ Disabled'}
+                            </span>
+                            ${synthetic.enabled ? `
+                                <br><span style="font-size: 0.85em; color: #666;">
+                                    Generated: <strong>${synthetic.n_generated || 'N/A'}</strong> images
+                                    ${synthetic.n_samples ? ` (requested: ${synthetic.n_samples})` : ''}
+                                    <br>Complexity Levels: <strong>${synthetic.complexity_levels || 'N/A'}</strong>
+                                    ${synthetic.score_threshold ? ` | Threshold: <strong><${synthetic.score_threshold}</strong>` : ''}
+                                </span>
+                            ` : ''}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <!-- Empty placeholder for grid alignment -->
                     </div>
                 </div>
                 

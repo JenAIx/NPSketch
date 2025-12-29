@@ -788,6 +788,44 @@
                         <li><strong>Line Quality:</strong> Consistent 2px lines guaranteed by post-processing</li>
                     </ul>
                 </div>
+                
+                <!-- Synthetic Bad Images Sub-Option -->
+                <div style="margin-top: 15px; margin-left: 30px; padding: 15px; background: white; border-radius: 6px; border: 1px solid #dee2e6;">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                        <input type="checkbox" id="enableSyntheticBad" style="width: 18px; height: 18px; cursor: pointer;">
+                        <label for="enableSyntheticBad" style="margin: 0; font-weight: 600; font-size: 0.95em; cursor: pointer; color: #333;">
+                            🧪 Add Synthetic Bad Images (Experimental)
+                        </label>
+                    </div>
+                    <div style="font-size: 0.85em; color: #666; margin-left: 28px;">
+                        Generates synthetic low-quality images to address data imbalance for low scores/classes.
+                        Uses real bad image lines combined with random/curved/tremor modifications.
+                    </div>
+                    <div id="syntheticBadInfo" style="margin-top: 10px; margin-left: 28px; font-size: 0.8em; color: #667eea; display: none;">
+                        <strong>ℹ️ Synthetic Generation Details:</strong>
+                        <ul style="margin: 5px 0 0 20px;">
+                            <li><strong>Source:</strong> Lines extracted from real images with score < 20</li>
+                            <li><strong>Strategies:</strong> Mix of real bad lines, reference modifications, random lines</li>
+                            <li><strong>Modifications:</strong> Curves (Bezier), tremor (hand shake), shortened lines</li>
+                            <li><strong>Target:</strong> Score 0 (regression) or Class 0 (classification)</li>
+                            <li><strong>Default:</strong> 50 synthetic images across 5 complexity levels</li>
+                        </ul>
+                        <div style="margin-top: 8px; padding: 8px; background: #fff3cd; border-radius: 4px; border-left: 3px solid #ffc107;">
+                            <strong>⚠️ Note:</strong> Only use if you have very few low-score/low-class examples (< 5% of dataset)
+                        </div>
+                    </div>
+                    
+                    <!-- Number of Synthetic Images -->
+                    <div id="syntheticBadCount" style="margin-top: 10px; margin-left: 28px; display: none;">
+                        <label style="font-size: 0.85em; font-weight: 600; color: #333;">Number of Synthetic Images:</label>
+                        <select id="syntheticBadSamples" style="margin-left: 10px; padding: 4px 8px; border-radius: 4px; border: 1px solid #ced4da;">
+                            <option value="25">25 (Minimal)</option>
+                            <option value="50" selected>50 (Recommended)</option>
+                            <option value="100">100 (More diversity)</option>
+                            <option value="150">150 (Maximum)</option>
+                        </select>
+                    </div>
+                </div>
             </div>
             
             <!-- Target Normalization Section -->
@@ -1301,7 +1339,9 @@
                 learning_rate: parseFloat(document.getElementById('learningRate').value),
                 batch_size: parseInt(document.getElementById('batchSize').value),
                 use_augmentation: document.getElementById('enableAugmentation').checked,
-                use_normalization: document.getElementById('enableNormalization').checked
+                use_normalization: document.getElementById('enableNormalization').checked,
+                add_synthetic_bad_images: document.getElementById('enableSyntheticBad').checked,
+                synthetic_n_samples: parseInt(document.getElementById('syntheticBadSamples').value)
             };
             
             document.getElementById('trainBtn').disabled = true;
@@ -1934,6 +1974,19 @@
                 detailsDiv.style.display = 'block';
             } else {
                 detailsDiv.style.display = 'none';
+            }
+        });
+        
+        // Synthetic bad images checkbox toggle
+        document.getElementById('enableSyntheticBad')?.addEventListener('change', function() {
+            const infoDiv = document.getElementById('syntheticBadInfo');
+            const countDiv = document.getElementById('syntheticBadCount');
+            if (this.checked) {
+                infoDiv.style.display = 'block';
+                countDiv.style.display = 'block';
+            } else {
+                infoDiv.style.display = 'none';
+                countDiv.style.display = 'none';
             }
         });
         

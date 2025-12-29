@@ -336,7 +336,9 @@ class TrainingDataLoader:
         random_seed: int = 42,
         augmentation_config: Optional[Dict] = None,
         output_dir: str = '/app/data/ai_training_data',
-        normalizer=None
+        normalizer=None,
+        add_synthetic_bad_images: bool = False,
+        synthetic_n_samples: int = 50
     ) -> Tuple[Dict, str]:
         """
         Prepare augmented training dataset and save to disk.
@@ -411,6 +413,98 @@ class TrainingDataLoader:
             raise ValueError(f"No images found with feature '{target_feature}'")
         
         print(f"   Found {len(images_data)} images with feature '{target_feature}'")
+        
+        # Track synthetic images info for metadata
+        synthetic_info = {
+            'enabled': False,
+            'n_samples': 0,
+            'n_generated': 0,
+            'complexity_levels': 0,
+            'score_threshold': 20.0
+        }
+        
+        # Add synthetic bad images if requested
+        if add_synthetic_bad_images:
+            try:
+                from ai_training.synthetic_bad_images import generate_synthetic_bad_images
+                
+                # Generate synthetic images
+                synthetic_images = generate_synthetic_bad_images(
+                    db=self.db,
+                    n_samples=synthetic_n_samples,
+                    complexity_levels=5,
+                    score_threshold=20.0,
+                    image_size=(568, 274),
+                    random_seed=random_seed
+                )
+                
+                # Determine target structure ONCE (before loop)
+                if is_classification_mode:
+                    # For classification: Get Custom_Class structure from a real image
+                    sample_features = None
+                    for img_data in images_data[:5]:
+                        try:
+                            feats = json.loads(img_data.get('features_data', '{}'))
+                            if "Custom_Class" in feats and num_classes_str in feats.get("Custom_Class", {}):
+                                sample_features = feats["Custom_Class"][num_classes_str]
+                                break
+                        except:
+                            continue
+                    
+                    # Build boundaries
+                    if sample_features and 'boundaries' in sample_features:
+                        boundaries = sample_features['boundaries']
+                        class_name = f"Class_0 [{boundaries[0]}-{boundaries[1]}]" if len(boundaries) > 1 else "Class_0"
+                    else:
+                        boundaries = []
+                        class_name = "Class_0"
+                    
+                    print(f"   Target: Class 0 (bad quality), Name: {class_name}")
+                else:
+                    # For regression
+                    print(f"   Target: Score 0.0 (bad quality)")
+                
+                # Add to images_data
+                for idx, synth in enumerate(synthetic_images):
+                    # Create features_data based on mode
+                    if is_classification_mode:
+                        features_dict = {
+                            "Custom_Class": {
+                                num_classes_str: {
+                                    "label": 0,
+                                    "name_custom": "Synthetic Bad",
+                                    "name_generic": class_name,
+                                    "boundaries": boundaries
+                                }
+                            }
+                        }
+                    else:
+                        features_dict = {target_feature: 0.0}
+                    
+                    images_data.append({
+                        'id': f'synthetic_bad_{idx}',
+                        'patient_id': f'SYNTHETIC_BAD_L{synth["complexity_level"]}',
+                        'processed_image_data': synth['image_data'],
+                        'features_data': json.dumps(features_dict)
+                    })
+                
+                # Update synthetic info
+                synthetic_info = {
+                    'enabled': True,
+                    'n_samples': synthetic_n_samples,
+                    'n_generated': len(synthetic_images),
+                    'complexity_levels': 5,
+                    'score_threshold': 20.0
+                }
+                
+                print(f"   ✅ Added {len(synthetic_images)} synthetic bad images")
+                print(f"   Total images: {len(images_data)} (original + synthetic)")
+            
+            except Exception as e:
+                import traceback
+                print(f"   ⚠️ Warning: Could not generate synthetic images: {e}")
+                print(f"   Traceback: {traceback.format_exc()}")
+                print(f"   Continuing without synthetic images...")
         
         # Create train/val split
         y_values = []
@@ -552,6 +646,9 @@ class TrainingDataLoader:
         # Add image IDs to stats (for model metadata)
         stats['train_image_ids'] = train_image_ids
         stats['val_image_ids'] = val_image_ids
+        
+        # Add synthetic images info to stats
+        stats['synthetic_bad_images'] = synthetic_info
         
         # Update metadata.json with split information AND image IDs
         metadata_file = Path(output_dir) / "metadata.json"

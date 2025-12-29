@@ -24,7 +24,8 @@ NPSketch is a computer vision and machine learning application that automaticall
   - Regression: Predict continuous scores (Total_Score, MMSE)
   - Classification: Predict score ranges with custom class boundaries
 - **Interactive Class Creation**: Visual distribution preview with customizable class names and boundaries
-- **Data Augmentation**: Realistic image transformations (rotation, translation, scaling)
+- **Data Augmentation**: Realistic image transformations (rotation, translation, scaling, local warping)
+- **Synthetic Bad Images**: Generate low-quality images to address data imbalance (NEW)
 - **Training Data Management**: Upload, label, and manage training datasets
 - **Performance Metrics**: 
   - Regression: R², RMSE, MAE
@@ -295,7 +296,7 @@ curl -X POST http://localhost/api/ai-training/start-training \
 
 **Purpose:** Increase dataset size and reduce overfitting
 
-**Augmentation Strategy (NEW - Option 1):**
+**Augmentation Strategy:**
 
 From **1 original image** → **6 total images**:
 - **1× Original** (unmodified)
@@ -318,18 +319,6 @@ From **1 original image** → **6 total images**:
 - Smooth interpolation with border protection
 - Applied to 40% of augmentations, combined with global transforms
 
-**Configuration:**
-
-```python
-augmentation_config = {
-    'rotation_range': (-3, 3),      # degrees
-    'translation_range': (-10, 10),  # pixels
-    'scale_range': (0.95, 1.05),    # scale factor
-    'num_augmentations': 5,          # per image (3 global + 2 warp+global)
-    'use_warping': True              # enable local warping (default: True)
-}
-```
-
 **Pipeline (Every Augmented Image):**
 1. Apply transformation (global or warp+global)
 2. Re-binarize (threshold 175)
@@ -347,6 +336,64 @@ augmentation_config = {
 - Line thickness: Consistent 2px (guaranteed by pipeline)
 - No fragmentation: <10 components per image
 
+### Synthetic Bad Images (NEW)
+
+**Purpose:** Address data imbalance for low scores/classes
+
+**Problem Addressed:**
+- Only 1.3% of training data has scores < 20
+- Model learns mean (~51) instead of distinguishing quality levels
+- Random/chaotic drawings get predicted as medium scores
+
+**Solution:**
+Generate realistic bad-quality images by:
+1. Extracting lines from real bad images (score < 20)
+2. Combining with reference lines and random lines
+3. Applying realistic modifications (curves, tremor, distortions)
+
+**Key Features:**
+- **Realistic**: Uses 105 lines from 12 real bad drawings
+- **Not Chaotic**: Based on real data, not completely random
+- **Flexible**: 5 complexity levels (0.0 - 1.0)
+- **Adaptive**: Works for regression AND classification
+
+**Complexity Levels:**
+
+| Level | Real Bad | Reference | Random | Modifications |
+|-------|----------|-----------|--------|---------------|
+| 0 (Simple) | 80% | 20% | 0% | None |
+| 2 (Medium) | 50% | 30% | 20% | Moderate |
+| 4 (Complex) | 30% | 30% | 40% | Strong |
+
+**Modifications:**
+- **Curves**: Bezier curves (10-40% curvature)
+- **Tremor**: Hand shake simulation (1-3.5px)
+- **Shortened**: 60-90% of original length
+
+**Labels:**
+- **Regression**: Score 0.0
+- **Classification**: Class 0 (lowest class)
+
+**Usage:**
+
+```python
+# Enable in training config
+stats, output_dir = loader.prepare_augmented_training_data(
+    target_feature='Total_Score',
+    train_split=0.8,
+    augmentation_config={'num_augmentations': 5},
+    add_synthetic_bad_images=True,  # ← NEW
+    synthetic_n_samples=50          # ← NEW
+)
+```
+
+**Recommended Settings:**
+- Use if < 5% of data has low scores
+- 50 synthetic images (default)
+- Combine with regular augmentation
+
+**Documentation:** See `api/ai_training/SYNTHETIC_BAD_IMAGES.md`
+
 **API Usage:**
 
 ```python
@@ -356,14 +403,16 @@ from database import SessionLocal
 db = SessionLocal()
 loader = TrainingDataLoader(db)
 
-# Prepare augmented dataset
+# Prepare augmented dataset with synthetic bad images
 stats, output_dir = loader.prepare_augmented_training_data(
     target_feature='Total_Score',
     train_split=0.8,
     augmentation_config={
         'num_augmentations': 5
     },
-    output_dir='/app/data/ai_training_data'
+    output_dir='/app/data/ai_training_data',
+    add_synthetic_bad_images=True,
+    synthetic_n_samples=50
 )
 
 print(f"Train: {stats['train']['total']} images")
@@ -913,10 +962,13 @@ Access at: http://localhost:8000/api/docs
 - [x] AI model selector in upload interface
 - [x] Custom class label display in predictions
 - [x] Automatic denormalization for regression outputs
-- [x] **NEW: Local warping augmentation (TPS with 9 control points)**
-- [x] **NEW: Hybrid augmentation strategy (3× global + 2× warp+global)**
-- [x] **NEW: Post-augmentation line normalization (consistent 2px lines)**
-- [x] **NEW: Optimal binarization threshold (175) for augmented images**
+- [x] Local warping augmentation (TPS with 9 control points)
+- [x] Hybrid augmentation strategy (3× global + 2× warp+global)
+- [x] Post-augmentation line normalization (consistent 2px lines)
+- [x] Optimal binarization threshold (175) for augmented images
+- [x] **NEW (2025-12-29): Synthetic bad images generation for data imbalance**
+- [x] **NEW (2025-12-29): Real bad line extraction (105 lines from 12 images)**
+- [x] **NEW (2025-12-29): Multi-complexity synthetic generation (5 levels)**
 
 ### Data Management
 - [x] MAT/OCS/OXFORD extraction tools with auto-cropping
@@ -943,8 +995,8 @@ MIT License - feel free to use and modify for your projects.
 ## 👤 Author
 
 **Stefan Brodoehl**  
-Date: October-November 2025  
-Version: 1.0
+Date: October-December 2025  
+Version: 1.1.0
 
 ---
 
