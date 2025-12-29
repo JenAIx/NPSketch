@@ -25,6 +25,9 @@ import os
 import json
 import shutil
 from pathlib import Path
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def apply_local_warp(
@@ -569,7 +572,7 @@ class ImageAugmentor:
         
         # Log safety statistics
         if safety_stats['conservative'] > 0:
-            print(f"  ⚠️ Content protection: {safety_stats['conservative']}/{num_augmentations} augmentations used conservative parameters")
+            logger.warning(f"Content protection: {safety_stats['conservative']}/{num_augmentations} augmentations used conservative parameters")
         
         return augmented_images
 
@@ -624,7 +627,7 @@ class AugmentedDatasetBuilder:
         val_dir = self.output_dir / "val"
         
         if clean_existing and self.output_dir.exists():
-            print(f"Cleaning existing augmented data in {self.output_dir}")
+            logger.info(f"Cleaning existing augmented data in {self.output_dir}")
             shutil.rmtree(self.output_dir)
         
         train_dir.mkdir(parents=True, exist_ok=True)
@@ -637,7 +640,7 @@ class AugmentedDatasetBuilder:
         }
         
         # Process training set
-        print(f"\n📊 Augmenting training set ({len(split_indices['train'])} images)...")
+        logger.info(f"Augmenting training set ({len(split_indices['train'])} images)...")
         self._process_split(
             images_data,
             split_indices['train'],
@@ -649,7 +652,7 @@ class AugmentedDatasetBuilder:
         )
         
         # Process validation set
-        print(f"\n📊 Augmenting validation set ({len(split_indices['val'])} images)...")
+        logger.info(f"Augmenting validation set ({len(split_indices['val'])} images)...")
         self._process_split(
             images_data,
             split_indices['val'],
@@ -676,12 +679,12 @@ class AugmentedDatasetBuilder:
         with open(self.output_dir / "metadata.json", 'w') as f:
             json.dump(metadata, f, indent=2)
         
-        print(f"\n✅ Augmented dataset created in {self.output_dir}")
-        print(f"   Train: {stats['train']['total']} images ({stats['train']['original']} original + {stats['train']['augmented']} augmented)")
-        print(f"   Val:   {stats['val']['total']} images ({stats['val']['original']} original + {stats['val']['augmented']} augmented)")
+        logger.info(f"Augmented dataset created in {self.output_dir}")
+        logger.info(f"Train: {stats['train']['total']} images ({stats['train']['original']} original + {stats['train']['augmented']} augmented)")
+        logger.info(f"Val:   {stats['val']['total']} images ({stats['val']['original']} original + {stats['val']['augmented']} augmented)")
         
         if stats['errors']:
-            print(f"\n⚠️ {len(stats['errors'])} errors occurred during augmentation")
+            logger.warning(f"{len(stats['errors'])} errors occurred during augmentation")
         
         return stats
     
@@ -791,7 +794,7 @@ class AugmentedDatasetBuilder:
                 
                 # Progress indicator
                 if stats['total'] % 10 == 0:
-                    print(f"  Processed {stats['total']} images...")
+                    logger.debug(f"Processed {stats['total']} images...")
                 
             except Exception as e:
                 errors.append(f"Error processing image {img_data.get('id', idx)}: {str(e)}")
@@ -832,7 +835,7 @@ def load_augmented_dataset(
         # Load corresponding image
         img_file = label_file.with_suffix('.png')
         if not img_file.exists():
-            print(f"Warning: Image not found for {label_file.name}")
+            logger.warning(f"Image not found for {label_file.name}")
             continue
         
         img = cv2.imread(str(img_file), cv2.IMREAD_GRAYSCALE)

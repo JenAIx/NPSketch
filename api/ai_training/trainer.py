@@ -17,6 +17,9 @@ from pathlib import Path
 
 from .model import DrawingClassifier
 from .dataset import create_dataloaders, create_augmented_dataloaders
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class CNNTrainer:
@@ -59,7 +62,7 @@ class CNNTrainer:
         else:
             self.device = torch.device(device)
         
-        print(f"Using device: {self.device}")
+        logger.info(f"Using device: {self.device}")
         
         # Initialize model
         self.model = DrawingClassifier(num_outputs=num_outputs, pretrained=True)
@@ -70,10 +73,10 @@ class CNNTrainer:
         
         if training_mode == "classification":
             self.criterion = nn.CrossEntropyLoss()
-            print(f"   Loss function: CrossEntropyLoss (classification, {num_outputs} classes)")
+            logger.info(f"Loss function: CrossEntropyLoss (classification, {num_outputs} classes)")
         else:
             self.criterion = nn.MSELoss()
-            print(f"   Loss function: MSELoss (regression)")
+            logger.info(f"Loss function: MSELoss (regression)")
         
         # Training history
         self.history = {
@@ -302,8 +305,8 @@ class CNNTrainer:
         Returns:
             Training history
         """
-        print(f"\nStarting training for {epochs} epochs...")
-        print(f"Device: {self.device}")
+        logger.info(f"Starting training for {epochs} epochs...")
+        logger.info(f"Device: {self.device}")
         
         for epoch in range(epochs):
             # Train epoch
@@ -319,13 +322,13 @@ class CNNTrainer:
             if metrics['val_loss'] is not None:
                 self.history['val_loss'].append(metrics['val_loss'])
             
-            # Print progress
+            # Log progress
             if metrics['val_loss'] is not None:
-                print(f"Epoch {epoch+1}/{epochs}: "
+                logger.info(f"Epoch {epoch+1}/{epochs}: "
                       f"Train Loss = {metrics['train_loss']:.4f}, "
                       f"Val Loss = {metrics['val_loss']:.4f}")
             else:
-                print(f"Epoch {epoch+1}/{epochs}: "
+                logger.info(f"Epoch {epoch+1}/{epochs}: "
                       f"Train Loss = {metrics['train_loss']:.4f}")
             
             # Callback
@@ -357,7 +360,7 @@ class CNNTrainer:
             'num_outputs': self.num_outputs
         }, filepath)
         
-        print(f"Model saved: {filepath}")
+        logger.info(f"Model saved: {filepath}")
         
         # Save metadata JSON
         if metadata:
@@ -368,7 +371,7 @@ class CNNTrainer:
             with open(metadata_filepath, 'w') as f:
                 json.dump(metadata, f, indent=2)
             
-            print(f"Metadata saved: {metadata_filepath}")
+            logger.info(f"Metadata saved: {metadata_filepath}")
         
         return str(filepath)
     
@@ -380,7 +383,7 @@ class CNNTrainer:
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.history = checkpoint.get('history', self.history)
         
-        print(f"Model loaded: {filepath}")
+        logger.info(f"Model loaded: {filepath}")
     
     def predict(self, image_tensor: torch.Tensor) -> float:
         """

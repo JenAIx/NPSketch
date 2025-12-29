@@ -18,6 +18,9 @@ import subprocess
 import shutil
 import tempfile
 from datetime import datetime
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 import json
 import hashlib
 import re
@@ -176,7 +179,7 @@ def normalize_oxford_image_data(image_data: np.ndarray, target_size=(568, 274)) 
         return (normalized, True)
         
     except Exception as e:
-        print(f"Error normalizing image: {e}")
+        logger.error(f"Error normalizing image: {e}", exc_info=True)
         return (None, False)
 
 
@@ -348,7 +351,7 @@ async def extract_training_data(
                     
                     if existing:
                         # Skip this specific image (but continue with others)
-                        print(f"  Skipping duplicate: {extracted_filename} (ID {existing.id})")
+                        logger.info(f"Skipping duplicate: {extracted_filename} (ID {existing.id})")
                         continue
                     
                     # Get image dimensions
@@ -443,7 +446,7 @@ async def extract_training_data(
                 if os.path.isfile(file_path) and file.endswith('.png'):
                     os.unlink(file_path)
         except Exception as e:
-            print(f"Warning: Could not clean tmp root: {e}")
+            logger.warning(f"Could not clean tmp root: {e}")
 
 
 async def run_mat_extractor(input_dir: str, output_dir: str) -> bool:
@@ -467,7 +470,7 @@ async def run_mat_extractor(input_dir: str, output_dir: str) -> bool:
         return result.returncode == 0
         
     except Exception as e:
-        print(f"Error running MAT extractor: {e}")
+        logger.error(f"Error running MAT extractor: {e}", exc_info=True)
         return False
 
 
@@ -492,7 +495,7 @@ async def run_ocs_extractor(input_dir: str, output_dir: str) -> bool:
         return result.returncode == 0
         
     except Exception as e:
-        print(f"Error running OCS extractor: {e}")
+        logger.error(f"Error running OCS extractor: {e}", exc_info=True)
         return False
 
 
@@ -646,12 +649,10 @@ async def extract_oxford_data(
                 results.append(result)
                 
             except Exception as e:
+                logger.error(f"Error processing {uploaded_file.filename}: {e}", exc_info=True)
                 result["status"] = "error"
                 result["message"] = f"Error processing file: {str(e)}"
                 results.append(result)
-                print(f"Error processing {uploaded_file.filename}: {e}")
-                import traceback
-                traceback.print_exc()
         
         # Count statistics
         success_count = sum(1 for r in results if r["status"] == "success")
@@ -840,7 +841,7 @@ async def get_training_data_original(image_id: int, db: Session = Depends(get_db
             os.unlink(tmp_path)
             
         except Exception as e:
-            print(f"Error extracting MAT original drawing: {e}")
+            logger.error(f"Error extracting MAT original drawing: {e}", exc_info=True)
             import traceback
             traceback.print_exc()
             # Fallback: Return processed image
@@ -1354,7 +1355,7 @@ def cleanup_session(session_id: str):
             if os.path.exists(directory):
                 shutil.rmtree(directory)
         except Exception as e:
-            print(f"Error cleaning up {directory}: {e}")
+            logger.warning(f"Error cleaning up {directory}: {e}")
 
 
 @router.post("/training-data-image/{image_id}/evaluate")

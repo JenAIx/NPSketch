@@ -17,6 +17,9 @@ import json
 from pathlib import Path
 
 from .normalization import TargetNormalizer
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class DrawingDataset(Dataset):
@@ -181,7 +184,7 @@ def create_dataloaders(
     # Fit normalizer if provided
     if normalizer is not None:
         normalizer.fit(all_targets)
-        print(f"   Fitted normalizer on {len(all_targets)} samples")
+        logger.info(f"Fitted normalizer on {len(all_targets)} samples")
     
     # Import split strategy
     try:
@@ -199,7 +202,7 @@ def create_dataloaders(
     # Choose split strategy based on task type
     if is_classification:
         # For classification: stratify by actual class labels
-        print(f"   Using CLASSIFICATION stratification (by class labels)")
+        logger.info("Using CLASSIFICATION stratification (by class labels)")
         stratified_split_succeeded = False
         try:
             _, _, _, _, split_info = stratified_split_classification(
@@ -210,7 +213,7 @@ def create_dataloaders(
             )
             stratified_split_succeeded = True
         except Exception as e:
-            print(f"   Warning: Stratified classification split failed: {e}, falling back to random split")
+            logger.warning(f"Stratified classification split failed: {e}, falling back to random split")
             split_info = {
                 'method': 'random',
                 'reason': 'stratified_classification_split_failed'
@@ -259,7 +262,7 @@ def create_dataloaders(
         
     else:
         # For regression: stratify by binning continuous values
-        print(f"   Using REGRESSION stratification (by value bins)")
+        logger.info("Using REGRESSION stratification (by value bins)")
         
         # Validate all_targets
         if len(all_targets) == 0:
@@ -272,7 +275,7 @@ def create_dataloaders(
         
         # If all values are the same, use simple random split
         if value_range == 0:
-            print(f"   Warning: All target values are identical ({target_min}), using random split")
+            logger.warning(f"All target values are identical ({target_min}), using random split")
             np.random.seed(random_seed)
             np.random.shuffle(indices)
             split_point = int(len(indices) * train_split)
@@ -293,7 +296,7 @@ def create_dataloaders(
                 recommendation = get_split_recommendation(len(all_targets), value_range)
                 n_bins = recommendation['n_bins']
             except Exception as e:
-                print(f"   Warning: Failed to get split recommendation: {e}, using default n_bins=5")
+                logger.warning(f"Failed to get split recommendation: {e}, using default n_bins=5")
                 n_bins = 5
             
             try:
@@ -305,7 +308,7 @@ def create_dataloaders(
                     random_seed=random_seed
                 )
             except Exception as e:
-                print(f"   Warning: Stratified split failed: {e}, falling back to random split")
+                logger.warning(f"Stratified split failed: {e}, falling back to random split")
                 np.random.seed(random_seed)
                 np.random.shuffle(indices)
                 split_point = int(len(indices) * train_split)

@@ -19,6 +19,9 @@ import json
 import io
 from typing import List, Dict, Tuple
 from PIL import Image
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class LinePoolGenerator:
@@ -48,7 +51,7 @@ class LinePoolGenerator:
         
         detector = LineDetector()
         
-        print(f"  Extracting lines from real bad images (score < {score_threshold})...")
+        logger.info(f"Extracting lines from real bad images (score < {score_threshold})...")
         
         images = db.query(TrainingDataImage).filter(
             TrainingDataImage.features_data.isnot(None)
@@ -71,7 +74,7 @@ class LinePoolGenerator:
             except:
                 continue
         
-        print(f"    Loaded {len(self.real_bad_lines)} lines from {count} bad images")
+        logger.info(f"Loaded {len(self.real_bad_lines)} lines from {count} bad images")
     
     def load_reference_lines(self, db):
         """
@@ -86,7 +89,7 @@ class LinePoolGenerator:
         if ref and ref.feature_data:
             features = json.loads(ref.feature_data)
             self.reference_lines = features.get('lines', [])
-            print(f"    Loaded {len(self.reference_lines)} lines from reference")
+            logger.info(f"Loaded {len(self.reference_lines)} lines from reference")
     
     def generate_random_lines(
         self,
@@ -388,7 +391,7 @@ def generate_synthetic_bad_images(
     Returns:
         List of dicts with 'image_data' (bytes) and metadata
     """
-    print(f"\n🧪 Generating {n_samples} synthetic bad images...")
+    logger.info(f"Generating {n_samples} synthetic bad images...")
     
     # Initialize generator
     generator = LinePoolGenerator()
@@ -396,18 +399,27 @@ def generate_synthetic_bad_images(
     generator.load_reference_lines(db)
     
     if len(generator.real_bad_lines) == 0:
-        print("  ⚠️ WARNING: No real bad lines found! Using reference and random only.")
+        logger.warning("No real bad lines found! Using reference and random only.")
     
     # Generate images across complexity levels
     synthetic_images = []
     samples_per_level = n_samples // complexity_levels
+    remainder = n_samples % complexity_levels
+    
+    # Distribute remainder across levels (add to later levels for more complex images)
+    logger.debug(f"Distribution: {samples_per_level} per level, +{remainder} to last levels")
     
     for level in range(complexity_levels):
         complexity = level / (complexity_levels - 1) if complexity_levels > 1 else 0.5
         
-        print(f"  Level {level + 1}/{complexity_levels} (complexity={complexity:.2f}): Generating {samples_per_level} images...")
+        # Add one extra to later levels if we have remainder
+        num_samples_this_level = samples_per_level
+        if level >= (complexity_levels - remainder):
+            num_samples_this_level += 1
         
-        for i in range(samples_per_level):
+        logger.info(f"Level {level + 1}/{complexity_levels} (complexity={complexity:.2f}): Generating {num_samples_this_level} images...")
+        
+        for i in range(num_samples_this_level):
             # Generate image
             img_array = generator.generate_synthetic_bad_image(
                 complexity=complexity,
@@ -427,7 +439,11 @@ def generate_synthetic_bad_images(
                 'complexity_value': complexity
             })
     
-    print(f"  ✅ Generated {len(synthetic_images)} synthetic bad images")
+    logger.info(f"Generated {len(synthetic_images)} synthetic bad images (requested: {n_samples})")
+    
+    # Verify we generated exactly n_samples
+    if len(synthetic_images) != n_samples:
+        logger.warning(f"Generated {len(synthetic_images)} images but {n_samples} were requested!")
     
     return synthetic_images
 

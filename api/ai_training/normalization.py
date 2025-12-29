@@ -6,6 +6,9 @@ Handles normalization/denormalization of target values for better training.
 
 import numpy as np
 from typing import Dict, Tuple, Optional
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class TargetNormalizer:
@@ -56,16 +59,16 @@ class TargetNormalizer:
             if self.max_value is None:
                 self.max_value = float(np.max(targets))
             
-            print(f"   Min-Max normalization: [{self.min_value}, {self.max_value}] → [0, 1]")
+            logger.info(f"Min-Max normalization: [{self.min_value}, {self.max_value}] → [0, 1]")
             
         elif self.method == 'standardize':
             self.mean = float(np.mean(targets))
             self.std = float(np.std(targets))
             
-            print(f"   Standardization: mean={self.mean:.2f}, std={self.std:.2f}")
+            logger.info(f"Standardization: mean={self.mean:.2f}, std={self.std:.2f}")
             
         elif self.method == 'none':
-            print(f"   No normalization applied")
+            logger.info("No normalization applied")
         
         else:
             raise ValueError(f"Unknown normalization method: {self.method}")
@@ -182,9 +185,9 @@ def get_normalizer_for_feature(feature_name: str) -> TargetNormalizer:
     
     if feature_name in score_ranges:
         min_val, max_val = score_ranges[feature_name]
-        print(f"Using predefined range for {feature_name}: [{min_val}, {max_val}]")
+        logger.info(f"Using predefined range for {feature_name}: [{min_val}, {max_val}]")
         return TargetNormalizer(method='min_max', value_range=(min_val, max_val))
     else:
-        print(f"No predefined range for {feature_name}, will compute from data")
+        logger.info(f"No predefined range for {feature_name}, will compute from data")
         return TargetNormalizer(method='min_max')
 

@@ -13,6 +13,9 @@ from typing import List, Dict, Tuple, Optional
 from sqlalchemy.orm import Session
 from database import TrainingDataImage
 from pathlib import Path
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 try:
     from .split_strategy import stratified_split_regression, validate_split, get_split_recommendation
@@ -256,7 +259,7 @@ class TrainingDataLoader:
                     y.append(target_value)
                     image_ids.append(img.id)
             except Exception as e:
-                print(f"Error loading image {img.id}: {e}")
+                logger.warning(f"Error loading image {img.id}: {e}")
         
         if len(X) == 0:
             raise ValueError(f"No images found with feature '{target_feature}'")
@@ -271,9 +274,9 @@ class TrainingDataLoader:
         # Choose split strategy based on task type
         if is_classification_mode:
             # For classification: stratify by actual class labels
-            print(f"\nSplit Strategy: stratified_classification")
-            print(f"Reason: Classification task - stratify by class labels")
-            print(f"Number of classes: {len(np.unique(y))}")
+            logger.info("Split Strategy: stratified_classification")
+            logger.info(f"Reason: Classification task - stratify by class labels")
+            logger.info(f"Number of classes: {len(np.unique(y))}")
             
             from ai_training.split_strategy import stratified_split_classification
             X_train, X_test, y_train, y_test, split_info = stratified_split_classification(
@@ -285,9 +288,9 @@ class TrainingDataLoader:
             # For regression: stratify by binning continuous values
             recommendation = get_split_recommendation(len(X), y.max() - y.min())
             
-            print(f"\nSplit Strategy: {recommendation['strategy']}")
-            print(f"Reason: {recommendation['reason']}")
-            print(f"Using {recommendation['n_bins']} bins for stratification")
+            logger.info(f"Split Strategy: {recommendation['strategy']}")
+            logger.info(f"Reason: {recommendation['reason']}")
+            logger.info(f"Using {recommendation['n_bins']} bins for stratification")
             
             from ai_training.split_strategy import stratified_split_regression
             X_train, X_test, y_train, y_test, split_info = stratified_split_regression(
@@ -297,33 +300,33 @@ class TrainingDataLoader:
                 random_seed=random_seed
             )
         
-        # Print split validation
+        # Log split validation
         if split_info['warnings']:
-            print("\n⚠️ Split Quality Warnings:")
+            logger.warning("Split Quality Warnings:")
             for warning in split_info['warnings']:
-                print(f"  - {warning}")
+                logger.warning(f"  - {warning}")
         else:
-            print("\n✅ Split is well-balanced")
+            logger.info("Split is well-balanced")
         
-        # Print distribution details (different for classification vs regression)
+        # Log distribution details (different for classification vs regression)
         if is_classification_mode:
             # Classification: show class distribution
             train_counts = split_info['train_distribution']['class_counts']
             test_counts = split_info['test_distribution']['class_counts']
             
-            print(f"\nTrain set: {split_info['train_distribution']['count']} samples")
+            logger.info(f"Train set: {split_info['train_distribution']['count']} samples")
             for cls, count in train_counts.items():
-                print(f"  Class {cls}: {count} samples")
+                logger.info(f"  Class {cls}: {count} samples")
             
-            print(f"\nTest set: {split_info['test_distribution']['count']} samples")
+            logger.info(f"Test set: {split_info['test_distribution']['count']} samples")
             for cls, count in test_counts.items():
-                print(f"  Class {cls}: {count} samples")
+                logger.info(f"  Class {cls}: {count} samples")
         else:
             # Regression: show statistical distribution
-            print(f"\nTrain distribution: mean={split_info['train_distribution']['mean']:.3f}, "
+            logger.info(f"Train distribution: mean={split_info['train_distribution']['mean']:.3f}, "
                   f"std={split_info['train_distribution']['std']:.3f}, "
                   f"range=[{split_info['train_distribution']['min']:.3f}, {split_info['train_distribution']['max']:.3f}]")
-            print(f"Test distribution:  mean={split_info['test_distribution']['mean']:.3f}, "
+            logger.info(f"Test distribution:  mean={split_info['test_distribution']['mean']:.3f}, "
                   f"std={split_info['test_distribution']['std']:.3f}, "
                   f"range=[{split_info['test_distribution']['min']:.3f}, {split_info['test_distribution']['max']:.3f}]")
         
@@ -370,8 +373,8 @@ class TrainingDataLoader:
         if augmentation_config:
             default_config.update(augmentation_config)
         
-        print(f"\n🔄 Preparing augmented dataset...")
-        print(f"   Augmentation config: {default_config}")
+        logger.info("Preparing augmented dataset...")
+        logger.debug(f"Augmentation config: {default_config}")
         
         # Load images from database
         images = self.db.query(TrainingDataImage).filter(
@@ -407,12 +410,12 @@ class TrainingDataLoader:
                         'features_data': img.features_data
                     })
             except Exception as e:
-                print(f"Warning: Error loading image {img.id}: {e}")
+                logger.warning(f"Error loading image {img.id}: {e}")
         
         if len(images_data) == 0:
             raise ValueError(f"No images found with feature '{target_feature}'")
         
-        print(f"   Found {len(images_data)} images with feature '{target_feature}'")
+        logger.info(f"Found {len(images_data)} images with feature '{target_feature}'")
         
         # Track synthetic images info for metadata
         synthetic_info = {
@@ -425,6 +428,10 @@ class TrainingDataLoader:
         
         # Add synthetic bad images if requested
         if add_synthetic_bad_images:
+            # Track original length for potential rollback
+            original_images_count = len(images_data)
+            n_added_successfully = 0
+            
             try:
                 from ai_training.synthetic_bad_images import generate_synthetic_bad_images
                 
@@ -459,52 +466,84 @@ class TrainingDataLoader:
                         boundaries = []
                         class_name = "Class_0"
                     
-                    print(f"   Target: Class 0 (bad quality), Name: {class_name}")
+                    logger.info(f"Target: Class 0 (bad quality), Name: {class_name}")
                 else:
                     # For regression
-                    print(f"   Target: Score 0.0 (bad quality)")
+                    logger.info(f"Target: Score 0.0 (bad quality)")
                 
-                # Add to images_data
+                # Add to images_data with error handling per image
                 for idx, synth in enumerate(synthetic_images):
-                    # Create features_data based on mode
-                    if is_classification_mode:
-                        features_dict = {
-                            "Custom_Class": {
-                                num_classes_str: {
-                                    "label": 0,
-                                    "name_custom": "Synthetic Bad",
-                                    "name_generic": class_name,
-                                    "boundaries": boundaries
+                    try:
+                        # Create features_data based on mode
+                        if is_classification_mode:
+                            features_dict = {
+                                "Custom_Class": {
+                                    num_classes_str: {
+                                        "label": 0,
+                                        "name_custom": "Synthetic Bad",
+                                        "name_generic": class_name,
+                                        "boundaries": boundaries
+                                    }
                                 }
                             }
-                        }
-                    else:
-                        features_dict = {target_feature: 0.0}
+                        else:
+                            features_dict = {target_feature: 0.0}
+                        
+                        images_data.append({
+                            'id': f'synthetic_bad_{idx}',
+                            'patient_id': f'SYNTHETIC_BAD_L{synth["complexity_level"]}',
+                            'processed_image_data': synth['image_data'],
+                            'features_data': json.dumps(features_dict)
+                        })
+                        
+                        n_added_successfully += 1
+                        
+                    except Exception as img_error:
+                        logger.warning(f"Failed to add synthetic image {idx}: {img_error}")
+                        # Continue with next image
+                        continue
+                
+                # Update synthetic info based on ACTUAL success count
+                if n_added_successfully > 0:
+                    synthetic_info = {
+                        'enabled': True,
+                        'n_samples': synthetic_n_samples,
+                        'n_generated': len(synthetic_images),
+                        'n_added': n_added_successfully,
+                        'complexity_levels': 5,
+                        'score_threshold': 20.0
+                    }
                     
-                    images_data.append({
-                        'id': f'synthetic_bad_{idx}',
-                        'patient_id': f'SYNTHETIC_BAD_L{synth["complexity_level"]}',
-                        'processed_image_data': synth['image_data'],
-                        'features_data': json.dumps(features_dict)
-                    })
-                
-                # Update synthetic info
-                synthetic_info = {
-                    'enabled': True,
-                    'n_samples': synthetic_n_samples,
-                    'n_generated': len(synthetic_images),
-                    'complexity_levels': 5,
-                    'score_threshold': 20.0
-                }
-                
-                print(f"   ✅ Added {len(synthetic_images)} synthetic bad images")
-                print(f"   Total images: {len(images_data)} (original + synthetic)")
+                    logger.info(f"Added {n_added_successfully}/{len(synthetic_images)} synthetic bad images")
+                    logger.info(f"Total images: {len(images_data)} (original + synthetic)")
+                else:
+                    logger.warning("No synthetic images were added successfully")
             
             except Exception as e:
+                # Rollback: Remove any partially added synthetic images
+                if n_added_successfully > 0:
+                    logger.warning(f"Rolling back {n_added_successfully} partially added synthetic images...")
+                    images_data = images_data[:original_images_count]
+                    n_added_successfully = 0
+                
                 import traceback
-                print(f"   ⚠️ Warning: Could not generate synthetic images: {e}")
-                print(f"   Traceback: {traceback.format_exc()}")
-                print(f"   Continuing without synthetic images...")
+                logger.error(f"Could not generate synthetic images: {e}", exc_info=True)
+                logger.info("Continuing without synthetic images...")
+            
+            finally:
+                # Always update synthetic_info to reflect actual state
+                if n_added_successfully > 0:
+                    if not synthetic_info.get('enabled'):
+                        # Update if not already set (shouldn't happen, but safety net)
+                        synthetic_info = {
+                            'enabled': True,
+                            'n_samples': synthetic_n_samples,
+                            'n_generated': n_added_successfully,
+                            'n_added': n_added_successfully,
+                            'complexity_levels': 5,
+                            'score_threshold': 20.0,
+                            'partial': True  # Flag to indicate partial success
+                        }
         
         # Create train/val split
         y_values = []
@@ -532,8 +571,8 @@ class TrainingDataLoader:
             # For classification: stratify by class labels
             from ai_training.split_strategy import stratified_split_classification
             
-            print(f"   Split strategy: stratified_classification (by class labels)")
-            print(f"   Number of classes: {len(np.unique(y_array))}")
+            logger.info(f"Split strategy: stratified_classification (by class labels)")
+            logger.info(f"Number of classes: {len(np.unique(y_array))}")
             
             _, _, _, _, split_info = stratified_split_classification(
                 indices.reshape(-1, 1),
@@ -566,7 +605,7 @@ class TrainingDataLoader:
             
             recommendation = get_split_recommendation(len(images_data), y_array.max() - y_array.min())
             
-            print(f"   Split strategy: {recommendation['strategy']} with {recommendation['n_bins']} bins")
+            logger.info(f"Split strategy: {recommendation['strategy']} with {recommendation['n_bins']} bins")
             
             _, _, _, _, split_info = stratified_split_regression(
                 indices.reshape(-1, 1),
@@ -596,18 +635,18 @@ class TrainingDataLoader:
             'val': val_indices
         }
         
-        print(f"   Train: {len(train_indices)} images, Val: {len(val_indices)} images")
+        logger.info(f"Train: {len(train_indices)} images, Val: {len(val_indices)} images")
         
         # Extract actual image IDs from split indices
         train_image_ids = [images_data[i]['id'] for i in train_indices if i < len(images_data) and 'id' in images_data[i]]
         val_image_ids = [images_data[i]['id'] for i in val_indices if i < len(images_data) and 'id' in images_data[i]]
         
-        print(f"   Extracted {len(train_image_ids)} train IDs and {len(val_image_ids)} val IDs")
+        logger.info(f"Extracted {len(train_image_ids)} train IDs and {len(val_image_ids)} val IDs")
         
         # Fit normalizer if provided
         if normalizer is not None:
             normalizer.fit(y_array)
-            print(f"   Fitted normalizer on {len(y_array)} samples")
+            logger.info(f"Fitted normalizer on {len(y_array)} samples")
         
         # Create augmentor
         augmentor = ImageAugmentor(

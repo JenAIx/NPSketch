@@ -394,7 +394,80 @@ db.close()
 
 ---
 
-**Last Updated:** 2025-12-25  
+---
+
+## 🆕 New Infrastructure (2025-12-29)
+
+### Configuration System
+
+**Centralized Config:** `api/config/training_config.yaml`
+```python
+from config import get_config
+
+config = get_config()
+batch_size = config.get("training.defaults.batch_size")  # 8
+rotation_range = config.get("augmentation.rotation_range")  # [-3, 3]
+synthetic_n_samples = config.get("synthetic.defaults.n_samples")  # 50
+```
+
+**Environment Overrides:**
+```bash
+export NPSKETCH_TRAINING_DEFAULTS_BATCH_SIZE=16
+export NPSKETCH_LOGGING_LEVEL=DEBUG
+```
+
+### Type Safety (Pydantic Models)
+
+**Models:** `api/config/models.py`
+```python
+from config.models import TrainingConfig
+from pydantic import ValidationError
+
+# Automatic validation
+try:
+    config = TrainingConfig(
+        target_feature="Total_Score",
+        train_split=0.8,
+        num_epochs=50
+    )
+    # Type-safe access: config.batch_size → guaranteed int
+except ValidationError as e:
+    logger.error(f"Invalid config: {e}")
+```
+
+**Available Models:**
+- `TrainingConfig` - Training parameters
+- `AugmentationConfig` - Augmentation settings
+- `SyntheticImageConfig` - Synthetic image generation
+- `ModelMetadata` - Model metadata structure
+
+### Structured Logging
+
+**Logger Setup:** `api/utils/logger.py`
+```python
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+logger.info("Operation started")
+logger.warning("Warning message")
+logger.error("Error occurred", exc_info=True)
+```
+
+**Log Configuration:**
+- Level: INFO (configurable in YAML)
+- File: `/app/data/logs/training.log` (10 MB rotation, 5 backups)
+- Format: `2025-12-29 14:30:15 - module - LEVEL - message`
+- Module-specific levels in config.yaml
+
+**Log Files:**
+- Container: `/app/data/logs/training.log`
+- Host: `./data/logs/training.log`
+- Rotation: Automatic at 10 MB
+
+---
+
+**Last Updated:** 2025-12-29  
 **Container Name:** `npsketch-api`  
-**Working Directory:** `/app`
+**Working Directory:** `/app`  
+**Version:** 1.1.0
 

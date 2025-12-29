@@ -10,6 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db, UploadedImage, TrainingDataImage, Base, engine
 import os
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -104,9 +107,7 @@ async def migrate_add_image_hash(db: Session = Depends(get_db)):
         
     except Exception as e:
         db.rollback()
-        import traceback
-        error_detail = f"Migration failed: {str(e)}\n{traceback.format_exc()}"
-        print(error_detail)  # Log to console
+        logger.error(f"Migration failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Migration failed: {str(e)}")
 
 
@@ -134,11 +135,11 @@ async def reset_database(confirm: str = ""):
         
         # Drop all tables
         Base.metadata.drop_all(bind=engine)
-        print("✓ All tables dropped")
+        logger.info("All tables dropped")
         
         # Recreate all tables
         Base.metadata.create_all(bind=engine)
-        print("✓ All tables recreated")
+        logger.info("All tables recreated")
         
         # Clear visualization files
         viz_dir = "/app/data/visualizations"
@@ -149,9 +150,9 @@ async def reset_database(confirm: str = ""):
                     if os.path.isfile(file_path):
                         os.unlink(file_path)
                 except Exception as e:
-                    print(f"Error deleting {file_path}: {e}")
+                    logger.warning(f"Error deleting {file_path}: {e}")
         
-        print("✓ Visualization files cleared")
+        logger.info("Visualization files cleared")
         
         return {
             "success": True,
@@ -161,9 +162,7 @@ async def reset_database(confirm: str = ""):
         }
         
     except Exception as e:
-        import traceback
-        error_detail = f"Reset failed: {str(e)}\n{traceback.format_exc()}"
-        print(error_detail)
+        logger.error(f"Reset failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Reset failed: {str(e)}")
 
 
@@ -209,7 +208,5 @@ async def cleanup_tmp_directory():
         }
         
     except Exception as e:
-        import traceback
-        error_detail = f"Cleanup failed: {str(e)}\n{traceback.format_exc()}"
-        print(error_detail)
+        logger.error(f"Cleanup failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")

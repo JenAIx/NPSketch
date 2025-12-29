@@ -1,0 +1,207 @@
+# NPSketch AI Training Configuration
+# Version: 1.1.0
+# Last Updated: 2025-12-29
+
+# Training defaults
+training:
+  # Default training parameters
+  defaults:
+    train_split: 0.8
+    num_epochs: 50
+    learning_rate: 0.001
+    batch_size: 8
+    use_augmentation: true
+    use_normalization: true
+  
+  # Parameter constraints
+  constraints:
+    train_split_min: 0.1
+    train_split_max: 0.9
+    num_epochs_min: 1
+    num_epochs_max: 1000
+    learning_rate_min: 0.00001
+    learning_rate_max: 0.1
+    batch_size_min: 1
+    batch_size_max: 128
+
+# Data augmentation configuration
+augmentation:
+  # Transformation ranges
+  rotation_range: [-3, 3]  # degrees
+  translation_range: [-10, 10]  # pixels
+  scale_range: [0.95, 1.05]  # scale factor
+  
+  # Number of augmentations per image
+  num_augmentations: 5  # 1 original + 5 augmented = 6 total
+  
+  # Warping settings
+  use_warping: true
+  warping_displacement: 15  # pixels
+  warping_control_points: 9  # 3x3 grid
+  
+  # Quality settings
+  binarization_threshold: 175
+  line_thickness: 2  # pixels (after normalization)
+  
+  # Warping ratio (how many augmented images use warping)
+  warping_ratio: 0.4  # 40% of augmentations
+
+# Synthetic bad images configuration
+synthetic:
+  # Default settings
+  defaults:
+    n_samples: 50
+    complexity_levels: 5
+    score_threshold: 20.0  # Max score for "bad" images
+    require_real_bad_lines: false  # Continue if no real bad lines found
+  
+  # Image generation settings
+  generation:
+    image_size: [568, 274]  # width, height
+    min_lines: 5
+    max_lines: 20
+    
+  # Complexity-based ratios
+  complexity:
+    low:  # 0.0 - 0.3
+      real_bad_ratio: 0.8
+      reference_ratio: 0.2
+      random_ratio: 0.0
+    medium:  # 0.3 - 0.7
+      real_bad_ratio: 0.5
+      reference_ratio: 0.3
+      random_ratio: 0.2
+    high:  # 0.7 - 1.0
+      real_bad_ratio: 0.3
+      reference_ratio: 0.3
+      random_ratio: 0.4
+  
+  # Line modification settings
+  modifications:
+    curves:
+      min_curvature: 0.1
+      max_curvature: 0.4
+    tremor:
+      min_strength: 1.0
+      max_strength: 3.5
+    shortening:
+      min_factor: 0.6
+      max_factor: 0.9
+  
+  # Caching settings
+  cache:
+    enabled: true
+    ttl_seconds: 3600  # 1 hour
+
+# Model architecture
+model:
+  # ResNet-18 settings
+  architecture: "resnet18"
+  pretrained: true
+  backbone_trainable: true
+  
+  # Head architecture
+  head:
+    hidden_size: 256
+    dropout: 0.5
+  
+  # Device settings
+  device: "cpu"  # or "cuda" if GPU available
+  
+  # Model storage
+  save_dir: "/app/data/models"
+  checkpoint_format: "{name}_{timestamp}.pth"
+
+# Image processing
+image_processing:
+  # Target size for all images
+  target_size: [568, 274]  # width, height
+  
+  # Line normalization
+  line_normalization:
+    method: "zhang_suen"  # Thinning algorithm
+    target_thickness: 2  # pixels (after dilation)
+  
+  # Auto-cropping
+  auto_crop:
+    enabled: true
+    padding: 5  # pixels
+    min_content_ratio: 0.01  # Minimum 1% content
+
+# Data split strategies
+split_strategy:
+  # Regression split
+  regression:
+    method: "stratified_bins"  # or "random"
+    default_bins: 5
+    min_samples_per_bin: 2
+  
+  # Classification split
+  classification:
+    method: "stratified_classes"
+    min_samples_per_class: 2
+
+# Logging configuration
+logging:
+  # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  level: "INFO"
+  
+  # Log format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  date_format: "%Y-%m-%d %H:%M:%S"
+  
+  # File logging
+  file:
+    enabled: true
+    path: "/app/data/logs/training.log"
+    max_bytes: 10485760  # 10 MB
+    backup_count: 5
+    level: "DEBUG"
+  
+  # Console logging
+  console:
+    enabled: true
+    level: "INFO"
+  
+  # Module-specific log levels
+  loggers:
+    "ai_training.data_loader": "INFO"
+    "ai_training.trainer": "INFO"
+    "ai_training.synthetic_bad_images": "INFO"
+    "ai_training.data_augmentation": "WARNING"
+
+# Database
+database:
+  # SQLite settings
+  path: "/app/data/npsketch.db"
+  
+  # Query settings
+  query_timeout: 30  # seconds
+  max_retries: 3
+  retry_delay: 1  # seconds
+
+# Performance & Resources
+performance:
+  # Worker settings
+  num_workers: 0  # DataLoader workers (0 = main thread)
+  
+  # Memory settings
+  pin_memory: false
+  
+  # Batch processing
+  prefetch_factor: 2
+
+# Validation & Constraints
+validation:
+  # Minimum dataset sizes
+  min_total_images: 2
+  min_labeled_images: 2
+  min_feature_samples: 2
+  
+  # Recommended dataset sizes
+  recommended_total_images: 50
+  recommended_with_augmentation: 100
+  
+  # Class imbalance warnings
+  max_class_imbalance_ratio: 10  # Warn if largest/smallest > 10
+

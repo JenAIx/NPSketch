@@ -7,12 +7,21 @@ Core endpoints for training management and dataset info.
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 from database import get_db, TrainingDataImage
+from pydantic import ValidationError
 import json
 import sys
 from datetime import datetime
 
 sys.path.insert(0, '/app')
 from ai_training.data_loader import TrainingDataLoader
+from config.models import TrainingConfig, TrainingStartResponse, TrainingStatus
+from utils.logger import get_logger, setup_from_config
+from config import get_config
+
+# Setup logging
+config = get_config()
+setup_from_config(config.get_section('logging'))
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/ai-training", tags=["ai_training_base"])
 
@@ -155,28 +164,32 @@ async def check_training_readiness(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/start-training")
-async def start_training(config: dict = Body(...), db: Session = Depends(get_db)):
-    """Start CNN training (async, returns immediately)."""
+@router.post("/start-training", response_model=TrainingStartResponse)
+async def start_training(config_dict: dict = Body(...), db: Session = Depends(get_db)):
+    """Start CNN training (async, returns immediately) with type-safe configuration."""
     import threading
     
     try:
-        target_feature = config.get('target_feature')
-        train_split = config.get('train_split', 0.8)
-        num_epochs = config.get('num_epochs', 10)
-        learning_rate = config.get('learning_rate', 0.001)
-        batch_size = config.get('batch_size', 8)
-        use_augmentation = config.get('use_augmentation', True)
-        use_normalization = config.get('use_normalization', True)
-        add_synthetic_bad_images = config.get('add_synthetic_bad_images', False)
-        synthetic_n_samples = config.get('synthetic_n_samples', 50)
+        # Validate configuration with Pydantic
+        try:
+            training_config = TrainingConfig(**config_dict)
+            logger.info(f"Training request validated: target={training_config.target_feature}, "
+                       f"epochs={training_config.num_epochs}, augmentation={training_config.use_augmentation}")
+        except ValidationError as e:
+            logger.error(f"Invalid training configuration: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
         
-        if not target_feature:
-            raise HTTPException(status_code=400, detail="target_feature is required")
+        target_feature = training_config.target_feature
+        train_split = training_config.train_split
+        num_epochs = training_config.num_epochs
+        learning_rate = training_config.learning_rate
+        batch_size = training_config.batch_size
+        use_augmentation = training_config.use_augmentation
+        use_normalization = training_config.use_normalization
+        add_synthetic_bad_images = training_config.add_synthetic_bad_images
+        synthetic_n_samples = training_config.synthetic_n_samples
         
-        if train_split <= 0 or train_split >= 1:
-            raise HTTPException(status_code=400, detail="train_split must be between 0 and 1")
-        
+        # Validation is now handled by Pydantic, but keep for backwards compatibility
         if num_epochs < 1 or num_epochs > 1000:
             raise HTTPException(status_code=400, detail="num_epochs must be between 1 and 1000")
         
@@ -236,8 +249,17 @@ async def start_training(config: dict = Body(...), db: Session = Depends(get_db)
 
 
 def run_training_job(config):
-    """Run training in background thread."""
+    """Run training in background thread with structured logging."""
     global training_state
+    
+    logger.info("="*60)
+    logger.info(f"TRAINING JOB STARTED")
+    logger.info(f"Target Feature: {config['target_feature']}")
+    logger.info(f"Epochs: {config['num_epochs']}, Batch Size: {config['batch_size']}")
+    logger.info(f"Augmentation: {config.get('use_augmentation', True)}")
+    logger.info(f"Synthetic Images: {config.get('add_synthetic_bad_images', False)} "
+               f"(n={config.get('synthetic_n_samples', 0)})")
+    logger.info("="*60)
     
     try:
         training_state['status'] = 'training'
@@ -248,6 +270,8 @@ def run_training_job(config):
             'val_loss': 0,
             'message': 'Initializing...'
         }
+        
+        logger.debug(f"Training state initialized: {training_state}")
         
         from ai_training.trainer import CNNTrainer
         from ai_training.normalization import get_normalizer_for_feature
@@ -267,9 +291,9 @@ def run_training_job(config):
             training_mode = "classification"
             normalizer = None  # NO normalization for classification!
             
-            print(f"   Training mode: CLASSIFICATION ({num_classes} classes)")
-            print(f"   Output neurons: {num_outputs}")
-            print(f"   Target normalization: Disabled (classification uses raw class indices)")
+            logger.info(f"Training mode: CLASSIFICATION ({num_classes} classes)")
+            logger.info(f"Output neurons: {num_outputs}")
+            logger.info("Target normalization: Disabled (classification uses raw class indices)")
         else:
             # Regression mode
             num_outputs = 1
@@ -279,10 +303,10 @@ def run_training_job(config):
             if use_normalization:
                 normalizer = get_normalizer_for_feature(target_feature)
             
-            print(f"   Training mode: REGRESSION")
-            print(f"   Output neurons: {num_outputs}")
+            logger.info("Training mode: REGRESSION")
+            logger.info(f"Output neurons: {num_outputs}")
             if normalizer:
-                print(f"   Target normalization: Enabled")
+                logger.info("Target normalization: Enabled")
         
         if use_augmentation:
             training_state['progress']['message'] = 'Preparing augmented dataset...'

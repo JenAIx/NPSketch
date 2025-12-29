@@ -15,6 +15,9 @@ from database import get_db, EvaluationResult, ExtractedFeature, UploadedImage
 from models import EvaluationResultResponse, EvaluationUpdateRequest
 from services import EvaluationService
 import os
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/evaluations", tags=["evaluations"])
 
@@ -93,7 +96,7 @@ async def delete_evaluation(
             try:
                 os.remove(viz_path)
             except Exception as e:
-                print(f"Warning: Could not delete visualization file: {e}")
+                logger.warning(f"Could not delete visualization file: {e}")
     
     # Delete evaluation
     db.delete(evaluation)

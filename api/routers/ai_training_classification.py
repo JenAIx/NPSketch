@@ -14,6 +14,9 @@ import sys
 
 sys.path.insert(0, '/app')
 from ai_training.classification_generator import generate_balanced_classes
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/ai-training", tags=["ai_training_classification"])
 
@@ -101,7 +104,7 @@ async def get_feature_distribution(
                 auto_classifications[f"{num_classes}_classes"] = result
             except Exception as e:
                 # If classification fails, skip this number
-                print(f"Warning: Could not generate {num_classes} classes: {e}")
+                logger.warning(f"Could not generate {num_classes} classes: {e}")
                 continue
         
         return {
@@ -182,12 +185,12 @@ async def generate_and_save_classes(
         if method == "custom" and custom_classes:
             # Use custom classes from frontend
             class_definitions = custom_classes
-            print(f"Using custom classes: {len(custom_classes)} classes")
+            logger.info(f"Using custom classes: {len(custom_classes)} classes")
         else:
             # Auto-generate with classification_generator
             result = generate_balanced_classes(scores, num_classes, method="quantile")
             class_definitions = result["classes"]
-            print(f"Auto-generated: {len(class_definitions)} classes")
+            logger.info(f"Auto-generated: {len(class_definitions)} classes")
         
         # Build boundaries list from class definitions
         all_boundaries = [class_definitions[0]["min"]]
@@ -212,7 +215,7 @@ async def generate_and_save_classes(
                 
                 if class_id is None:
                     # Score outside all ranges - skip
-                    print(f"Warning: Score {score} not in any class range")
+                    logger.warning(f"Score {score} not in any class range")
                     continue
                 
                 # Get class info
@@ -236,7 +239,7 @@ async def generate_and_save_classes(
                 class_distribution[class_id] += 1
                 updated_count += 1
             except (json.JSONDecodeError, ValueError, KeyError) as e:
-                print(f"Error processing image {img.id}: {e}")
+                logger.error(f"Error processing image {img.id}: {e}", exc_info=True)
                 continue
         
         db.commit()

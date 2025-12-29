@@ -392,7 +392,15 @@ stats, output_dir = loader.prepare_augmented_training_data(
 - 50 synthetic images (default)
 - Combine with regular augmentation
 
-**Documentation:** See `api/ai_training/SYNTHETIC_BAD_IMAGES.md`
+**Configuration:**
+All settings are centralized in `api/config/training_config.yaml`:
+```yaml
+synthetic:
+  defaults:
+    n_samples: 50
+    complexity_levels: 5
+    score_threshold: 20.0
+```
 
 **API Usage:**
 
@@ -928,10 +936,66 @@ Use interactive docs: http://localhost/api/docs
 cd api
 pip install -r requirements.txt
 mkdir -p ../data/visualizations
+mkdir -p ../data/logs
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Access at: http://localhost:8000/api/docs
+
+### Configuration
+
+**Centralized Configuration:**
+- All settings in `api/config/training_config.yaml`
+- No hardcoded values in code
+- Environment variable overrides supported
+
+**Example:**
+```bash
+# Override batch size
+export NPSKETCH_TRAINING_DEFAULTS_BATCH_SIZE=16
+
+# Override log level
+export NPSKETCH_LOGGING_LEVEL=DEBUG
+```
+
+**Configuration Structure:**
+```yaml
+training:
+  defaults: {batch_size, learning_rate, num_epochs, ...}
+augmentation: {rotation_range, translation_range, ...}
+synthetic: {n_samples, complexity_levels, score_threshold, ...}
+logging: {level, format, file rotation, ...}
+```
+
+### Logging
+
+**Structured Logging:**
+```python
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+logger.info("Training started")
+logger.error("Error occurred", exc_info=True)
+```
+
+**Log Files:**
+- Location: `/app/data/logs/training.log`
+- Rotation: 10 MB max, 5 backups
+- Format: `2025-12-29 14:30:15 - module - LEVEL - message`
+
+### Type Safety
+
+**Pydantic Models:**
+```python
+from config.models import TrainingConfig
+from pydantic import ValidationError
+
+try:
+    config = TrainingConfig(**request_data)
+    # Automatic validation!
+except ValidationError as e:
+    logger.error(f"Invalid config: {e}")
+```
 
 ### Adding New Features
 
@@ -939,6 +1003,8 @@ Access at: http://localhost:8000/api/docs
 2. **Include Router**: Import and include in `api/main.py`
 3. **Database Changes**: Update `api/database.py`
 4. **Frontend**: Add HTML to `webapp/`
+5. **Configuration**: Add defaults to `api/config/training_config.yaml`
+6. **Type Models**: Add Pydantic models to `api/config/models.py` (if needed)
 
 ---
 
@@ -983,6 +1049,13 @@ Access at: http://localhost:8000/api/docs
 - [x] Responsive design (4 breakpoints: 1200px, 768px, 480px)
 - [x] Consistent navigation hierarchy across all 13 pages
 - [x] Unified text colors for readability (#333 on light backgrounds)
+
+### Code Quality & Infrastructure (2025-12-29)
+- [x] **NEW: Type Safety with Pydantic Models** (automatic validation)
+- [x] **NEW: Centralized Configuration** (training_config.yaml)
+- [x] **NEW: Structured Logging** (logging module with file rotation)
+- [x] **NEW: Config Loader** (singleton pattern with env overrides)
+- [x] **NEW: Zero hardcoded values** (all in config.yaml)
 
 ---
 

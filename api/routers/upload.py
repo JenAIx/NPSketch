@@ -15,6 +15,9 @@ from database import get_db, UploadedImage, TrainingDataImage
 from models import UploadResponse, EvaluationResultResponse
 from services import ReferenceService, EvaluationService
 import io
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api", tags=["upload"])
 
@@ -163,9 +166,9 @@ async def normalize_image(
     from PIL import Image
     
     try:
-        print("=" * 60)
-        print("🔄 NORMALIZE IMAGE TO 568×274 (same as AI training)")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("NORMALIZE IMAGE TO 568×274 (same as AI training)")
+        logger.info("=" * 60)
         
         # Read uploaded file
         content = await file.read()
@@ -182,7 +185,7 @@ async def normalize_image(
             pil_image = pil_image.convert('RGB')
         
         image_array = np.array(pil_image)
-        print(f"✓ Uploaded: {image_array.shape[1]}×{image_array.shape[0]}")
+        logger.info(f"Uploaded: {image_array.shape[1]}×{image_array.shape[0]}")
         
         # Target dimensions
         TARGET_W, TARGET_H = 568, 274
@@ -206,7 +209,7 @@ async def normalize_image(
             
             # Crop to bounding box
             cropped_array = image_array[y:y+h, x:x+w]
-            print(f"  1️⃣  Auto-cropped with {padding}px padding: {image_array.shape[1]}×{image_array.shape[0]} → {w}×{h}")
+            logger.info(f"Auto-cropped with {padding}px padding: {image_array.shape[1]}×{image_array.shape[0]} → {w}×{h}")
             
             # Step 2: Scale to 568×274 (preserving aspect ratio)
             scale = min(TARGET_W / w, TARGET_H / h)
@@ -216,24 +219,24 @@ async def normalize_image(
             # Resize cropped content using PIL (LANCZOS for quality)
             cropped_img = Image.fromarray(cropped_array)
             resized_img = cropped_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-            print(f"  2️⃣  Scaled: {w}×{h} × {scale:.2f} = {new_w}×{new_h}")
+            logger.info(f"Scaled: {w}×{h} × {scale:.2f} = {new_w}×{new_h}")
             
             # Step 3: Center on 568×274 canvas
             final_canvas = np.ones((TARGET_H, TARGET_W, 3), dtype=np.uint8) * 255
             offset_x = (TARGET_W - new_w) // 2
             offset_y = (TARGET_H - new_h) // 2
             final_canvas[offset_y:offset_y+new_h, offset_x:offset_x+new_w] = np.array(resized_img)
-            print(f"  3️⃣  Centered at: ({offset_x}, {offset_y}) on {TARGET_W}×{TARGET_H} canvas")
+            logger.info(f"Centered at: ({offset_x}, {offset_y}) on {TARGET_W}×{TARGET_H} canvas")
             
             result = final_canvas
         else:
             # No content detected - simple resize
-            print("  ⚠️  No content detected, simple resize")
+            logger.warning("No content detected, simple resize")
             resized = pil_image.resize((TARGET_W, TARGET_H), Image.Resampling.LANCZOS)
             result = np.array(resized)
         
-        print(f"✅ Normalized to: {TARGET_W}×{TARGET_H}")
-        print("=" * 60)
+        logger.info(f"Normalized to: {TARGET_W}×{TARGET_H}")
+        logger.info("=" * 60)
         
         # Convert RGB to BGR for cv2.imencode
         result_bgr = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
@@ -251,9 +254,7 @@ async def normalize_image(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Normalization error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Normalization error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -282,11 +283,11 @@ async def register_image(
     from skimage.morphology import skeletonize
     
     try:
-        print("=" * 60)
-        print("🔄 STEP 3: AUTO PROCESSING")
-        print("=" * 60)
-        print(f"  Registration: translation={enable_translation}, rotation={enable_rotation}, scale={enable_scale}")
-        print(f"  Thinning: {enable_thinning}")
+        logger.info("=" * 60)
+        logger.info("STEP 3: AUTO PROCESSING")
+        logger.info("=" * 60)
+        logger.info(f"Registration: translation={enable_translation}, rotation={enable_rotation}, scale={enable_scale}")
+        logger.info(f"Thinning: {enable_thinning}")
         
         # Read uploaded file (should already be 568×274 normalized from frontend)
         content = await file.read()
@@ -296,7 +297,7 @@ async def register_image(
         if img is None:
             raise HTTPException(status_code=400, detail="Invalid image file")
         
-        print(f"  ✓ Input image: {img.shape} (should be 568×274)")
+        logger.info(f"Input image: {img.shape} (should be 568×274)")
         
         # Get reference image
         reference_service = ReferenceService(db)
@@ -305,13 +306,13 @@ async def register_image(
             raise HTTPException(status_code=404, detail="Reference image not found")
         
         ref_img_data = load_image_from_bytes(ref_image.processed_image_data)
-        print(f"  ✓ Reference: {ref_img_data.shape}")
+        logger.info(f"Reference: {ref_img_data.shape}")
         
         result_img = img.copy()
         
         # STEP 3a: Registration (if enabled)
         if enable_translation or enable_rotation or enable_scale:
-            print("\n  🎯 STEP 3a: Registration...")
+            logger.info("STEP 3a: Registration...")
             registration = ImageRegistration()
             
             # Build motion type based on enabled options
@@ -324,7 +325,7 @@ async def register_image(
             else:
                 motion_type = 'translation'  # Default
             
-            print(f"     Motion type: {motion_type}")
+            logger.debug(f"Motion type: {motion_type}")
             
             try:
                 registered_img, reg_info = registration.register_images(
@@ -337,18 +338,18 @@ async def register_image(
                 
                 if reg_info.get('success', False):
                     result_img = registered_img
-                    print(f"     ✅ Registration: tx={reg_info.get('translation_x', 0):.1f}, ty={reg_info.get('translation_y', 0):.1f}, rot={reg_info.get('rotation_degrees', 0):.1f}°")
+                    logger.info(f"Registration: tx={reg_info.get('translation_x', 0):.1f}, ty={reg_info.get('translation_y', 0):.1f}, rot={reg_info.get('rotation_degrees', 0):.1f}°")
                 else:
-                    print(f"     ⚠️  Registration skipped: {reg_info.get('reason', 'Unknown')}")
+                    logger.warning(f"Registration skipped: {reg_info.get('reason', 'Unknown')}")
                     
             except Exception as reg_error:
-                print(f"     ⚠️  Registration failed: {reg_error}")
+                logger.warning(f"Registration failed: {reg_error}")
         else:
-            print("\n  ⏭️  STEP 3a: Registration skipped (disabled)")
+            logger.info("STEP 3a: Registration skipped (disabled)")
         
         # STEP 3b: Line Thinning to 1px (optional)
         if enable_thinning:
-            print("\n  ✂️  STEP 3b: Thinning to 1px...")
+            logger.info("STEP 3b: Thinning to 1px...")
             
             gray = cv2.cvtColor(result_img, cv2.COLOR_BGR2GRAY)
             _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
@@ -360,12 +361,12 @@ async def register_image(
             
             # Convert back to color
             result_img = cv2.cvtColor(thinned, cv2.COLOR_GRAY2BGR)
-            print(f"     ✅ Thinned to 1px: {result_img.shape}")
+            logger.info(f"Thinned to 1px: {result_img.shape}")
         else:
-            print("\n  ⏭️  STEP 3b: Thinning skipped (disabled)")
+            logger.info("STEP 3b: Thinning skipped (disabled)")
         
-        print("\n✅ AUTO PROCESSING COMPLETE!")
-        print("=" * 60)
+        logger.info("AUTO PROCESSING COMPLETE!")
+        logger.info("=" * 60)
         
         # Encode as PNG
         success, buffer = cv2.imencode('.png', result_img)
@@ -380,7 +381,5 @@ async def register_image(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Auto Match error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Auto Match error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

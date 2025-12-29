@@ -11,6 +11,9 @@ import json
 import sys
 
 sys.path.insert(0, '/app')
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/ai-training", tags=["ai_training_models"])
 
@@ -140,28 +143,28 @@ async def test_model(
                         else:
                             # Use output_neurons as fallback
                             num_classes = num_outputs
-                    print(f"Testing CLASSIFICATION model: {num_classes} classes (from metadata)")
+                    logger.info(f"Testing CLASSIFICATION model: {num_classes} classes (from metadata)")
                 else:
                     # Regression mode
                     # Get normalizer if used
                     if metadata.get('normalization', {}).get('enabled', False):
                         from ai_training.normalization import TargetNormalizer
                         normalizer = TargetNormalizer.from_config(metadata['normalization'])
-                    print(f"Testing REGRESSION model (from metadata)")
+                    logger.info(f"Testing REGRESSION model (from metadata)")
             else:
                 # Fallback: detect from feature name
                 is_classification = feature.startswith('Custom_Class_')
                 if is_classification:
                     training_mode = "classification"
                     num_classes = int(feature.replace('Custom_Class_', ''))
-                    print(f"Testing CLASSIFICATION model: {num_classes} classes (detected from feature)")
+                    logger.info(f"Testing CLASSIFICATION model: {num_classes} classes (detected from feature)")
                 else:
                     training_mode = "regression"
                     # Get normalizer if used
                     if metadata.get('normalization', {}).get('enabled', False):
                         from ai_training.normalization import TargetNormalizer
                         normalizer = TargetNormalizer.from_config(metadata['normalization'])
-                    print(f"Testing REGRESSION model (detected from feature)")
+                    logger.info(f"Testing REGRESSION model (detected from feature)")
         else:
             # Fallback: extract from filename
             parts = model_filename.split('_')
@@ -182,10 +185,10 @@ async def test_model(
                 training_mode = "classification"
                 num_classes = int(feature.replace('Custom_Class_', ''))
                 num_outputs = num_classes
-                print(f"Testing CLASSIFICATION model: {num_classes} classes (from filename)")
+                logger.info(f"Testing CLASSIFICATION model: {num_classes} classes (from filename)")
             else:
                 training_mode = "regression"
-                print(f"Testing REGRESSION model (from filename)")
+                logger.info(f"Testing REGRESSION model (from filename)")
         
         if not feature:
             raise HTTPException(status_code=400, detail="Could not determine target feature from model")
@@ -200,7 +203,7 @@ async def test_model(
         # Load training data
         if train_image_ids and val_image_ids:
             # Use original train/val split from metadata
-            print(f"Using original train/val split from metadata: {len(train_image_ids)} train, {len(val_image_ids)} val")
+            logger.info(f"Using original train/val split from metadata: {len(train_image_ids)} train, {len(val_image_ids)} val")
             
             # Load only the specific images from metadata
             all_ids = set(train_image_ids + val_image_ids)
@@ -238,14 +241,14 @@ async def test_model(
                     is_classification=is_classification,
                     num_classes=num_classes
                 )
-                print(f"Created dataloaders from metadata: {stats['train_samples']} train, {stats['val_samples']} val samples")
+                logger.info(f"Created dataloaders from metadata: {stats['train_samples']} train, {stats['val_samples']} val samples")
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=f"Dataset error: {str(e)}")
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Failed to create dataloaders from metadata: {str(e)}")
         else:
             # Fallback: Create new split (for older models without image IDs in metadata)
-            print("No train/val image IDs in metadata, creating new split")
+            logger.info("No train/val image IDs in metadata, creating new split")
             
             images = db.query(TrainingDataImage).filter(
                 TrainingDataImage.features_data.isnot(None)
@@ -273,7 +276,7 @@ async def test_model(
                     is_classification=is_classification,
                     num_classes=num_classes
                 )
-                print(f"Created dataloaders with new split: {stats['train_samples']} train, {stats['val_samples']} val samples")
+                logger.info(f"Created dataloaders with new split: {stats['train_samples']} train, {stats['val_samples']} val samples")
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=f"Dataset error: {str(e)}")
             except Exception as e:

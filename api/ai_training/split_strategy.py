@@ -7,6 +7,9 @@ Ensures balanced distribution of target values across train/test sets.
 import numpy as np
 from typing import Tuple, Dict, List
 from scipy import stats
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def analyze_distribution(y_values: np.ndarray) -> Dict:
@@ -104,8 +107,8 @@ def stratified_split_regression(
     
     # If bins are too small, use random split instead
     if small_bins:
-        print(f"Warning: {len(small_bins)} bins have < {min_samples_per_bin} samples")
-        print(f"         Falling back to random split")
+        logger.warning(f"{len(small_bins)} bins have < {min_samples_per_bin} samples")
+        logger.warning("Falling back to random split")
         return random_split(X, y, train_split, random_seed)
     
     # Stratified split: For each bin, split proportionally
@@ -277,9 +280,9 @@ def stratified_split_classification(
     
     # If classes are too small, use random split
     if small_classes:
-        print(f"Warning: {len(small_classes)} classes have < {min_samples_per_class} samples")
-        print(f"         Classes: {small_classes}")
-        print(f"         Falling back to random split")
+        logger.warning(f"{len(small_classes)} classes have < {min_samples_per_class} samples")
+        logger.warning(f"Classes: {small_classes}")
+        logger.warning("Falling back to random split")
         return random_split(X, y, train_split, random_seed)
     
     # Stratified split: For each class, split proportionally
