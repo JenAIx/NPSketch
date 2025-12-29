@@ -89,54 +89,76 @@ def apply_local_warp(
     # Calculate displacements
     displacements = displaced_points - control_points
     
-    # Create displacement field using Inverse Distance Weighting
-    map_x = np.zeros((h, w), dtype=np.float32)
-    map_y = np.zeros((h, w), dtype=np.float32)
+    # Create displacement field using Inverse Distance Weighting (VECTORIZED)
+    # This is ~100x faster than the pixel-by-pixel loop
     
+    # Create meshgrid of all pixel coordinates
+    y_coords, x_coords = np.meshgrid(np.arange(h, dtype=np.float32), 
+                                      np.arange(w, dtype=np.float32), 
+                                      indexing='ij')
+    
+    # Reshape to (h*w, 2) for vectorized distance calculation
+    all_pixels = np.stack([x_coords.ravel(), y_coords.ravel()], axis=1)  # Shape: (h*w, 2)
+    
+    # Calculate distances from all pixels to all control points
+    # Broadcasting: (h*w, 1, 2) - (1, num_points, 2) = (h*w, num_points, 2)
+    distances = np.linalg.norm(
+        all_pixels[:, np.newaxis, :] - control_points[np.newaxis, :, :], 
+        axis=2
+    )  # Shape: (h*w, num_points)
+    
+    # Avoid division by zero
+    distances = np.maximum(distances, 1e-6)
+    
+    # Inverse Distance Weighting: weight = 1 / distance^2
+    weights = 1.0 / (distances ** 2)  # Shape: (h*w, num_points)
+    weights = weights / np.sum(weights, axis=1, keepdims=True)  # Normalize
+    
+    # Calculate weighted displacements (vectorized)
+    dx = np.sum(displacements[:, 0] * weights, axis=1)  # Shape: (h*w,)
+    dy = np.sum(displacements[:, 1] * weights, axis=1)  # Shape: (h*w,)
+    
+    # Calculate edge distances for all pixels
     safety_margin_edge = 10
+    x_flat = x_coords.ravel()
+    y_flat = y_coords.ravel()
     
-    for y in range(h):
-        for x in range(w):
-            pixel = np.array([x, y], dtype=np.float32)
-            
-            # Calculate distances to all control points
-            distances = np.linalg.norm(control_points - pixel, axis=1)
-            distances = np.maximum(distances, 1e-6)
-            
-            # Inverse Distance Weighting: weight = 1 / distance^2
-            weights = 1.0 / (distances ** 2)
-            weights = weights / np.sum(weights)
-            
-            # Calculate weighted displacement
-            dx = np.sum(displacements[:, 0] * weights)
-            dy = np.sum(displacements[:, 1] * weights)
-            
-            # Calculate distance to edges for edge reduction
-            dist_to_left = x
-            dist_to_right = w - 1 - x
-            dist_to_top = y
-            dist_to_bottom = h - 1 - y
-            
-            # Reduce displacement near edges
-            edge_factor_x = min(1.0, 
-                               (dist_to_left - safety_margin_edge) / max(1, safety_margin_edge),
-                               (dist_to_right - safety_margin_edge) / max(1, safety_margin_edge))
-            edge_factor_y = min(1.0,
-                               (dist_to_top - safety_margin_edge) / max(1, safety_margin_edge),
-                               (dist_to_bottom - safety_margin_edge) / max(1, safety_margin_edge))
-            
-            edge_factor_x = max(0.0, min(1.0, edge_factor_x))
-            edge_factor_y = max(0.0, min(1.0, edge_factor_y))
-            
-            dx = dx * edge_factor_x
-            dy = dy * edge_factor_y
-            
-            # Calculate final mapping coordinates
-            new_x = x + dx
-            new_y = y + dy
-            
-            map_x[y, x] = np.clip(new_x, 0, w - 1)
-            map_y[y, x] = np.clip(new_y, 0, h - 1)
+    dist_to_left = x_flat
+    dist_to_right = w - 1 - x_flat
+    dist_to_top = y_flat
+    dist_to_bottom = h - 1 - y_flat
+    
+    # Calculate edge reduction factors (vectorized)
+    edge_factor_x = np.minimum(
+        1.0,
+        np.minimum(
+            (dist_to_left - safety_margin_edge) / max(1, safety_margin_edge),
+            (dist_to_right - safety_margin_edge) / max(1, safety_margin_edge)
+        )
+    )
+    edge_factor_y = np.minimum(
+        1.0,
+        np.minimum(
+            (dist_to_top - safety_margin_edge) / max(1, safety_margin_edge),
+            (dist_to_bottom - safety_margin_edge) / max(1, safety_margin_edge)
+        )
+    )
+    
+    # Clamp to [0, 1]
+    edge_factor_x = np.clip(edge_factor_x, 0.0, 1.0)
+    edge_factor_y = np.clip(edge_factor_y, 0.0, 1.0)
+    
+    # Apply edge reduction
+    dx = dx * edge_factor_x
+    dy = dy * edge_factor_y
+    
+    # Calculate final mapping coordinates
+    new_x = x_flat + dx
+    new_y = y_flat + dy
+    
+    # Reshape back to (h, w) and clip to image bounds
+    map_x = np.clip(new_x.reshape(h, w), 0, w - 1)
+    map_y = np.clip(new_y.reshape(h, w), 0, h - 1)
     
     # Ensure image is RGB
     if len(image.shape) == 2:
