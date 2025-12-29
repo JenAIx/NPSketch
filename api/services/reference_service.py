@@ -72,26 +72,29 @@ class ReferenceService:
         Create default reference pattern (House of Nikolaus).
         
         Returns:
-            Image as numpy array
+            Image as numpy array (568×274)
         """
         import cv2
         
-        # Create white canvas (256x256 to match normalization target)
-        img = np.ones((256, 256, 3), dtype=np.uint8) * 255
+        # Create white canvas (568x274 landscape format)
+        img = np.ones((274, 568, 3), dtype=np.uint8) * 255
         
-        # Define the House of Nikolaus pattern (scaled for 256x256)
-        # This is a classic drawing puzzle
+        # Define the House of Nikolaus pattern (scaled for 568×274 center area)
+        # Center in landscape format
+        offset_x = 156  # (568 - 256) / 2
+        offset_y = 9    # (274 - 256) / 2
+        
         points = [
-            (78, 178),   # Bottom left
-            (178, 178),  # Bottom right
-            (178, 78),   # Top right of square
-            (78, 78),    # Top left of square
-            (128, 28),   # Roof peak
-            (178, 78),   # Back to top right
-            (78, 178),   # Diagonal to bottom left
-            (78, 78),    # Up to top left
-            (128, 28),   # To roof peak
-            (178, 178),  # Diagonal to bottom right
+            (78 + offset_x, 178 + offset_y),   # Bottom left
+            (178 + offset_x, 178 + offset_y),  # Bottom right
+            (178 + offset_x, 78 + offset_y),   # Top right of square
+            (78 + offset_x, 78 + offset_y),    # Top left of square
+            (128 + offset_x, 28 + offset_y),   # Roof peak
+            (178 + offset_x, 78 + offset_y),   # Back to top right
+            (78 + offset_x, 178 + offset_y),   # Diagonal to bottom left
+            (78 + offset_x, 78 + offset_y),    # Up to top left
+            (128 + offset_x, 28 + offset_y),   # To roof peak
+            (178 + offset_x, 178 + offset_y),  # Diagonal to bottom right
         ]
         
         # Draw lines

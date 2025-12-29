@@ -20,9 +20,9 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./api:/app:rw
       - ./data:/app/data:rw
       - ./templates:/app/templates:ro
+      - ./api:/app:rw
     environment:
       - PYTHONUNBUFFERED=1
     networks:

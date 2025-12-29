@@ -27,7 +27,7 @@ def load_image_from_bytes(image_bytes: bytes) -> np.ndarray:
     return img
 
 
-def normalize_image(image: np.ndarray, target_size: Tuple[int, int] = (256, 256)) -> np.ndarray:
+def normalize_image(image: np.ndarray, target_size: Tuple[int, int] = (568, 274)) -> np.ndarray:
     """
     Normalize image to standard size while maintaining aspect ratio.
     

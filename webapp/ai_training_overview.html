@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPSketch - Training Overview</title>
+    
+    <!-- Global Common Styles (ALL pages) -->
+    <link rel="stylesheet" href="/css/common.css">
+    
+    <!-- AI Training Specific Styles -->
+    <link rel="stylesheet" href="/css/ai_training_common.css">
+    
+    <style>
+        /* Page-specific styles for ai_training_overview.html */
+        
+        /* Hide auto-classification BUTTONS in overview (read-only mode) */
+        /* But keep the section visible for Custom_Class previews */
+        .auto-classes-section h3,
+        .auto-classes-section > p,
+        .auto-classes-buttons {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- Distribution Preview Modal -->
+    <div id="distributionModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title" id="modalTitle">Distribution Preview</div>
+                <button class="modal-close" onclick="DistributionPreview.hideModal()">×</button>
+            </div>
+            <div class="modal-stats-section" id="modalStats">
+                <!-- Stats will be inserted here -->
+            </div>
+            <div class="modal-body-scrollable" id="modalBody">
+                <!-- Content will be inserted here -->
+            </div>
+        </div>
+    </div>
+    
+    <div class="container hexagon-pattern">
+        <a href="/ai_training.html" class="back-link">← AI Training</a>
+        
+        <h1>📊 AI Training Overview</h1>
+        <p class="subtitle">View dataset statistics and manage trained models</p>
+        
+        <!-- Dataset Overview -->
+        <div class="section">
+            <h2>📊 Training Dataset Overview</h2>
+            <div class="stats-grid" id="statsGrid">
+                <!-- Dynamically populated -->
+            </div>
+            
+            <a href="/ai_training_train.html" class="btn btn-success" style="margin-top: 15px;">
+                🚀 Train New Model
+            </a>
+        </div>
+        
+        <!-- Available Features -->
+        <div class="section">
+            <h2>🏷️ Available Features</h2>
+            <div id="featuresList" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px;">
+                <!-- Dynamically populated -->
+            </div>
+        </div>
+        
+        <!-- Saved Models -->
+        <div class="section">
+            <h2>💾 Saved Models</h2>
+            <button class="btn btn-secondary" onclick="loadModels()" style="margin-bottom: 15px;">🔄 Refresh List</button>
+            <div id="modelsList"></div>
+        </div>
+    </div>
+    
+    <script>
+        async function loadDatasetInfo() {
+            try {
+                const response = await fetch('/api/ai-training/dataset-info');
+                const data = await response.json();
+                
+                const statsGrid = document.getElementById('statsGrid');
+                
+                // Build stats cards dynamically
+                let cardsHtml = '';
+                
+                // Total, Labeled, Unlabeled
+                cardsHtml += `
+                    <div class="stat-card">
+                        <div class="stat-value">${data.total_images}</div>
+                        <div class="stat-label">Total</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${data.labeled_images}</div>
+                        <div class="stat-label">Labeled</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${data.unlabeled_images}</div>
+                        <div class="stat-label">Unlabeled</div>
+                    </div>
+                `;
+                
+                // Source formats (dynamically from backend)
+                const formatLabels = {
+                    'MAT': '🖥️ MAT',
+                    'OCS': '✏️ OCS',
+                    'OXFORD': '📚 Oxford',
+                    'DRAWN': '🎨 Drawn',
+                    'UPLOAD': '📤 Upload'
+                };
+                
+                for (const [format, count] of Object.entries(data.by_format)) {
+                    const label = formatLabels[format] || format;
+                    cardsHtml += `
+                        <div class="stat-card">
+                            <div class="stat-value">${count}</div>
+                            <div class="stat-label">${label}</div>
+                        </div>
+                    `;
+                }
+                
+                statsGrid.innerHTML = cardsHtml;
+                
+            } catch (error) {
+                console.error('Error loading dataset info:', error);
+            }
+        }
+        
+        async function loadModels() {
+            try {
+                const response = await fetch('/api/ai-training/models');
+                const data = await response.json();
+                
+                const container = document.getElementById('modelsList');
+                
+                if (!data.models || data.models.length === 0) {
+                    container.innerHTML = `
+                        <div style="text-align: center; padding: 40px; color: #999;">
+                            <div style="font-size: 3em; margin-bottom: 15px;">📭</div>
+                            <h3>No Models Yet</h3>
+                            <p style="margin-top: 10px;">Train a model to get started</p>
+                            <a href="/ai_training_train.html" class="btn" style="margin-top: 20px;">🚀 Train Model</a>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                container.innerHTML = data.models.map(model => {
+                    const date = new Date(model.created_at * 1000).toLocaleString();
+                    const safeName = model.filename.replace(/[^a-zA-Z0-9]/g, '_');
+                    const metadataBadge = model.has_metadata 
+                        ? '<span style="background: #28a745; color: white; padding: 2px 8px; border-radius: 8px; font-size: 0.75em; margin-left: 8px;">📋 Metadata</span>'
+                        : '';
+                    
+                    return `
+                        <div style="background: white; border: 2px solid #dee2e6; border-radius: 8px; padding: 15px; margin-bottom: 10px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; cursor: pointer;" onclick="toggleMetadata('${model.filename}')">
+                                <div>
+                                    <div style="font-weight: 600; color: #333; font-size: 1.1em;">
+                                        ${model.feature}${metadataBadge}
+                                    </div>
+                                    <div style="color: #666; font-size: 0.9em;">${model.filename}</div>
+                                </div>
+                                <div>
+                                    <div style="background: #667eea; color: white; padding: 4px 12px; border-radius: 12px; font-size: 0.85em;">
+                                        ${model.size_mb.toFixed(1)} MB
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="color: #999; font-size: 0.85em; margin-bottom: 15px;">
+                                Created: ${date}
+                                ${model.has_metadata ? '<span style="color: #667eea; margin-left: 10px; cursor: pointer;" onclick="toggleMetadata(\'' + model.filename + '\'); event.stopPropagation();">▼ Show Details</span>' : ''}
+                            </div>
+                            <div id="metadata-${safeName}" style="display: none; background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 15px; color: #333;"></div>
+                            <div style="display: flex; gap: 10px;">
+                                <button class="btn" style="padding: 8px 16px; font-size: 0.9em;" onclick="testModel('${model.filename}')">
+                                    🧪 Test Model
+                                </button>
+                                <button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.9em; background: #dc3545;" onclick="deleteModel('${model.filename}')">
+                                    🗑️ Delete
+                                </button>
+                            </div>
+                            <div id="test-result-${safeName}" style="margin-top: 15px;"></div>
+                        </div>
+                    `;
+                }).join('');
+                
+            } catch (error) {
+                console.error('Error loading models:', error);
+            }
+        }
+        
+        let metadataCache = {};
+        
+        async function toggleMetadata(filename) {
+            const safeName = filename.replace(/[^a-zA-Z0-9]/g, '_');
+            const metadataDiv = document.getElementById(`metadata-${safeName}`);
+            
+            if (metadataDiv.style.display === 'block') {
+                metadataDiv.style.display = 'none';
+                return;
+            }
+            
+            if (!metadataCache[filename]) {
+                metadataDiv.innerHTML = '<div style="text-align: center; padding: 10px;"><div class="spinner"></div></div>';
+                metadataDiv.style.display = 'block';
+                
+                try {
+                    const response = await fetch(`/api/ai-training/models/${encodeURIComponent(filename)}/metadata`);
+                    const metadata = await response.json();
+                    metadataCache[filename] = metadata;
+                    displayMetadata(filename, metadata);
+                } catch (error) {
+                    metadataDiv.innerHTML = `
+                        <div style="color: #999; text-align: center; padding: 10px;">
+                            No metadata available (model trained before metadata feature)
+                        </div>
+                    `;
+                }
+            } else {
+                displayMetadata(filename, metadataCache[filename]);
+                metadataDiv.style.display = 'block';
+            }
+        }
+        
+        function renderConfusionMatrix(cm, numClasses) {
+            if (!cm || cm.length === 0) return '<p style="color: #999;">No confusion matrix data</p>';
+            
+            let html = '<table style="border-collapse: collapse; margin: 0 auto; font-size: 0.85em;">';
+            
+            // Header row
+            html += '<thead><tr><th style="border: 1px solid #ddd; padding: 8px; background: #e9ecef; color: #333;"></th>';
+            html += '<th colspan="' + numClasses + '" style="border: 1px solid #ddd; padding: 8px; background: #e9ecef; color: #333; text-align: center;">Predicted</th></tr>';
+            html += '<tr><th style="border: 1px solid #ddd; padding: 8px; background: #e9ecef; color: #333;">True</th>';
+            for (let i = 0; i < numClasses; i++) {
+                html += `<th style="border: 1px solid #ddd; padding: 8px; background: #e9ecef; color: #333;">Class ${i}</th>`;
+            }
+            html += '</tr></thead>';
+            
+            // Body rows
+            html += '<tbody>';
+            for (let i = 0; i < numClasses; i++) {
+                html += `<tr><th style="border: 1px solid #ddd; padding: 8px; background: #e9ecef; color: #333;">Class ${i}</th>`;
+                for (let j = 0; j < numClasses; j++) {
+                    const value = cm[i][j];
+                    const isDiagonal = (i === j);
+                    const maxVal = Math.max(...cm.flat());
+                    const intensity = maxVal > 0 ? (value / maxVal) : 0;
+                    const bgColor = isDiagonal 
+                        ? `rgba(40, 167, 69, ${intensity})` 
+                        : `rgba(220, 53, 69, ${intensity})`;
+                    const textColor = intensity > 0.5 ? 'white' : 'black';
+                    html += `<td style="border: 1px solid #ddd; padding: 8px; background: ${bgColor}; color: ${textColor}; text-align: center; font-weight: ${isDiagonal ? 'bold' : 'normal'};">${value}</td>`;
+                }
+                html += '</tr>';
+            }
+            html += '</tbody></table>';
+            return html;
+        }
+        
+        function displayMetadata(filename, metadata) {
+            const safeName = filename.replace(/[^a-zA-Z0-9]/g, '_');
+            const metadataDiv = document.getElementById(`metadata-${safeName}`);
+            
+            const config = metadata.training_config || {};
+            const dataset = metadata.dataset || {};
+            const valMetrics = metadata.val_metrics || {};
+            const imageIds = metadata.image_ids || [];
+            
+            const augmentation = metadata.augmentation || {};
+            const normalization = metadata.normalization || {};
+            const modelInfo = metadata.model || {};
+            
+            // Detect training mode if not set (for older models)
+            let trainingMode = metadata.training_mode;
+            let numClasses = metadata.num_classes;
+            
+            if (!trainingMode) {
+                // Fallback: detect from target_feature or val_metrics
+                if (metadata.target_feature && metadata.target_feature.startsWith('Custom_Class_')) {
+                    trainingMode = 'classification';
+                    numClasses = parseInt(metadata.target_feature.replace('Custom_Class_', '')) || modelInfo.output_neurons;
+                } else if (valMetrics.accuracy !== undefined) {
+                    trainingMode = 'classification';
+                    numClasses = modelInfo.output_neurons || valMetrics.confusion_matrix?.length;
+                } else {
+                    trainingMode = 'regression';
+                }
+            }
+            
+            // Update metadata object for template
+            metadata.training_mode = trainingMode;
+            metadata.num_classes = numClasses;
+            
+            metadataDiv.innerHTML = `
+                <div style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid ${metadata.training_mode === 'classification' ? '#28a745' : '#667eea'}; color: #333;">
+                    <div style="font-size: 0.9em; color: #666; margin-bottom: 8px; font-weight: 600;">
+                        🧠 Model Architecture
+                        <span style="float: right; background: ${metadata.training_mode === 'classification' ? '#28a745' : '#667eea'}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 0.85em;">
+                            ${metadata.training_mode === 'classification' ? '🏷️ Classification' : '📊 Regression'}
+                        </span>
+                    </div>
+                    <div style="margin-bottom: 12px; padding: 8px; background: #f8f9fa; border-radius: 4px; color: #333;">
+                        <strong>Target Feature:</strong> ${metadata.target_feature || 'N/A'}
+                        ${metadata.num_classes ? ` <span style="color: #666;">(${metadata.num_classes} classes)</span>` : ''}
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.85em; color: #333;">
+                        <div>
+                            <span style="color: #666;">Architecture:</span> 
+                            <strong>${modelInfo.architecture || 'ResNet-18'}</strong>
+                        </div>
+                        <div>
+                            <span style="color: #666;">Backbone:</span> 
+                            <strong>${modelInfo.backbone || 'ImageNet'}</strong>
+                        </div>
+                        <div>
+                            <span style="color: #666;">Input:</span> 
+                            <strong>${modelInfo.input_size || '568×274×1'}</strong>
+                        </div>
+                        <div>
+                            <span style="color: #666;">Parameters:</span> 
+                            <strong>${modelInfo.total_parameters ? (modelInfo.total_parameters / 1e6).toFixed(2) + 'M' : 'N/A'}</strong>
+                        </div>
+                        <div>
+                            <span style="color: #666;">Trainable:</span> 
+                            <strong>${modelInfo.trainable_parameters ? (modelInfo.trainable_parameters / 1e6).toFixed(2) + 'M' : 'N/A'}</strong>
+                        </div>
+                        <div>
+                            <span style="color: #666;">Output:</span> 
+                            <strong>${modelInfo.output_neurons || 1} neuron${modelInfo.output_neurons > 1 ? 's' : ''}</strong>
+                        </div>
+                    </div>
+                    ${modelInfo.head_layers && modelInfo.head_layers.length > 0 ? `
+                        <details style="margin-top: 10px;">
+                            <summary style="cursor: pointer; color: #667eea; font-size: 0.85em;">
+                                <strong>Head Architecture (${modelInfo.head_layers.length} layers)</strong>
+                            </summary>
+                            <div style="margin-top: 8px; padding: 10px; background: #f8f9fa; border-radius: 4px; font-size: 0.8em; color: #333;">
+                                ${modelInfo.head_layers.map((layer, idx) => {
+                                    if (layer.type === 'Linear') {
+                                        return `${idx + 1}. Linear(${layer.in_features} → ${layer.out_features}) [${(layer.parameters / 1000).toFixed(1)}K params]`;
+                                    } else if (layer.type === 'Dropout') {
+                                        return `${idx + 1}. Dropout(p=${layer.p})`;
+                                    } else {
+                                        return `${idx + 1}. ${layer.type}`;
+                                    }
+                                }).join('<br>')}
+                            </div>
+                        </details>
+                    ` : ''}
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Training Configuration</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
+                            Epochs: <strong>${config.num_epochs || 'N/A'}</strong> | 
+                            LR: <strong>${config.learning_rate || 'N/A'}</strong> | 
+                            Batch: <strong>${config.batch_size || 'N/A'}</strong> | 
+                            Split: <strong>${config.train_split ? (config.train_split * 100).toFixed(0) + '/' + ((1-config.train_split) * 100).toFixed(0) : 'N/A'}</strong>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">
+                            Performance (Validation)
+                            ${metadata.training_mode ? `<span style="color: #999;"> - ${metadata.training_mode}</span>` : ''}
+                        </div>
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
+                            ${valMetrics.accuracy !== undefined || metadata.training_mode === 'classification' ? `
+                                Accuracy: <strong style="color: ${valMetrics.accuracy > 0.7 ? '#28a745' : valMetrics.accuracy > 0.5 ? '#ffc107' : '#dc3545'};">${valMetrics.accuracy ? (valMetrics.accuracy * 100).toFixed(1) + '%' : 'N/A'}</strong> | 
+                                F1: <strong>${valMetrics.f1_score_macro ? (valMetrics.f1_score_macro * 100).toFixed(1) + '%' : 'N/A'}</strong>
+                            ` : `
+                                R²: <strong style="color: ${valMetrics.r2_score > 0.7 ? '#28a745' : valMetrics.r2_score > 0.5 ? '#ffc107' : '#dc3545'};">${valMetrics.r2_score ? valMetrics.r2_score.toFixed(3) : 'N/A'}</strong> | 
+                                RMSE: <strong>${valMetrics.rmse ? valMetrics.rmse.toFixed(2) : 'N/A'}</strong> | 
+                                MAE: <strong>${valMetrics.mae ? valMetrics.mae.toFixed(2) : 'N/A'}</strong>
+                            `}
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Data Augmentation</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
+                            <span style="color: ${augmentation.enabled ? '#28a745' : '#6c757d'};">
+                                ${augmentation.enabled ? '✅ Enabled' : '❌ Disabled'}
+                            </span>
+                            ${augmentation.enabled ? `
+                                <br><span style="font-size: 0.85em; color: #666;">
+                                    Multiplier: <strong>${augmentation.multiplier || 'N/A'}x</strong> | 
+                                    Total: <strong>${augmentation.total_samples || 'N/A'}</strong> samples
+                                </span>
+                            ` : ''}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">Target Normalization</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
+                            ${metadata.training_mode === 'classification' ? `
+                                <span style="color: #6c757d;">N/A (Classification)</span>
+                            ` : `
+                                <span style="color: ${normalization.method || config.use_normalization ? '#28a745' : '#6c757d'};">
+                                    ${normalization.method || config.use_normalization ? '✅ Enabled' : '❌ Disabled'}
+                                </span>
+                                ${normalization.method === 'min_max' ? `
+                                    <br><span style="font-size: 0.85em; color: #666;">
+                                        Range: <strong>[${normalization.min_value}, ${normalization.max_value}] → [0, 1]</strong>
+                                    </span>
+                                ` : normalization.method === 'standardize' ? `
+                                    <br><span style="font-size: 0.85em; color: #666;">
+                                        Z-score (μ=${normalization.mean?.toFixed(2)}, σ=${normalization.std?.toFixed(2)})
+                                    </span>
+                                ` : ''}
+                            `}
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; margin-bottom: 15px; color: #333;">
+                    <strong>Dataset:</strong> ${dataset.total_samples || 'N/A'} samples 
+                    (${dataset.train_samples || 'N/A'} train, ${dataset.val_samples || 'N/A'} val)
+                    ${dataset.split_strategy ? `
+                        <br><span style="font-size: 0.85em; color: #666;">
+                            Split Strategy: <strong>${dataset.split_strategy}</strong>
+                            ${dataset.n_bins ? ` with ${dataset.n_bins} bins` : ''}
+                        </span>
+                    ` : ''}
+                    
+                    ${metadata.train_image_ids && metadata.train_image_ids.length > 0 ? `
+                        <details style="margin-top: 10px;">
+                            <summary style="cursor: pointer; color: #667eea;">
+                                <strong>Training IDs (${metadata.train_image_ids.length}):</strong>
+                            </summary>
+                            <div style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px; max-height: 100px; overflow-y: auto; color: #333;">
+                                ${metadata.train_image_ids.join(', ')}
+                            </div>
+                        </details>
+                    ` : ''}
+                    
+                    ${metadata.val_image_ids && metadata.val_image_ids.length > 0 ? `
+                        <details style="margin-top: 10px;">
+                            <summary style="cursor: pointer; color: #28a745;">
+                                <strong>Validation IDs (${metadata.val_image_ids.length}):</strong>
+                            </summary>
+                            <div style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px; max-height: 100px; overflow-y: auto; color: #333;">
+                                ${metadata.val_image_ids.join(', ')}
+                            </div>
+                        </details>
+                    ` : ''}
+                </div>
+                
+                ${metadata.training_mode === 'classification' && valMetrics.confusion_matrix ? `
+                    <div style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; color: #333;">
+                        <div style="font-size: 0.9em; color: #666; margin-bottom: 10px; font-weight: 600;">🔢 Confusion Matrix (Validation)</div>
+                        <div style="overflow-x: auto;">
+                            ${renderConfusionMatrix(valMetrics.confusion_matrix, metadata.num_classes || valMetrics.confusion_matrix.length)}
+                        </div>
+                    </div>
+                ` : ''}
+            `;
+        }
+        
+        async function testModel(filename) {
+            const resultDiv = document.getElementById(`test-result-${filename.replace(/[^a-zA-Z0-9]/g, '_')}`);
+            resultDiv.innerHTML = '<div style="text-align: center; padding: 10px;"><div class="spinner"></div></div>';
+            
+            try {
+                const response = await fetch('/api/ai-training/models/test', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({model_filename: filename})
+                });
+                
+                // Check if response is OK
+                if (!response.ok) {
+                    let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                    try {
+                        const errorData = await response.json();
+                        if (errorData.detail) {
+                            errorMessage = errorData.detail;
+                        }
+                    } catch (e) {
+                        // If JSON parsing fails, use status text
+                    }
+                    throw new Error(errorMessage);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const val = data.val_metrics;
+                    const isClassification = val.accuracy !== undefined;
+                    
+                    let metricsHtml = '';
+                    if (isClassification) {
+                        // Classification metrics
+                        metricsHtml = `
+                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.9em;">
+                                <div><span style="color: #666;">Accuracy:</span> <strong style="color: #28a745;">${(val.accuracy * 100).toFixed(1)}%</strong></div>
+                                <div><span style="color: #666;">F1 (Macro):</span> <strong style="color: #667eea;">${val.f1_score_macro ? (val.f1_score_macro * 100).toFixed(1) + '%' : 'N/A'}</strong></div>
+                                <div><span style="color: #666;">Precision:</span> <strong style="color: #667eea;">${val.precision_score_macro ? (val.precision_score_macro * 100).toFixed(1) + '%' : 'N/A'}</strong></div>
+                            </div>
+                            ${val.per_class_f1 && val.per_class_f1.length > 0 ? `
+                                <details style="margin-top: 10px;">
+                                    <summary style="cursor: pointer; color: #667eea; font-size: 0.85em;">
+                                        <strong>Per-Class Metrics</strong>
+                                    </summary>
+                                    <div style="margin-top: 8px; padding: 10px; background: white; border-radius: 4px; font-size: 0.85em; color: #333;">
+                                        ${val.per_class_f1.map((f1, i) => `
+                                            <div style="margin-bottom: 5px;">
+                                                <strong>Class ${i}:</strong> 
+                                                F1=${(f1 * 100).toFixed(1)}%, 
+                                                Precision=${val.per_class_precision && val.per_class_precision[i] ? (val.per_class_precision[i] * 100).toFixed(1) + '%' : 'N/A'}, 
+                                                Recall=${val.per_class_recall && val.per_class_recall[i] ? (val.per_class_recall[i] * 100).toFixed(1) + '%' : 'N/A'}, 
+                                                Samples=${val.per_class_support && val.per_class_support[i] ? val.per_class_support[i] : 'N/A'}
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </details>
+                            ` : ''}
+                        `;
+                    } else {
+                        // Regression metrics
+                        metricsHtml = `
+                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.9em;">
+                                <div><span style="color: #666;">R²:</span> <strong style="color: #667eea;">${val.r2_score ? val.r2_score.toFixed(3) : 'N/A'}</strong></div>
+                                <div><span style="color: #666;">RMSE:</span> <strong style="color: #667eea;">${val.rmse ? val.rmse.toFixed(4) : 'N/A'}</strong></div>
+                                <div><span style="color: #666;">MAE:</span> <strong style="color: #667eea;">${val.mae ? val.mae.toFixed(4) : 'N/A'}</strong></div>
+                            </div>
+                        `;
+                    }
+                    
+                    resultDiv.innerHTML = `
+                        <div style="background: #e7f3ff; border: 1px solid #2196F3; padding: 15px; border-radius: 6px; color: #333;">
+                            <div style="font-weight: 600; color: #0c5460; margin-bottom: 10px;">
+                                Test Results (${isClassification ? 'Classification' : 'Regression'}):
+                            </div>
+                            ${metricsHtml}
+                            <div style="margin-top: 10px; color: #666; font-size: 0.85em;">
+                                Tested on ${val.num_samples} validation samples
+                            </div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div style="color: #dc3545; padding: 10px;">Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function deleteModel(filename) {
+            if (!confirm(`Delete model "${filename}"?`)) return;
+            
+            try {
+                const response = await fetch(`/api/ai-training/models/${encodeURIComponent(filename)}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    alert(`Model deleted: ${filename}`);
+                    loadModels();
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+        
+        async function loadFeatures() {
+            try {
+                const response = await fetch('/api/ai-training/available-features');
+                const data = await response.json();
+                
+                const featuresList = document.getElementById('featuresList');
+                
+                if (!data.features || data.features.length === 0) {
+                    featuresList.innerHTML = `
+                        <div style="text-align: center; padding: 20px; color: #999; grid-column: 1 / -1;">
+                            <p>No labeled features available</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                let html = '';
+                
+                // Iterate through features
+                data.features.forEach(featureName => {
+                    const stats = data.stats[featureName];
+                    
+                    if (!stats) return; // Skip if no stats
+                    
+                    const isCustomClass = featureName.startsWith('Custom_Class_');
+                    
+                    if (isCustomClass) {
+                        // Custom Classification
+                        const numClasses = stats.num_classes || 0;
+                        html += `
+                            <div style="background: white; padding: 12px; border-radius: 8px; border: 2px solid #28a745; color: #333;">
+                                <div style="font-weight: 600; color: #28a745; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+                                    <span>🏷️ ${numClasses}-Class</span>
+                                    <span onclick="DistributionPreview.showPreview('${featureName}', event)" 
+                                          style="background: #28a745; color: white; padding: 4px 10px; border-radius: 10px; font-size: 0.75em; cursor: pointer; transition: all 0.2s;"
+                                          onmouseover="this.style.transform='scale(1.1)'; this.style.boxShadow='0 2px 8px rgba(40,167,69,0.4)';"
+                                          onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none';">
+                                        👁️ ${stats.count}
+                                    </span>
+                                </div>
+                                ${stats.class_names && stats.class_names !== 'N/A' ? `
+                                    <div style="font-size: 0.8em; color: #666; margin-top: 6px;">
+                                        <strong>Classes:</strong> ${stats.class_names}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `;
+                    } else {
+                        // Regular feature
+                        const icon = featureName === 'Total_Score' ? '📊' : 
+                                     featureName === 'MMSE' ? '🧠' : '🏷️';
+                        
+                        html += `
+                            <div style="background: white; padding: 12px; border-radius: 8px; border: 2px solid #e9ecef; color: #333;">
+                                <div style="font-weight: 600; color: #667eea; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+                                    <span style="display: flex; align-items: center; gap: 6px;">
+                                        <span>${icon}</span>
+                                        <span>${featureName}</span>
+                                    </span>
+                                    <span onclick="DistributionPreview.showPreview('${featureName}', event)" 
+                                          style="background: #667eea; color: white; padding: 4px 10px; border-radius: 10px; font-size: 0.75em; cursor: pointer; transition: all 0.2s;"
+                                          onmouseover="this.style.transform='scale(1.1)'; this.style.boxShadow='0 2px 8px rgba(102,126,234,0.4)';"
+                                          onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none';">
+                                        👁️ ${stats.count}
+                                    </span>
+                                </div>
+                                <div style="font-size: 0.8em; color: #666; margin-top: 6px; padding: 6px; background: #f8f9fa; border-radius: 4px;">
+                                    Range: <strong>${stats.min}</strong> - <strong>${stats.max}</strong><br>
+                                    Mean: <strong>${stats.mean.toFixed(1)}</strong> | 
+                                    Median: <strong>${stats.median?.toFixed(1) || 'N/A'}</strong>
+                                </div>
+                            </div>
+                        `;
+                    }
+                });
+                
+                featuresList.innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error loading features:', error);
+            }
+        }
+        
+        loadDatasetInfo();
+        loadFeatures();
+        loadModels();
+    </script>
+    
+    <!-- Distribution Preview Module -->
+    <script src="/js/ai_training_preview_target_distribution.js"></script>
+</body>
+</html>
+

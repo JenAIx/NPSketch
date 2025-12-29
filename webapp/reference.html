@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reference Image - NPSketch</title>
+    
+    <!-- Global Common Styles -->
+    <link rel="stylesheet" href="/css/common.css">
+    
     <style>
         * {
             margin: 0;
@@ -39,6 +43,13 @@
             gap: 30px;
         }
         
+        /* Responsive Design for narrow screens */
+        @media (max-width: 1024px) {
+            .workspace {
+                grid-template-columns: 1fr;
+            }
+        }
+        
         .canvas-section {
             background: #f8f9fa;
             padding: 20px;
@@ -47,8 +58,8 @@
         
         .canvas-wrapper {
             position: relative;
-            width: 256px;
-            height: 256px;
+            width: 568px;
+            height: 274px;
             margin: 0 auto;
             border: 3px solid #667eea;
             cursor: crosshair;
@@ -137,6 +148,12 @@
             grid-template-columns: repeat(3, 1fr);
             gap: 8px;
             margin-bottom: 15px;
+        }
+        
+        @media (max-width: 768px) {
+            .line-type-selector {
+                grid-template-columns: 1fr;
+            }
         }
         
         .type-btn {
@@ -269,7 +286,9 @@
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container hexagon-pattern">
+        <a href="/index.html" class="back-link">← Main</a>
+        
         <h1>📐 Reference Image - Feature Editor</h1>
         
         <div id="statusBar" class="status info">
@@ -280,7 +299,7 @@
             <div class="canvas-section">
                 <div class="canvas-wrapper">
                     <img id="referenceImage" />
-                    <canvas id="canvas" width="256" height="256"></canvas>
+                    <canvas id="canvas" width="568" height="274"></canvas>
                 </div>
                 
                 <div class="counter">
@@ -329,10 +348,6 @@
                     </button>
                 </div>
             </div>
-        </div>
-        
-        <div style="text-align: center; margin-top: 30px;">
-            <a href="index.html" style="color: #667eea; text-decoration: none; font-weight: 600;">← Back to Dashboard</a>
         </div>
     </div>
     
@@ -433,8 +448,8 @@
             if (!createMode) return;
             
             const rect = canvas.getBoundingClientRect();
-            const x = Math.round((e.clientX - rect.left) * (256 / rect.width));
-            const y = Math.round((e.clientY - rect.top) * (256 / rect.height));
+            const x = Math.round((e.clientX - rect.left) * (568 / rect.width));
+            const y = Math.round((e.clientY - rect.top) * (274 / rect.height));
             
             if (!firstPoint) {
                 firstPoint = {x, y};

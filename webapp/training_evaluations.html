@@ -1,0 +1,1125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPSketch - Test Algorithm</title>
+    
+    <!-- Global Common Styles -->
+    <link rel="stylesheet" href="/css/common.css">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        
+        .content-grid {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 30px;
+            margin-top: 20px;
+        }
+        
+        .evaluations-list {
+            max-height: 700px;
+            overflow-y: auto;
+            border-right: 2px solid #eee;
+            padding-right: 20px;
+        }
+        
+        .filter-bar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-btn {
+            flex: 1;
+            min-width: 100px;
+            padding: 8px 12px;
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #666;
+        }
+        
+        .filter-btn:hover {
+            border-color: #667eea;
+            color: #667eea;
+        }
+        
+        .filter-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #667eea;
+        }
+        
+        .filter-count {
+            display: inline-block;
+            margin-left: 4px;
+            padding: 2px 6px;
+            background: rgba(0,0,0,0.1);
+            border-radius: 10px;
+            font-size: 10px;
+        }
+        
+        .filter-btn.active .filter-count {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        .eval-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border-left: 4px solid transparent;
+        }
+        
+        .eval-item:hover {
+            background: #e9ecef;
+            transform: translateX(5px);
+        }
+        
+        .eval-item.active {
+            background: #667eea;
+            color: white;
+            border-left-color: #764ba2;
+        }
+        
+        .eval-item.active .eval-meta {
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .eval-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        
+        .eval-id {
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .eval-badge {
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        
+        .eval-badge.mat {
+            background: #e8f5e9;
+            color: #388e3c;
+        }
+        
+        .eval-badge.ocs {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+        
+        .eval-badge.drawn {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+        
+        .eval-item.active .eval-badge {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+        
+        .eval-meta {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .eval-stats {
+            display: flex;
+            gap: 10px;
+            margin-top: 8px;
+            font-size: 13px;
+        }
+        
+        .stat-badge {
+            background: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        
+        .status-has-gt {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status-no-gt {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .eval-item.active .stat-badge {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .delete-icon {
+            cursor: pointer;
+            font-size: 16px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: all 0.2s;
+            opacity: 0.6;
+        }
+        
+        .delete-icon:hover {
+            opacity: 1;
+            background: #ffebee;
+            transform: scale(1.2);
+        }
+        
+        .eval-item.active .delete-icon:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .detail-view {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 400px;
+            color: #999;
+        }
+        
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+        
+        .detail-header {
+            margin-bottom: 20px;
+        }
+        
+        .detail-title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .detail-subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .image-preview-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .preview-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #666;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .preview-image {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            background: white;
+            padding: 10px;
+        }
+        
+        .ground-truth-section {
+            background: #fff3cd;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            border-left: 4px solid #ffc107;
+        }
+        
+        .ground-truth-section.has-gt {
+            background: #d4edda;
+            border-left-color: #28a745;
+        }
+        
+        .ground-truth-form {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .gt-input-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .gt-input-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .gt-input-group input {
+            padding: 8px 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            text-align: center;
+            transition: border-color 0.3s;
+        }
+        
+        .gt-input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .gt-button {
+            grid-column: span 2;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .gt-button:hover {
+            transform: translateY(-2px);
+        }
+        
+        .gt-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .comparison-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        
+        .comparison-card.highlight {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .comparison-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .comparison-card.highlight .comparison-title {
+            color: white;
+        }
+        
+        .comparison-values {
+            display: flex;
+            justify-content: space-around;
+        }
+        
+        .comparison-value {
+            text-align: center;
+        }
+        
+        .comparison-value-number {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .comparison-value-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .comparison-card.highlight .comparison-value-label {
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .visualization-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        
+        .viz-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+        }
+        
+        .viz-image {
+            width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .legend {
+            display: flex;
+            gap: 20px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+        
+        .legend-box {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .no-evaluations {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+        
+        .no-evaluations-icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+        
+        .upload-btn {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 500;
+            transition: transform 0.2s;
+        }
+        
+        .upload-btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .accuracy-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        
+        .accuracy-good {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .accuracy-medium {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .accuracy-bad {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .evaluate-button {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+            margin-bottom: 20px;
+        }
+        
+        .evaluate-button:hover {
+            transform: translateY(-2px);
+        }
+        
+        .evaluate-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        @media (max-width: 1024px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .evaluations-list {
+                max-height: 300px;
+                border-right: none;
+                border-bottom: 2px solid #eee;
+                padding-right: 0;
+                padding-bottom: 20px;
+            }
+            
+            .comparison-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container hexagon-pattern">
+        <a href="/index.html" class="back-link">← Main</a>
+        
+        <h1>🧪 Test Algorithm</h1>
+        <p class="subtitle">Test algorithmic line detection against ground truth data</p>
+        
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading training data...</p>
+        </div>
+        
+        <div id="noEvaluations" class="no-evaluations" style="display: none;">
+            <div class="no-evaluations-icon">📝</div>
+            <h2>No Training Data Yet</h2>
+            <p>Upload training data to see evaluations here.</p>
+            <a href="/ai_training_data_upload.html" class="upload-btn">Upload Training Data</a>
+        </div>
+        
+        <div id="content" class="content-grid" style="display: none;">
+            <div>
+                <div class="filter-bar">
+                    <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">
+                        📋 All <span class="filter-count" id="countAll">0</span>
+                    </button>
+                    <button class="filter-btn" data-filter="has_gt" onclick="setFilter('has_gt')">
+                        ✓ Has GT <span class="filter-count" id="countHasGT">0</span>
+                    </button>
+                    <button class="filter-btn" data-filter="no_gt" onclick="setFilter('no_gt')">
+                        ⚠ No GT <span class="filter-count" id="countNoGT">0</span>
+                    </button>
+                    <button class="filter-btn" data-filter="mat" onclick="setFilter('mat')">
+                        MAT <span class="filter-count" id="countMAT">0</span>
+                    </button>
+                    <button class="filter-btn" data-filter="ocs" onclick="setFilter('ocs')">
+                        OCS <span class="filter-count" id="countOCS">0</span>
+                    </button>
+                    <button class="filter-btn" data-filter="drawn" onclick="setFilter('drawn')">
+                        Drawn <span class="filter-count" id="countDrawn">0</span>
+                    </button>
+                </div>
+                <div class="evaluations-list" id="evalList">
+                    <!-- Evaluation items will be inserted here -->
+                </div>
+            </div>
+            
+            <div class="detail-view" id="detailView">
+                <div class="empty-state">
+                    <div class="empty-state-icon">👈</div>
+                    <p>Select an image to evaluate</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let evaluations = [];
+        let selectedEvalId = null;
+        let currentFilter = 'all';
+        let currentEvaluation = null;  // Store current evaluation result
+        
+        async function loadEvaluations() {
+            try {
+                const response = await fetch('/api/training-data-evaluations?limit=200');
+                const data = await response.json();
+                evaluations = data.evaluations;
+                
+                document.getElementById('loading').style.display = 'none';
+                
+                if (evaluations.length === 0) {
+                    document.getElementById('noEvaluations').style.display = 'block';
+                } else {
+                    document.getElementById('content').style.display = 'grid';
+                    updateFilterCounts();
+                    displayEvaluationsList();
+                }
+                
+            } catch (error) {
+                document.getElementById('loading').innerHTML = 
+                    '<p style="color: #c33;">Error loading training data</p>';
+                console.error('Error loading evaluations:', error);
+            }
+        }
+        
+        function updateFilterCounts() {
+            const all = evaluations.length;
+            const hasGT = evaluations.filter(e => e.has_ground_truth).length;
+            const noGT = all - hasGT;
+            const mat = evaluations.filter(e => e.source_format === 'MAT').length;
+            const ocs = evaluations.filter(e => e.source_format === 'OCS').length;
+            const drawn = evaluations.filter(e => e.source_format === 'DRAWN').length;
+            
+            document.getElementById('countAll').textContent = all;
+            document.getElementById('countHasGT').textContent = hasGT;
+            document.getElementById('countNoGT').textContent = noGT;
+            document.getElementById('countMAT').textContent = mat;
+            document.getElementById('countOCS').textContent = ocs;
+            document.getElementById('countDrawn').textContent = drawn;
+        }
+        
+        function setFilter(filter) {
+            currentFilter = filter;
+            
+            // Update button states
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`[data-filter="${filter}"]`).classList.add('active');
+            
+            // Re-display list with filter
+            displayEvaluationsList();
+        }
+        
+        function displayEvaluationsList() {
+            const listDiv = document.getElementById('evalList');
+            listDiv.innerHTML = '';
+            
+            // Filter evaluations
+            let filteredEvals = evaluations;
+            if (currentFilter === 'has_gt') {
+                filteredEvals = evaluations.filter(e => e.has_ground_truth);
+            } else if (currentFilter === 'no_gt') {
+                filteredEvals = evaluations.filter(e => !e.has_ground_truth);
+            } else if (currentFilter === 'mat') {
+                filteredEvals = evaluations.filter(e => e.source_format === 'MAT');
+            } else if (currentFilter === 'ocs') {
+                filteredEvals = evaluations.filter(e => e.source_format === 'OCS');
+            } else if (currentFilter === 'drawn') {
+                filteredEvals = evaluations.filter(e => e.source_format === 'DRAWN');
+            }
+            
+            // Show message if no results
+            if (filteredEvals.length === 0) {
+                listDiv.innerHTML = `
+                    <div style="text-align: center; padding: 40px 20px; color: #999;">
+                        <div style="font-size: 48px; margin-bottom: 10px;">🔍</div>
+                        <p>No ${currentFilter} images found</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Display filtered evaluations
+            filteredEvals.forEach(eval => {
+                const item = createEvaluationItem(eval);
+                listDiv.appendChild(item);
+            });
+        }
+        
+        function createEvaluationItem(eval) {
+            const div = document.createElement('div');
+            div.className = 'eval-item';
+            if (selectedEvalId === eval.id) {
+                div.classList.add('active');
+            }
+            
+            const date = new Date(eval.uploaded_at);
+            const dateStr = date.toLocaleString();
+            
+            const statusBadge = eval.has_ground_truth
+                ? '<span class="status-badge status-has-gt">✓ Has GT</span>'
+                : '<span class="status-badge status-no-gt">⚠ No GT</span>';
+            
+            const formatBadge = `<span class="eval-badge ${eval.source_format.toLowerCase()}">${eval.source_format}</span>`;
+            
+            div.innerHTML = `
+                <div class="eval-header">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="eval-id">#${eval.id}</span>
+                        ${statusBadge}
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        ${formatBadge}
+                        <span class="delete-icon" onclick="deleteEvaluation(${eval.id}, event)" title="Delete">🗑️</span>
+                    </div>
+                </div>
+                <div class="eval-meta">
+                    <strong>${eval.patient_id}</strong> - ${eval.task_type}
+                </div>
+                <div class="eval-stats">
+                    ${eval.has_ground_truth ? 
+                        `<span class="stat-badge">✓ ${eval.ground_truth_correct}</span>
+                         <span class="stat-badge">+ ${eval.ground_truth_extra || 0}</span>` : 
+                        '<span class="stat-badge">No ground truth</span>'}
+                    <span class="eval-meta" style="margin-top: 0; margin-left: auto;">${dateStr}</span>
+                </div>
+            `;
+            
+            div.onclick = (e) => {
+                if (!e.target.closest('.delete-icon')) {
+                    selectEvaluation(eval.id);
+                }
+            };
+            
+            return div;
+        }
+        
+        async function selectEvaluation(evalId) {
+            selectedEvalId = evalId;
+            currentEvaluation = null;  // Reset
+            
+            // Update list UI
+            document.querySelectorAll('.eval-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.target.closest('.eval-item').classList.add('active');
+            
+            // Load and display details
+            await displayEvaluationDetail(evalId);
+        }
+        
+        async function deleteEvaluation(evalId, event) {
+            event.stopPropagation();
+            
+            if (!confirm('Are you sure you want to delete this training image?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/training-data-image/${evalId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    evaluations = evaluations.filter(e => e.id !== evalId);
+                    
+                    if (selectedEvalId === evalId) {
+                        selectedEvalId = null;
+                        document.getElementById('detailView').innerHTML = `
+                            <div class="empty-state">
+                                <div class="empty-state-icon">👈</div>
+                                <p>Select an image to evaluate</p>
+                            </div>
+                        `;
+                    }
+                    
+                    updateFilterCounts();
+                    displayEvaluationsList();
+                    
+                    if (evaluations.length === 0) {
+                        document.getElementById('content').style.display = 'none';
+                        document.getElementById('noEvaluations').style.display = 'block';
+                    }
+                    
+                } else {
+                    alert('Error deleting image');
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+        
+        async function displayEvaluationDetail(evalId) {
+            const detailDiv = document.getElementById('detailView');
+            detailDiv.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading details...</p></div>';
+            
+            try {
+                // Get the evaluation data
+                const eval = evaluations.find(e => e.id === evalId);
+                
+                if (!eval) {
+                    detailDiv.innerHTML = '<p style="color: #c33; padding: 20px;">Evaluation not found</p>';
+                    return;
+                }
+                
+                const date = new Date(eval.uploaded_at);
+                const dateStr = date.toLocaleString();
+                
+                // Ground truth section
+                const gtSectionClass = eval.has_ground_truth ? 'ground-truth-section has-gt' : 'ground-truth-section';
+                const gtSectionHtml = `
+                    <h3 style="margin: 0 0 10px 0; color: ${eval.has_ground_truth ? '#155724' : '#856404'};">
+                        ${eval.has_ground_truth ? '✓ Ground Truth Defined' : '⚠ Ground Truth Not Set'}
+                    </h3>
+                    <p style="margin: 0 0 15px 0; font-size: 14px; color: #666;">
+                        ${eval.has_ground_truth ? 
+                            'Ground truth values are defined. Update them if needed.' : 
+                            'Please define ground truth values for this image.'}
+                    </p>
+                    <div class="ground-truth-form">
+                        <div class="gt-input-group">
+                            <label>Correct Lines</label>
+                            <input type="number" id="gtCorrect" min="0" max="20" value="${eval.ground_truth_correct || 0}">
+                        </div>
+                        <div class="gt-input-group">
+                            <label>Extra Lines</label>
+                            <input type="number" id="gtExtra" min="0" max="20" value="${eval.ground_truth_extra || 0}">
+                        </div>
+                        <button class="gt-button" onclick="saveGroundTruth(${eval.id})">
+                            💾 Save Ground Truth
+                        </button>
+                    </div>
+                `;
+                
+                detailDiv.innerHTML = `
+                    <div class="detail-header">
+                        <div class="detail-title">${eval.patient_id} - ${eval.task_type}</div>
+                        <div class="detail-subtitle">${eval.source_format} • ${dateStr}</div>
+                    </div>
+                    
+                    <div class="image-preview-section">
+                        <div class="preview-title">CNN-Optimized Image (568×274, 2px lines)</div>
+                        <img src="/api/training-data-image/${eval.id}/processed" 
+                             alt="${eval.patient_id} - ${eval.task_type}" 
+                             class="preview-image"
+                             onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                        <p style="display: none; color: #c33; margin-top: 10px;">Failed to load image</p>
+                    </div>
+                    
+                    <button class="evaluate-button" onclick="runEvaluation(${eval.id})" id="evalButton">
+                        🔍 Run Line Detection
+                    </button>
+                    
+                    <div class="${gtSectionClass}">
+                        ${gtSectionHtml}
+                    </div>
+                    
+                    <div id="evaluationResults">
+                        <p style="color: #666; text-align: center; padding: 40px;">
+                            Click "Run Line Detection" to evaluate this image
+                        </p>
+                    </div>
+                `;
+                
+            } catch (error) {
+                console.error('Error displaying evaluation detail:', error);
+                detailDiv.innerHTML = '<p style="color: #c33; padding: 20px;">Error loading evaluation details</p>';
+            }
+        }
+        
+        async function saveGroundTruth(imageId) {
+            const correct = parseInt(document.getElementById('gtCorrect').value);
+            const extra = parseInt(document.getElementById('gtExtra').value);
+            
+            if (isNaN(correct) || isNaN(extra)) {
+                alert('Please enter valid numbers');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/training-data-image/${imageId}/ground-truth`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        ground_truth_correct: correct,
+                        ground_truth_extra: extra
+                    })
+                });
+                
+                if (response.ok) {
+                    const updated = await response.json();
+                    
+                    // Update local data
+                    const eval = evaluations.find(e => e.id === imageId);
+                    if (eval) {
+                        eval.ground_truth_correct = correct;
+                        eval.ground_truth_extra = extra;
+                        eval.has_ground_truth = true;
+                    }
+                    
+                    // Update counts and list
+                    updateFilterCounts();
+                    displayEvaluationsList();
+                    
+                    // Show success message
+                    alert('Ground truth saved successfully!');
+                    
+                    // Refresh detail view
+                    await displayEvaluationDetail(imageId);
+                } else {
+                    alert('Error saving ground truth');
+                }
+            } catch (error) {
+                console.error('Error saving ground truth:', error);
+                alert('Error: ' + error.message);
+            }
+        }
+        
+        async function runEvaluation(imageId) {
+            const button = document.getElementById('evalButton');
+            const resultsDiv = document.getElementById('evaluationResults');
+            
+            button.disabled = true;
+            button.textContent = '⏳ Running evaluation...';
+            
+            resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div><p>Running line detection...</p></div>';
+            
+            try {
+                const response = await fetch(`/api/training-data-image/${imageId}/evaluate`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Evaluation failed');
+                }
+                
+                const result = await response.json();
+                currentEvaluation = result;
+                
+                // Display results
+                displayEvaluationResults(result);
+                
+                button.disabled = false;
+                button.textContent = '🔄 Re-run Line Detection';
+                
+            } catch (error) {
+                console.error('Error running evaluation:', error);
+                resultsDiv.innerHTML = '<p style="color: #c33; padding: 20px;">Error running evaluation</p>';
+                button.disabled = false;
+                button.textContent = '🔍 Run Line Detection';
+            }
+        }
+        
+        function displayEvaluationResults(result) {
+            const resultsDiv = document.getElementById('evaluationResults');
+            
+            // Calculate accuracy display
+            let accuracyHtml = '';
+            if (result.comparison.accuracy !== null) {
+                const accuracy = result.comparison.accuracy * 100;
+                let accuracyClass = 'accuracy-good';
+                if (accuracy < 50) accuracyClass = 'accuracy-bad';
+                else if (accuracy < 80) accuracyClass = 'accuracy-medium';
+                
+                accuracyHtml = `
+                    <div style="text-align: center; margin-bottom: 20px;">
+                        <h3>Detection Accuracy vs Ground Truth</h3>
+                        <div class="accuracy-badge ${accuracyClass}">
+                            ${accuracy.toFixed(1)}%
+                        </div>
+                        <p style="margin-top: 10px; font-size: 14px; color: #666;">
+                            Total Error: ${result.comparison.details.total_error} / ${result.comparison.details.max_error}
+                        </p>
+                    </div>
+                `;
+            }
+            
+            resultsDiv.innerHTML = `
+                ${accuracyHtml}
+                
+                <div class="comparison-grid">
+                    <div class="comparison-card">
+                        <div class="comparison-title">🤖 Automated Detection</div>
+                        <div class="comparison-values">
+                            <div class="comparison-value">
+                                <div class="comparison-value-number" style="color: #28a745;">${result.automated.correct_lines}</div>
+                                <div class="comparison-value-label">Correct</div>
+                            </div>
+                            <div class="comparison-value">
+                                <div class="comparison-value-number" style="color: #dc3545;">${result.automated.missing_lines}</div>
+                                <div class="comparison-value-label">Missing</div>
+                            </div>
+                            <div class="comparison-value">
+                                <div class="comparison-value-number" style="color: #ffc107;">${result.automated.extra_lines}</div>
+                                <div class="comparison-value-label">Extra</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    ${result.ground_truth.has_ground_truth ? `
+                        <div class="comparison-card highlight">
+                            <div class="comparison-title">👤 Ground Truth</div>
+                            <div class="comparison-values">
+                                <div class="comparison-value">
+                                    <div class="comparison-value-number">${result.ground_truth.correct_lines}</div>
+                                    <div class="comparison-value-label">Correct</div>
+                                </div>
+                                <div class="comparison-value">
+                                    <div class="comparison-value-number">${result.ground_truth.missing_lines}</div>
+                                    <div class="comparison-value-label">Missing</div>
+                                </div>
+                                <div class="comparison-value">
+                                    <div class="comparison-value-number">${result.ground_truth.extra_lines}</div>
+                                    <div class="comparison-value-label">Extra</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="comparison-card">
+                            <div class="comparison-title">📊 Differences</div>
+                            <div class="comparison-values">
+                                <div class="comparison-value">
+                                    <div class="comparison-value-number" style="color: #333;">
+                                        ${result.comparison.details.correct_diff >= 0 ? '+' : ''}${result.comparison.details.correct_diff}
+                                    </div>
+                                    <div class="comparison-value-label">Correct</div>
+                                </div>
+                                <div class="comparison-value">
+                                    <div class="comparison-value-number" style="color: #333;">
+                                        ${result.comparison.details.missing_diff >= 0 ? '+' : ''}${result.comparison.details.missing_diff}
+                                    </div>
+                                    <div class="comparison-value-label">Missing</div>
+                                </div>
+                                <div class="comparison-value">
+                                    <div class="comparison-value-number" style="color: #333;">
+                                        ${result.comparison.details.extra_diff >= 0 ? '+' : ''}${result.comparison.details.extra_diff}
+                                    </div>
+                                    <div class="comparison-value-label">Extra</div>
+                                </div>
+                            </div>
+                        </div>
+                    ` : `
+                        <div class="comparison-card" style="grid-column: span 2; background: #fff3cd;">
+                            <div class="comparison-title" style="color: #856404;">⚠ No Ground Truth</div>
+                            <p style="text-align: center; margin: 0; color: #666;">
+                                Set ground truth values above to compare with automated detection
+                            </p>
+                        </div>
+                    `}
+                </div>
+                
+                ${result.visualization_path ? `
+                    <div class="visualization-section">
+                        <div class="viz-title">📐 Line Detection Visualization</div>
+                        <img src="${result.visualization_path}" alt="Evaluation Visualization" class="viz-image">
+                        <div class="legend">
+                            <div class="legend-item">
+                                <div class="legend-box" style="background: #00ff00;"></div>
+                                <span>Correct Lines</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-box" style="background: #ff0000;"></div>
+                                <span>Missing Lines</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-box" style="background: #0000ff;"></div>
+                                <span>Extra Lines</span>
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
+            `;
+        }
+        
+        // Load evaluations on page load
+        loadEvaluations();
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,276 @@
+/**
+ * AI Training Specific Styles
+ * Requires: /css/common.css (must be loaded first)
+ * 
+ * Contains AI-specific components:
+ * - Distribution Preview Modal
+ * - Histogram
+ * - Class Distribution Bars
+ */
+
+/* Distribution Preview Modal */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+.modal-overlay.show {
+    display: flex;
+}
+
+body.modal-open {
+    overflow: hidden;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 15px;
+    max-width: 900px;
+    width: 90vw;
+    height: 90vh;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: #333;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 30px;
+    border-bottom: 2px solid #e9ecef;
+    background: white;
+    flex-shrink: 0;
+    color: #333;
+}
+
+.modal-stats-section {
+    padding: 12px 30px;
+    background: white;
+    border-bottom: 2px solid #e9ecef;
+    flex-shrink: 0;
+    color: #333;
+}
+
+.modal-body-scrollable {
+    padding: 20px 30px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: 100%;
+    color: #333;
+}
+
+.modal-title {
+    font-size: 1.5em;
+    color: #333;
+    font-weight: 600;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5em;
+    cursor: pointer;
+    color: #666 !important;
+    padding: 5px 10px;
+}
+
+.modal-close:hover {
+    color: #333 !important;
+}
+
+/* Modal Stats Grid */
+.stats-grid-modal {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    margin: 0;
+    justify-content: space-between;
+}
+
+.stat-item {
+    background: #f8f9fa;
+    padding: 6px 10px;
+    border-radius: 6px;
+    text-align: center;
+    flex: 1;
+    min-width: 0;
+    max-width: 120px;
+}
+
+.stat-item-label {
+    font-size: 0.75em;
+    color: #666;
+    margin-bottom: 3px;
+}
+
+.stat-item-value {
+    font-size: 1em;
+    font-weight: bold;
+    color: #667eea;
+}
+
+/* Histogram */
+.histogram-container {
+    margin: 20px 0;
+}
+
+.histogram-bar {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.histogram-label {
+    width: 80px;
+    font-size: 0.85em;
+    color: #666;
+    text-align: right;
+    padding-right: 10px;
+}
+
+.histogram-bar-visual {
+    height: 25px;
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    border-radius: 4px;
+    position: relative;
+    min-width: 2px;
+    transition: width 0.3s ease;
+}
+
+.histogram-count {
+    width: 80px;
+    text-align: left;
+    padding-left: 10px;
+    font-size: 0.85em;
+    color: #666;
+}
+
+/* Class Distribution Bars */
+.class-info {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+    margin-top: 15px;
+    color: #333;
+}
+
+.class-distribution-bar {
+    display: flex;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.class-distribution-label {
+    width: 120px;
+    padding-right: 15px;
+    font-size: 0.9em;
+    flex-shrink: 0;
+    color: #333;
+}
+
+.class-distribution-bar-container {
+    flex: 1;
+    position: relative;
+    height: 35px;
+    display: flex;
+    align-items: center;
+}
+
+.class-distribution-bar-visual {
+    height: 35px;
+    border-radius: 6px;
+    position: relative;
+    min-width: 2px;
+    transition: width 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.class-distribution-count {
+    width: 100px;
+    text-align: left;
+    padding-left: 15px;
+    font-size: 0.9em;
+    flex-shrink: 0;
+    color: #333;
+}
+
+/* Responsive Design for AI Training Components */
+@media (max-width: 768px) {
+    .modal-content {
+        width: 95vw;
+        height: 95vh;
+    }
+    
+    .modal-header {
+        padding: 15px 20px;
+    }
+    
+    .modal-stats-section {
+        padding: 10px 20px;
+    }
+    
+    .modal-body-scrollable {
+        padding: 15px 20px;
+    }
+    
+    .stats-grid-modal {
+        flex-wrap: wrap;
+    }
+    
+    .stat-item {
+        min-width: 80px;
+    }
+    
+    .histogram-label {
+        width: 60px;
+        font-size: 0.75em;
+    }
+    
+    .histogram-count {
+        width: 60px;
+        font-size: 0.75em;
+    }
+    
+    .class-distribution-label {
+        width: 80px;
+        font-size: 0.85em;
+    }
+    
+    .class-distribution-count {
+        width: 70px;
+        font-size: 0.85em;
+    }
+}
+
+/* Additional Modal Content Styles */
+.modal-content * {
+    color: inherit;
+}
+
+.modal-content input,
+.modal-content button,
+.modal-content select {
+    color: #333;
+}
+
+.modal-content button {
+    color: white;
+}
+
+/* AI-Specific Stats for Modals */
+

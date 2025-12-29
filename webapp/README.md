@@ -295,28 +295,13 @@ curl -X POST http://localhost/api/ai-training/start-training \
 
 **Purpose:** Increase dataset size and reduce overfitting
 
-**Augmentation Strategy (NEW - Option 1):**
-
-From **1 original image** → **6 total images**:
-- **1× Original** (unmodified)
-- **3× Global augmentation only** (60%): Rotation, translation, scaling
-- **2× Warp + Global** (40%): Local warping + global transformation
-
 **Augmentation Techniques:**
 
 | Technique | Range | Purpose |
 |-----------|-------|---------|
-| **Rotation** | ±1-3° | Simulates paper tilt / camera angle |
-| **Translation** | ±5-10px | Simulates position shifts |
-| **Scaling** | 95-105% | Simulates size variations |
-| **Local Warping** | ±15px @ 9 points | Simulates paper deformation (folds, uneven surface) |
-
-**Local Warping Details:**
-- Uses **Thin Plate Spline (TPS)** interpolation
-- 9 control points in 3×3 grid (at 25%, 50%, 75% horizontal & vertical)
-- Each point randomly displaced ±15 pixels
-- Smooth interpolation with border protection
-- Applied to 40% of augmentations, combined with global transforms
+| Rotation | ±1-3° | Simulates paper tilt |
+| Translation | ±5-10px | Simulates position shifts |
+| Scaling | 95-105% | Simulates size variations |
 
 **Configuration:**
 
@@ -325,27 +310,14 @@ augmentation_config = {
     'rotation_range': (-3, 3),      # degrees
     'translation_range': (-10, 10),  # pixels
     'scale_range': (0.95, 1.05),    # scale factor
-    'num_augmentations': 5,          # per image (3 global + 2 warp+global)
-    'use_warping': True              # enable local warping (default: True)
+    'num_augmentations': 5           # per image
 }
 ```
 
-**Pipeline (Every Augmented Image):**
-1. Apply transformation (global or warp+global)
-2. Re-binarize (threshold 175)
-3. Line normalization (skeleton + 2px dilation)
-4. Save
-
 **Example Output:**
 - Original dataset: 20 images
-- With augmentation: 120 images (20 original + 100 augmented)
+- With 5x augmentation: 120 images (20 original + 100 augmented)
 - Effective multiplier: 6x
-- Line consistency: 0.97×-0.99× (excellent)
-
-**Quality Metrics:**
-- All images: Binary (only black/white, no grayscale)
-- Line thickness: Consistent 2px (guaranteed by pipeline)
-- No fragmentation: <10 components per image
 
 **API Usage:**
 
@@ -913,10 +885,6 @@ Access at: http://localhost:8000/api/docs
 - [x] AI model selector in upload interface
 - [x] Custom class label display in predictions
 - [x] Automatic denormalization for regression outputs
-- [x] **NEW: Local warping augmentation (TPS with 9 control points)**
-- [x] **NEW: Hybrid augmentation strategy (3× global + 2× warp+global)**
-- [x] **NEW: Post-augmentation line normalization (consistent 2px lines)**
-- [x] **NEW: Optimal binarization threshold (175) for augmented images**
 
 ### Data Management
 - [x] MAT/OCS/OXFORD extraction tools with auto-cropping

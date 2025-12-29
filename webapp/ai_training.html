@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPSketch - AI Training</title>
+    
+    <!-- Global Common Styles -->
+    <link rel="stylesheet" href="/css/common.css">
+    
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 50px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        
+        h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 40px;
+            font-size: 1.1em;
+        }
+        
+        /* back-link style from common.css */
+        
+        .options {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 30px;
+            margin-top: 40px;
+        }
+        
+        .option-card {
+            background: #f8f9fa;
+            border: 3px solid #dee2e6;
+            border-radius: 15px;
+            padding: 40px 30px;
+            text-decoration: none;
+            color: inherit;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        
+        .option-card:hover {
+            border-color: #667eea;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.2);
+        }
+        
+        .option-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+        }
+        
+        .option-title {
+            font-size: 1.5em;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .option-description {
+            color: #666;
+            font-size: 0.95em;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container hexagon-pattern">
+        <a href="/index.html" class="back-link">← Main</a>
+        
+        <h1>🤖 AI Training</h1>
+        <p class="subtitle">Train and manage CNN models for neuropsychological drawing assessment</p>
+        
+        <div class="options">
+            <a href="/ai_training_overview.html" class="option-card">
+                <div class="option-icon">📊</div>
+                <div class="option-title">Overview & Models</div>
+                <div class="option-description">
+                    View dataset statistics, manage and test trained models
+                </div>
+            </a>
+            
+            <a href="/ai_training_train.html" class="option-card">
+                <div class="option-icon">🚀</div>
+                <div class="option-title">Train New Model</div>
+                <div class="option-description">
+                    Select features, configure parameters, and train a new CNN model
+                </div>
+            </a>
+        </div>
+    </div>
+</body>
+</html>

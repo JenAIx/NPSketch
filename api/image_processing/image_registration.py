@@ -189,7 +189,7 @@ class ImageRegistration:
                 print(f"  ✓ After pre-scaling & centering: source={src_pixels} pixels")
         
         print(f"  🎯 SCIPY OPTIMIZATION: Differential Evolution (global optimizer)")
-        print(f"     Search space: rotation ±{max_rotation_degrees}°, scale 0.7-1.4x, translation ±20px")
+        print(f"     Search space: rotation ±{max_rotation_degrees}°, scale 0.85-1.25x, translation ±15px")
         
         h, w = src_binary.shape
         center = np.array([w / 2, h / 2])
@@ -198,7 +198,7 @@ class ImageRegistration:
         eval_count = [0]  # Mutable counter for function evaluations
         
         # Prepare padded binary images for optimization (prevents edge clipping during search)
-        padding_opt = 40  # Smaller padding for optimization (speed vs accuracy)
+        padding_opt = 50  # Increased from 40 to 50 for better edge handling
         padded_h_opt = h + 2 * padding_opt
         padded_w_opt = w + 2 * padding_opt
         
@@ -270,11 +270,12 @@ class ImageRegistration:
                 return 0  # Worst score
         
         # Define parameter bounds: [angle, scale, tx, ty]
+        # IMPORTANT: Scale bounds adjusted - avoid scaling down too much (preserves content)
         bounds = [
             (-max_rotation_degrees, max_rotation_degrees),  # Rotation (degrees)
-            (0.7, 1.4),   # Scale
-            (-20, 20),    # Translation X (pixels)
-            (-20, 20)     # Translation Y (pixels)
+            (0.85, 1.25),  # Scale - tightened from (0.7, 1.4) to prevent aggressive scaling
+            (-15, 15),     # Translation X (reduced from ±20 to ±15 pixels)
+            (-15, 15)      # Translation Y (reduced from ±20 to ±15 pixels)
         ]
         
         # Run Differential Evolution optimizer
@@ -300,13 +301,14 @@ class ImageRegistration:
         
         print(f"  ✅ Best: angle={best_angle:.2f}°, scale={best_scale:.3f}x, tx={best_tx:.1f}, ty={best_ty:.1f}, IoU={best_score:.4f}")
         
-        # LOWERED threshold from 0.12 to 0.05 for better acceptance
-        if best_score < 0.05:
-            print(f"  ⚠️  Very low IoU ({best_score:.4f} < 0.05), using original")
+        # RAISED threshold from 0.05 to 0.15 - only apply transformation if there's a good match
+        # Low IoU means the images don't align well, so transformation would be unreliable
+        if best_score < 0.15:
+            print(f"  ⚠️  Low IoU ({best_score:.4f} < 0.15), skipping registration - keeping original")
             return source.copy(), {
                 'method': 'scipy_differential_evolution',
                 'success': False,
-                'reason': f'Very low IoU score ({best_score:.4f} < 0.05)',
+                'reason': f'Low IoU score ({best_score:.4f} < 0.15) - images too different',
                 'translation_x': 0,
                 'translation_y': 0,
                 'rotation_degrees': 0,
@@ -319,7 +321,8 @@ class ImageRegistration:
         
         # Use LARGER canvas during transformation to prevent clipping!
         # This is critical: rotation/translation can push content outside bounds
-        padding = 64  # Extra pixels on each side (128 total)
+        # Increased from 64 to 80 for better edge preservation
+        padding = 80  # Extra pixels on each side (160 total)
         padded_h = h + 2 * padding
         padded_w = w + 2 * padding
         
@@ -1504,27 +1507,58 @@ class ImageRegistration:
     def _clean_borders(
         self,
         image: np.ndarray,
-        border_size: int = 5
+        border_size: int = 3
     ) -> np.ndarray:
         """
-        Clean up border artifacts by setting border pixels to white.
+        Clean up border artifacts by setting ONLY NOISY border pixels to white.
+        
+        IMPORTANT: This function now only cleans pixels that appear to be
+        transformation artifacts (isolated dark pixels near edges), NOT
+        actual line content that extends to the border.
         
         Args:
             image: Image to clean
-            border_size: Size of border to clean in pixels
+            border_size: Size of border to check for artifacts (default: 3px, reduced from 5px)
             
         Returns:
-            Cleaned image
+            Cleaned image with border artifacts removed
         """
         cleaned = image.copy()
         
-        # Set top and bottom borders to white
-        cleaned[:border_size, :] = 255
-        cleaned[-border_size:, :] = 255
+        # Convert to grayscale for analysis
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image.copy()
         
-        # Set left and right borders to white
-        cleaned[:, :border_size] = 255
-        cleaned[:, -border_size:] = 255
+        # Only clean pixels that are:
+        # 1. Dark (potential line/artifact)
+        # 2. Isolated (not connected to significant content inside)
+        
+        # Create a mask of dark pixels in border regions
+        h, w = gray.shape
+        
+        # For each border region, only clean if it's sparse (likely artifacts, not real lines)
+        regions = [
+            (slice(0, border_size), slice(None)),           # Top
+            (slice(-border_size, None), slice(None)),       # Bottom
+            (slice(None), slice(0, border_size)),           # Left
+            (slice(None), slice(-border_size, None))        # Right
+        ]
+        
+        for region in regions:
+            border_region = gray[region]
+            # Count dark pixels (< 200 = potential line/artifact)
+            dark_pixels = np.sum(border_region < 200)
+            total_pixels = border_region.size
+            
+            # Only clean if border is mostly white (< 5% dark = likely artifacts)
+            # If > 5% dark, there's probably real content extending to edge
+            if dark_pixels / total_pixels < 0.05:
+                if len(cleaned.shape) == 3:
+                    cleaned[region] = 255
+                else:
+                    cleaned[region] = 255
         
         return cleaned
     

@@ -177,6 +177,81 @@ class TestImage(Base):
         return f"<TestImage(id={self.id}, name='{self.test_name}')>"
 
 
+class TrainingDataImage(Base):
+    """
+    Unified table for all test/training images.
+    Can be used for BOTH algorithmic evaluation AND CNN training.
+    
+    USAGE:
+    ------
+    1. Algorithmic Evaluation: Uses ground_truth_* fields
+       - Upload via MAT/OCS/Draw → Set ground_truth_correct/extra
+       - Run evaluation → Compare detected lines vs ground truth
+    
+    2. CNN Model Training: Uses features_data field
+       - Upload via MAT/OCS/Draw → Set features_data (Total_Score, MMSE, etc.)
+       - Train model → Predict features from images
+    
+    3. Both: An image can have BOTH ground truth AND features!
+    
+    ATTRIBUTES:
+    -----------
+    Core Identity:
+        id: Primary key
+        patient_id: Patient/test identifier (e.g., PC56, Park_16, test_001)
+        task_type: COPY, RECALL, or REFERENCE
+        source_format: MAT, OCS, or DRAWN
+        test_name: Human-readable name (for drawn images)
+    
+    Image Data:
+        original_filename: Original uploaded filename
+        original_file_data: Original uploaded file (BLOB)
+        processed_image_data: Normalized image 568×274, 2px lines (BLOB)
+        image_hash: SHA256 hash for duplicate detection
+        extraction_metadata: JSON with technical details
+    
+    Ground Truth (for Algorithmic Evaluation):
+        ground_truth_correct: Expected number of correct lines
+        ground_truth_extra: Expected number of extra/wrong lines
+        
+    Clinical Features (for CNN Training):
+        features_data: JSON with clinical scores (Total_Score, MMSE, Age, etc.)
+    
+    Metadata:
+        session_id: Upload session identifier
+        uploaded_at: Timestamp
+    """
+    __tablename__ = "training_data_images"
+    
+    # Core identity
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(String, index=True)
+    task_type = Column(String, index=True)  # COPY, RECALL, REFERENCE
+    source_format = Column(String, index=True)  # MAT, OCS, DRAWN
+    test_name = Column(String, nullable=True, index=True)  # Human-readable name
+    
+    # Image data
+    original_filename = Column(String)
+    original_file_data = Column(LargeBinary)
+    processed_image_data = Column(LargeBinary)
+    image_hash = Column(String(64), index=True)
+    extraction_metadata = Column(String, nullable=True)  # JSON
+    
+    # Ground truth for algorithmic evaluation (nullable - only if known)
+    ground_truth_correct = Column(Integer, nullable=True)  # Expected correct lines
+    ground_truth_extra = Column(Integer, nullable=True)    # Expected extra/wrong lines
+    
+    # Clinical features for CNN training (nullable - only if available)
+    features_data = Column(String, nullable=True)  # JSON: {Total_Score: 31, MMSE: 28, ...}
+    
+    # Metadata
+    session_id = Column(String, index=True)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    
+    def __repr__(self):
+        return f"<TrainingDataImage(id={self.id}, patient={self.patient_id}, task={self.task_type})>"
+
+
 def init_database():
     """
     Initialize the database by creating all tables.

@@ -26,7 +26,11 @@ from routers import (
     upload_router,
     evaluations_router,
     references_router,
-    test_images_router
+    test_images_router,
+    training_data_router,
+    ai_training_base_router,
+    ai_training_classification_router,
+    ai_training_models_router
 )
 
 # Initialize FastAPI app
@@ -45,6 +49,12 @@ app.include_router(upload_router)
 app.include_router(evaluations_router)
 app.include_router(references_router)
 app.include_router(test_images_router)
+app.include_router(training_data_router)
+
+# AI Training routers (split for better organization)
+app.include_router(ai_training_base_router)
+app.include_router(ai_training_classification_router)
+app.include_router(ai_training_models_router)
 
 
 @app.on_event("startup")

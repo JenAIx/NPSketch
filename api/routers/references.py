@@ -10,15 +10,19 @@ Contains endpoints for:
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 from sqlalchemy.orm import Session
 from typing import List
 from database import get_db, ReferenceImage
 from models import ReferenceImageResponse
 from services import ReferenceService
 import json
+import os
 
 router = APIRouter(prefix="/api", tags=["references"])
+
+# Path to default reference image
+DEFAULT_REFERENCE_IMAGE = "/app/templates/reference_image.png"
 
 
 @router.get("/references", response_model=List[ReferenceImageResponse])
@@ -124,21 +128,22 @@ async def create_manual_reference(data: dict, db: Session = Depends(get_db)):
     features = {
         'num_lines': len(lines),
         'lines': lines,
-        'image_shape': [256, 256],
+        'image_shape': [568, 274],  # [width, height]
         'line_lengths': line_lengths,
         'line_angles': line_angles,
         'line_counts': data['summary']
     }
     
-    img = np.ones((256, 256, 3), dtype=np.uint8) * 255
+    # Create white canvas at 568×274 (note: numpy is height, width)
+    img = np.ones((274, 568, 3), dtype=np.uint8) * 255
     
     ref = ReferenceImage(
         name="manual_reference",
         image_data=image_to_bytes(img),
         processed_image_data=image_to_bytes(img),
         feature_data=json.dumps(features),
-        width=256,
-        height=256
+        width=568,
+        height=274
     )
     
     db.add(ref)
@@ -169,10 +174,11 @@ async def get_reference_status(db: Session = Depends(get_db)):
         features = json.loads(ref.feature_data)
         num_lines = features.get('num_lines', 0)
         
-        if num_lines < 6:  # Minimum 6 lines for a valid reference
+        # Allow any number of lines (no minimum required)
+        if num_lines < 1:
             return {
                 "initialized": False,
-                "message": f"Only {num_lines} lines defined (minimum 6 required)"
+                "message": "No features defined yet"
             }
         
         return {
@@ -209,7 +215,7 @@ async def add_reference_feature(
             'lines': [],
             'line_angles': [],
             'line_lengths': [],
-            'image_shape': [256, 256],
+            'image_shape': [568, 274],
             'line_counts': {'horizontal': 0, 'vertical': 0, 'diagonal': 0, 'total': 0}
         }
     
@@ -318,7 +324,7 @@ async def clear_reference_features(db: Session = Depends(get_db)):
         'lines': [],
         'line_angles': [],
         'line_lengths': [],
-        'image_shape': [256, 256],
+        'image_shape': [568, 274],
         'line_counts': {'horizontal': 0, 'vertical': 0, 'diagonal': 0, 'total': 0}
     }
     
