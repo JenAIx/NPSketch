@@ -274,3 +274,80 @@ body.modal-open {
 
 /* AI-Specific Stats for Modals */
 
+/* Training Status Icon */
+@keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.7; transform: scale(1.1); }
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@keyframes hourglass-flip {
+    0%, 100% { 
+        transform: rotate(0deg) scaleY(1);
+        filter: brightness(1);
+    }
+    25% { 
+        transform: rotate(90deg) scaleY(0.8);
+        filter: brightness(1.2);
+    }
+    50% { 
+        transform: rotate(180deg) scaleY(0.6);
+        filter: brightness(1);
+    }
+    75% { 
+        transform: rotate(270deg) scaleY(0.8);
+        filter: brightness(1.2);
+    }
+}
+
+#trainingStatusIcon {
+    display: none;
+    cursor: pointer;
+    position: relative;
+}
+
+#trainingStatusIcon:hover #statusIconTooltip {
+    opacity: 1 !important;
+}
+
+#trainingStatusIcon:hover #statusIconBadge {
+    transform: scale(1.2);
+}
+
+#statusIconBadge {
+    font-size: 1.5em;
+    transition: transform 0.2s;
+}
+
+#statusIconTooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 8px;
+    background: #333;
+    color: white;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.85em;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.3s ease-in-out;
+    pointer-events: none;
+    z-index: 1001;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+#statusIconTooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: #333;
+}

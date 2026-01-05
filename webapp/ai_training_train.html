@@ -643,7 +643,13 @@
     <div class="container hexagon-pattern">
         <a href="/ai_training.html" class="back-link">← Back to AI Training</a>
         
-        <h1>🚀 Train New Model</h1>
+        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;">
+            <h1 style="margin: 0;">🚀 Train New Model</h1>
+            <div id="trainingStatusIcon" style="display: none; cursor: pointer; position: relative;" onclick="trainingStatusInstance.showDialog()">
+                <span id="statusIconBadge" style="font-size: 1.5em; display: inline-block;">⏳</span>
+                <span id="statusIconTooltip">Training job in progress - Click to view details</span>
+            </div>
+        </div>
         <p class="subtitle">Select features, configure parameters, and train a CNN model</p>
         
         <div class="alert" id="alert"></div>
@@ -872,12 +878,19 @@
             </div>
         </div>
         
-        <!-- Training Progress -->
-        <div class="loading" id="trainingProgress">
-            <div class="spinner"></div>
-            <p id="progressText">Initializing training...</p>
-            <div id="trainingParams" style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; display: none;"></div>
+        <!-- Training Status Dialog -->
+        <div id="trainingStatusModal" class="modal-overlay" style="display: none;">
+            <div class="modal-content" style="max-width: 800px;">
+                <div class="modal-header">
+                    <div class="modal-title">📊 Training Job Status</div>
+                    <button class="modal-close" onclick="trainingStatusInstance.hideDialog()">×</button>
+                </div>
+                <div class="modal-body-scrollable" id="trainingStatusContent" style="padding: 20px;">
+                    <!-- Content will be populated by JavaScript -->
+                </div>
+            </div>
         </div>
+        
         
         <!-- Split Information -->
         <div class="section" style="display: none;" id="splitInfo">
@@ -1345,8 +1358,9 @@
             };
             
             document.getElementById('trainBtn').disabled = true;
-            document.getElementById('trainingProgress').classList.add('show');
-            document.getElementById('progressText').textContent = 'Starting training...';
+            if (trainingStatusInstance) {
+                trainingStatusInstance.setStartTime(new Date());
+            }
             
             try {
                 // Start training
@@ -1359,31 +1373,23 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    showAlert('success', 'Training started! Monitoring progress...');
+                    showAlert('success', 'Training started!');
                     
-                    // Show training parameters
-                    const paramsDiv = document.getElementById('trainingParams');
-                    paramsDiv.innerHTML = `
-                        <div style="font-size: 0.9em; color: #495057;">
-                            <strong>Training Parameters:</strong><br>
-                            Epochs: <strong>${config.num_epochs}</strong> | 
-                            Learning Rate: <strong>${config.learning_rate}</strong> | 
-                            Batch Size: <strong>${config.batch_size}</strong> | 
-                            Train/Val Split: <strong>${(config.train_split * 100).toFixed(0)}/${((1-config.train_split) * 100).toFixed(0)}</strong> | 
-                            Augmentation: <strong>${config.use_augmentation ? 'Enabled (6x data)' : 'Disabled'}</strong> | 
-                            Normalization: <strong>${config.use_normalization ? 'Enabled ([0,1])' : 'Disabled (raw)'}</strong>
-                        </div>
-                    `;
-                    paramsDiv.style.display = 'block';
+                    // Open the new training status dialog
+                    if (trainingStatusInstance) {
+                        // Wait a moment for training state to initialize, then show dialog
+                        setTimeout(() => {
+                            trainingStatusInstance.showDialog();
+                        }, 500);
+                    }
                     
-                    // Start polling for progress
+                    // Start polling for progress (will update dialog automatically)
                     pollTrainingStatus();
                 } else {
                     throw new Error(data.message || 'Failed to start training');
                 }
                 
             } catch (error) {
-                document.getElementById('trainingProgress').classList.remove('show');
                 document.getElementById('trainBtn').disabled = false;
                 showAlert('error', `Error: ${error.message}`);
             }
@@ -1398,14 +1404,37 @@
                     const response = await fetch('/api/ai-training/training-status');
                     const status = await response.json();
                     
-                    updateProgress(status);
+                    if (trainingStatusInstance) {
+                        trainingStatusInstance.checkStatus(); // Update icon
+                    }
+                    
+                    // Show split info if available (for the split info section below)
+                    const splitInfoDiv = document.getElementById('splitInfo');
+                    if (status.progress && status.progress.split_info && splitInfoDiv && splitInfoDiv.style.display !== 'block') {
+                        displaySplitInfo(status.progress);
+                    }
+                    
+                    // Update dialog if it's open
+                    if (trainingStatusInstance) {
+                        const modal = document.getElementById('trainingStatusModal');
+                        if (modal && modal.style.display === 'flex') {
+                            // Dialog is open, refresh it
+                            trainingStatusInstance.showDialog();
+                        }
+                    }
                     
                     // Stop polling when completed or error
                     if (status.status === 'completed' || status.status === 'error') {
                         clearInterval(statusPollInterval);
-                        document.getElementById('trainingProgress').classList.remove('show');
                         document.getElementById('trainBtn').disabled = false;
                         showResults(status);
+                        if (trainingStatusInstance) {
+                            trainingStatusInstance.checkStatus(); // Final icon update
+                            // Refresh dialog one last time to show completion/error
+                            setTimeout(() => {
+                                trainingStatusInstance.showDialog();
+                            }, 500);
+                        }
                     }
                     
                 } catch (error) {
@@ -1414,30 +1443,6 @@
             }, 1000);
         }
         
-        function updateProgress(status) {
-            const progress = status.progress || {};
-            
-            let text = progress.message || 'Training...';
-            
-            if (progress.epoch && progress.total_epochs) {
-                text = `Epoch ${progress.epoch}/${progress.total_epochs} - ${text}`;
-                
-                if (progress.train_loss !== undefined) {
-                    text += ` | Train Loss: ${progress.train_loss.toFixed(4)}`;
-                }
-                if (progress.val_loss !== undefined) {
-                    text += ` | Val Loss: ${progress.val_loss.toFixed(4)}`;
-                }
-            }
-            
-            document.getElementById('progressText').textContent = text;
-            
-            // Show split info if available (check if not already displayed)
-            const splitInfoDiv = document.getElementById('splitInfo');
-            if (progress.split_info && splitInfoDiv.style.display !== 'block') {
-                displaySplitInfo(progress);
-            }
-        }
         
         function displaySplitInfo(progress) {
             const splitInfo = progress.split_info || {};
@@ -2052,6 +2057,8 @@
     
     <!-- Distribution Preview Module -->
     <script src="/js/ai_training_preview_target_distribution.js"></script>
+    <!-- Training Status Component -->
+    <script src="/js/training_status.js"></script>
 </body>
 </html>
 

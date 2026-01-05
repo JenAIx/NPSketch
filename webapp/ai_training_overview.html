@@ -40,6 +40,19 @@
         </div>
     </div>
     
+    <!-- Training Status Dialog -->
+    <div id="trainingStatusModal" class="modal-overlay" style="display: none;">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <div class="modal-title">📊 Training Job Status</div>
+                <button class="modal-close" onclick="trainingStatusInstance.hideDialog()">×</button>
+            </div>
+            <div class="modal-body-scrollable" id="trainingStatusContent" style="padding: 20px;">
+                <!-- Content will be populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+    
     <div class="container hexagon-pattern">
         <a href="/ai_training.html" class="back-link">← AI Training</a>
         
@@ -69,7 +82,13 @@
         <!-- Saved Models -->
         <div class="section">
             <h2>💾 Saved Models</h2>
-            <button class="btn btn-secondary" onclick="loadModels()" style="margin-bottom: 15px;">🔄 Refresh List</button>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                <button class="btn btn-secondary" onclick="loadModels()">🔄 Refresh List</button>
+                <div id="trainingStatusIcon" style="display: none; cursor: pointer; position: relative;" onclick="trainingStatusInstance.showDialog()">
+                    <span id="statusIconBadge" style="font-size: 1.5em; display: inline-block;">⏳</span>
+                    <span id="statusIconTooltip">Training job in progress - Click to view details</span>
+                </div>
+            </div>
             <div id="modelsList"></div>
         </div>
     </div>
@@ -807,6 +826,7 @@
     
     <!-- Distribution Preview Module -->
     <script src="/js/ai_training_preview_target_distribution.js"></script>
+    <script src="/js/training_status.js"></script>
 </body>
 </html>
 

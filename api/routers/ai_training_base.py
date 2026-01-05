@@ -27,9 +27,10 @@ router = APIRouter(prefix="/api/ai-training", tags=["ai_training_base"])
 
 # Global training state
 training_state = {
-    'status': 'idle',  # idle, training, completed, error
+    'status': 'idle',  # idle, training, completed, error, cancelled
     'progress': {},
-    'error': None
+    'error': None,
+    'cancelled': False  # Flag to request cancellation
 }
 
 
@@ -262,13 +263,26 @@ def run_training_job(config):
     logger.info("="*60)
     
     try:
+        import time
+        start_time = time.time()
+        
+        # Reset cancellation flag when starting new training
+        training_state['cancelled'] = False
         training_state['status'] = 'training'
         training_state['progress'] = {
             'epoch': 0,
             'total_epochs': config['num_epochs'],
             'train_loss': 0,
             'val_loss': 0,
-            'message': 'Initializing...'
+            'message': 'Initializing...',
+            'start_time': start_time,
+            'training_config': {
+                'learning_rate': config['learning_rate'],
+                'batch_size': config['batch_size'],
+                'train_split': config['train_split'],
+                'use_augmentation': config.get('use_augmentation', True),
+                'use_normalization': config.get('use_normalization', True)
+            }
         }
         
         logger.debug(f"Training state initialized: {training_state}")
@@ -372,7 +386,13 @@ def run_training_job(config):
             
             stats['augmentation'] = {'enabled': False}
         
-        training_state['progress']['dataset_stats'] = stats
+        # Remove image IDs from stats for progress display (not needed for status info)
+        # Image IDs are still saved in model metadata for later use
+        stats_for_progress = stats.copy()
+        stats_for_progress.pop('train_image_ids', None)
+        stats_for_progress.pop('val_image_ids', None)
+        
+        training_state['progress']['dataset_stats'] = stats_for_progress
         training_state['progress']['training_mode'] = training_mode
         training_state['progress']['num_classes'] = num_classes if is_classification else None
         
@@ -383,7 +403,19 @@ def run_training_job(config):
             training_mode=training_mode
         )
         
+        epoch_times = []  # Track time per epoch for estimation
+        
         for epoch in range(config['num_epochs']):
+            # Check for cancellation request
+            if training_state.get('cancelled', False):
+                logger.info("Training cancellation requested by user")
+                training_state['status'] = 'cancelled'
+                training_state['progress']['message'] = 'Training cancelled by user'
+                training_state['error'] = 'Training was cancelled by user'
+                return
+            
+            epoch_start_time = time.time()
+            
             training_state['progress']['epoch'] = epoch + 1
             training_state['progress']['message'] = f"Training epoch {epoch+1}/{config['num_epochs']}..."
             
@@ -395,8 +427,23 @@ def run_training_job(config):
             if metrics['val_loss'] is not None:
                 trainer.history['val_loss'].append(metrics['val_loss'])
             
+            # Calculate duration and estimated remaining time
+            current_time = time.time()
+            elapsed_time = current_time - start_time
+            epoch_duration = current_time - epoch_start_time
+            epoch_times.append(epoch_duration)
+            
+            # Calculate estimated remaining time based on average epoch time
+            estimated_remaining = 0
+            if len(epoch_times) > 0:
+                avg_epoch_time = sum(epoch_times) / len(epoch_times)
+                remaining_epochs = config['num_epochs'] - (epoch + 1)
+                estimated_remaining = avg_epoch_time * remaining_epochs
+            
             training_state['progress']['train_loss'] = metrics['train_loss']
             training_state['progress']['val_loss'] = metrics['val_loss']
+            training_state['progress']['duration_seconds'] = int(elapsed_time)
+            training_state['progress']['estimated_remaining_seconds'] = int(estimated_remaining)
         
         train_metrics = trainer.evaluate_metrics(train_loader)
         val_metrics = trainer.evaluate_metrics(val_loader)
@@ -458,9 +505,52 @@ def run_training_job(config):
         traceback.print_exc()
 
 
+@router.post("/stop-training")
+async def stop_training():
+    """Stop/cancel the current training job."""
+    global training_state
+    
+    if training_state['status'] != 'training':
+        raise HTTPException(
+            status_code=400, 
+            detail=f"No training job is currently running. Current status: {training_state['status']}"
+        )
+    
+    # Set cancellation flag
+    training_state['cancelled'] = True
+    logger.info("Training cancellation requested via API")
+    
+    return {
+        "success": True,
+        "message": "Training cancellation requested. The job will stop after the current epoch completes."
+    }
+
+
 @router.get("/training-status")
 async def get_training_status():
     """Get current training status and progress."""
+    import time
     global training_state
+    
+    # Calculate current duration if training is in progress
+    if training_state['status'] == 'training' and 'progress' in training_state:
+        progress = training_state['progress']
+        if 'start_time' in progress:
+            current_time = time.time()
+            elapsed_time = current_time - progress['start_time']
+            progress['duration_seconds'] = int(elapsed_time)
+            
+            # Update estimated remaining if we have epoch info
+            if 'epoch' in progress and 'total_epochs' in progress:
+                epoch = progress.get('epoch', 0)
+                total_epochs = progress.get('total_epochs', 0)
+                
+                if epoch > 0 and total_epochs > 0:
+                    # Estimate based on current progress
+                    avg_time_per_epoch = elapsed_time / epoch if epoch > 0 else 0
+                    remaining_epochs = total_epochs - epoch
+                    estimated_remaining = avg_time_per_epoch * remaining_epochs
+                    progress['estimated_remaining_seconds'] = int(estimated_remaining)
+    
     return training_state
 

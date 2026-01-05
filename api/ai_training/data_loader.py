@@ -549,17 +549,12 @@ class TrainingDataLoader:
                 # Always update synthetic_info to reflect actual state
                 # Use n_added_successfully if > 0 (successful path), otherwise check if we had partial success
                 if n_added_successfully > 0:
-                    if not synthetic_info.get('enabled'):
-                        # Update if not already set (shouldn't happen, but safety net)
-                        synthetic_info = {
-                            'enabled': True,
-                            'n_samples': synthetic_n_samples,
-                            'n_generated': n_generated,  # Use actual generation count, not added count
-                            'n_added': n_added_successfully,
-                            'complexity_levels': 5,
-                            'score_threshold': 20.0,
-                            'partial': True  # Flag to indicate partial success
-                        }
+                    # If n_added_successfully > 0, synthetic_info['enabled'] was already set to True at line 520
+                    # The previous condition 'if not synthetic_info.get('enabled')' was dead code because:
+                    # - If n_added_successfully > 0 here, line 520 must have executed (setting enabled = True)
+                    # - If an exception occurred before line 520, n_added_successfully would be reset to 0 in except block
+                    # Just ensure n_generated is up to date (in case it differs from len(synthetic_images))
+                    synthetic_info['n_generated'] = n_generated
                 elif n_before_rollback > 0:
                     # Exception occurred but we had partial success before rollback
                     # Ensure synthetic_info reflects that synthetic images were attempted but rolled back
@@ -749,4 +744,3 @@ class TrainingDataLoader:
                 json.dump(metadata, f, indent=2)
         
         return stats, output_dir
-
