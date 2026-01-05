@@ -293,6 +293,7 @@
             const normalization = metadata.normalization || {};
             const synthetic = metadata.synthetic_bad_images || {};
             const modelInfo = metadata.model || {};
+            const trainingHistory = metadata.training_history || {};
             
             // Detect training mode if not set (for older models)
             let trainingMode = metadata.training_mode;
@@ -397,7 +398,7 @@
                         <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
                             ${valMetrics.accuracy !== undefined || metadata.training_mode === 'classification' ? `
                                 Accuracy: <strong style="color: ${valMetrics.accuracy > 0.7 ? '#28a745' : valMetrics.accuracy > 0.5 ? '#ffc107' : '#dc3545'};">${valMetrics.accuracy ? (valMetrics.accuracy * 100).toFixed(1) + '%' : 'N/A'}</strong> | 
-                                F1: <strong>${valMetrics.f1_score_macro ? (valMetrics.f1_score_macro * 100).toFixed(1) + '%' : 'N/A'}</strong>
+                                F1: <strong>${(valMetrics.f1_score_macro || valMetrics.macro_f1) ? ((valMetrics.f1_score_macro || valMetrics.macro_f1) * 100).toFixed(1) + '%' : 'N/A'}</strong>
                             ` : `
                                 R²: <strong style="color: ${valMetrics.r2_score > 0.7 ? '#28a745' : valMetrics.r2_score > 0.5 ? '#ffc107' : '#dc3545'};">${valMetrics.r2_score ? valMetrics.r2_score.toFixed(3) : 'N/A'}</strong> | 
                                 RMSE: <strong>${valMetrics.rmse ? valMetrics.rmse.toFixed(2) : 'N/A'}</strong> | 
@@ -406,6 +407,66 @@
                         </div>
                     </div>
                 </div>
+                
+                ${trainingHistory.train_loss && trainingHistory.val_loss ? `
+                    <div style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                        <div style="font-size: 0.9em; color: #666; margin-bottom: 10px; font-weight: 600;">
+                            📈 Training Loss History
+                        </div>
+                        
+                        <!-- Loss Plot Image -->
+                        <div style="text-align: center; margin-bottom: 15px;">
+                            <img src="/api/ai-training/models/${filename}/loss-plot" 
+                                 alt="Loss Plot" 
+                                 style="width: 100%; max-width: 800px; border-radius: 8px; border: 1px solid #dee2e6;"
+                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                            <div style="display: none; padding: 20px; background: #f8f9fa; border-radius: 8px; color: #666;">
+                                📊 Loss plot not available (training history may be missing)
+                            </div>
+                        </div>
+                        
+                        <!-- Loss Statistics -->
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; font-size: 0.85em; color: #333;">
+                            <div>
+                                <span style="color: #666;">Final Train Loss:</span> 
+                                <strong style="color: #667eea;">${trainingHistory.train_loss[trainingHistory.train_loss.length - 1]?.toFixed(4) || 'N/A'}</strong>
+                            </div>
+                            <div>
+                                <span style="color: #666;">Final Val Loss:</span> 
+                                <strong style="color: #667eea;">${trainingHistory.val_loss[trainingHistory.val_loss.length - 1]?.toFixed(4) || 'N/A'}</strong>
+                            </div>
+                            <div>
+                                <span style="color: #666;">Initial Train Loss:</span> 
+                                <strong>${trainingHistory.train_loss[0]?.toFixed(4) || 'N/A'}</strong>
+                            </div>
+                            <div>
+                                <span style="color: #666;">Initial Val Loss:</span> 
+                                <strong>${trainingHistory.val_loss[0]?.toFixed(4) || 'N/A'}</strong>
+                            </div>
+                            <div>
+                                <span style="color: #666;">Best Epoch:</span> 
+                                <strong style="color: #28a745;">${trainingHistory.val_loss.indexOf(Math.min(...trainingHistory.val_loss)) + 1}</strong>
+                            </div>
+                            <div>
+                                <span style="color: #666;">Total Epochs:</span> 
+                                <strong>${trainingHistory.train_loss.length}</strong>
+                            </div>
+                        </div>
+                        
+                        ${trainingHistory.train_loss.length > 5 ? `
+                            <details style="margin-top: 10px;">
+                                <summary style="cursor: pointer; color: #667eea; font-size: 0.85em;">
+                                    <strong>📋 Full Loss History (${trainingHistory.train_loss.length} epochs)</strong>
+                                </summary>
+                                <div style="margin-top: 8px; padding: 10px; background: #f8f9fa; border-radius: 4px; max-height: 200px; overflow-y: auto; font-size: 0.8em; color: #333; font-family: monospace;">
+                                    ${trainingHistory.train_loss.map((loss, idx) => `
+                                        Epoch ${(idx + 1).toString().padStart(3)}: Train=${loss.toFixed(4)}, Val=${trainingHistory.val_loss[idx]?.toFixed(4) || 'N/A'}
+                                    `).join('<br>')}
+                                </div>
+                            </details>
+                        ` : ''}
+                    </div>
+                ` : ''}
                 
                 <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
                     <div>
@@ -550,7 +611,7 @@
                         metricsHtml = `
                             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.9em;">
                                 <div><span style="color: #666;">Accuracy:</span> <strong style="color: #28a745;">${(val.accuracy * 100).toFixed(1)}%</strong></div>
-                                <div><span style="color: #666;">F1 (Macro):</span> <strong style="color: #667eea;">${val.f1_score_macro ? (val.f1_score_macro * 100).toFixed(1) + '%' : 'N/A'}</strong></div>
+                                <div><span style="color: #666;">F1 (Macro):</span> <strong style="color: #667eea;">${(val.f1_score_macro || val.macro_f1) ? ((val.f1_score_macro || val.macro_f1) * 100).toFixed(1) + '%' : 'N/A'}</strong></div>
                                 <div><span style="color: #666;">Precision:</span> <strong style="color: #667eea;">${val.precision_score_macro ? (val.precision_score_macro * 100).toFixed(1) + '%' : 'N/A'}</strong></div>
                             </div>
                             ${val.per_class_f1 && val.per_class_f1.length > 0 ? `

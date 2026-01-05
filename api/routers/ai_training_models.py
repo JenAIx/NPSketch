@@ -173,6 +173,58 @@ async def get_model_metadata(model_filename: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/models/{model_filename}/loss-plot")
+async def get_loss_plot(model_filename: str):
+    """
+    Generate and return loss plot for a trained model.
+    
+    Shows training and validation loss over epochs with best epoch marker.
+    """
+    from pathlib import Path
+    from fastapi.responses import StreamingResponse
+    
+    try:
+        # Load metadata
+        model_stem = model_filename.replace('.pth', '')
+        metadata_file = Path("/app/data/models") / f"{model_stem}_metadata.json"
+        
+        if not metadata_file.exists():
+            raise HTTPException(status_code=404, detail="Metadata not found")
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        # Get training history
+        history = metadata.get('training_history', {})
+        train_loss = history.get('train_loss', [])
+        val_loss = history.get('val_loss', [])
+        
+        if not train_loss or not val_loss:
+            raise HTTPException(status_code=404, detail="No training history available")
+        
+        # Generate plot
+        from ai_training.visualization import generate_loss_plot
+        
+        target_feature = metadata.get('target_feature', 'Unknown')
+        title = f"Training Loss History - {target_feature}"
+        
+        plot_buffer = generate_loss_plot(train_loss, val_loss, title=title)
+        
+        logger.info(f"Generated loss plot for {model_filename}: {len(train_loss)} epochs")
+        
+        return StreamingResponse(
+            plot_buffer,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=3600"}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate loss plot: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate loss plot: {str(e)}")
+
+
 @router.post("/models/test")
 async def test_model(
     request: dict = Body(...),
@@ -212,47 +264,76 @@ async def test_model(
             with open(metadata_path, 'r') as f:
                 metadata = json.load(f)
             
-            # Extract configuration from metadata
-            feature = metadata['target_feature']
-            num_outputs = metadata['model']['output_neurons']
+            # Extract configuration from metadata (with defensive fallbacks)
+            feature = metadata.get('target_feature')
+            model_info = metadata.get('model', {})
+            num_outputs = model_info.get('output_neurons')
             
-            # Prefer training_mode from metadata, fallback to detection
-            training_mode = metadata.get('training_mode')
-            if training_mode:
-                # Use training_mode from metadata
-                is_classification = (training_mode == "classification")
-                if is_classification:
-                    num_classes = metadata.get('num_classes')
-                    if not num_classes:
-                        # Fallback: extract from feature name
-                        if feature.startswith('Custom_Class_'):
-                            num_classes = int(feature.replace('Custom_Class_', ''))
-                        else:
-                            # Use output_neurons as fallback
-                            num_classes = num_outputs
-                    logger.info(f"Testing CLASSIFICATION model: {num_classes} classes (from metadata)")
-                else:
-                    # Regression mode
-                    # Get normalizer if used
-                    if metadata.get('normalization', {}).get('enabled', False):
-                        from ai_training.normalization import TargetNormalizer
-                        normalizer = TargetNormalizer.from_config(metadata['normalization'])
-                    logger.info(f"Testing REGRESSION model (from metadata)")
+            # If critical fields are missing, fall back to filename-based detection
+            if not feature or num_outputs is None:
+                logger.warning(f"Metadata missing critical fields (target_feature or model.output_neurons), falling back to filename detection")
+                metadata = None  # Force fallback to filename detection
+                # Reset variables to ensure clean fallback
+                feature = None
+                num_outputs = None
             else:
-                # Fallback: detect from feature name
-                is_classification = feature.startswith('Custom_Class_')
-                if is_classification:
-                    training_mode = "classification"
-                    num_classes = int(feature.replace('Custom_Class_', ''))
-                    logger.info(f"Testing CLASSIFICATION model: {num_classes} classes (detected from feature)")
+                # Prefer training_mode from metadata, fallback to detection
+                training_mode = metadata.get('training_mode')
+                if training_mode:
+                    # Use training_mode from metadata
+                    is_classification = (training_mode == "classification")
+                    if is_classification:
+                        num_classes = metadata.get('num_classes')
+                        if not num_classes:
+                            # Fallback: extract from feature name
+                            if feature.startswith('Custom_Class_'):
+                                num_classes = int(feature.replace('Custom_Class_', ''))
+                            else:
+                                # Use output_neurons as fallback
+                                num_classes = num_outputs
+                        logger.info(f"Testing CLASSIFICATION model: {num_classes} classes (from metadata)")
+                    else:
+                        # Regression mode
+                        # Get normalizer if used (respect enabled flag, check method for backward compatibility)
+                        norm_config = metadata.get('normalization', {})
+                        enabled = norm_config.get('enabled', True)  # Default to True for backward compatibility
+                        if enabled and norm_config.get('method'):
+                            from ai_training.normalization import TargetNormalizer
+                            try:
+                                normalizer = TargetNormalizer.from_config(norm_config)
+                                logger.info(f"Normalizer loaded: method={norm_config.get('method')}, enabled={enabled}")
+                            except Exception as e:
+                                logger.warning(f"Failed to load normalizer: {e}")
+                                normalizer = None
+                        logger.info(f"Testing REGRESSION model (from metadata)")
                 else:
-                    training_mode = "regression"
-                    # Get normalizer if used
-                    if metadata.get('normalization', {}).get('enabled', False):
-                        from ai_training.normalization import TargetNormalizer
-                        normalizer = TargetNormalizer.from_config(metadata['normalization'])
-                    logger.info(f"Testing REGRESSION model (detected from feature)")
-        else:
+                    # Fallback: detect from feature name (feature is guaranteed to exist here)
+                    if feature:
+                        is_classification = feature.startswith('Custom_Class_')
+                    else:
+                        # Should not reach here if defensive checks above work, but safety net
+                        is_classification = False
+                    if is_classification:
+                        training_mode = "classification"
+                        num_classes = int(feature.replace('Custom_Class_', ''))
+                        logger.info(f"Testing CLASSIFICATION model: {num_classes} classes (detected from feature)")
+                    else:
+                        training_mode = "regression"
+                        # Get normalizer if used (respect enabled flag, check method for backward compatibility)
+                        norm_config = metadata.get('normalization', {})
+                        enabled = norm_config.get('enabled', True)  # Default to True for backward compatibility
+                        if enabled and norm_config.get('method'):
+                            from ai_training.normalization import TargetNormalizer
+                            try:
+                                normalizer = TargetNormalizer.from_config(norm_config)
+                                logger.info(f"Normalizer loaded: method={norm_config.get('method')}, enabled={enabled}")
+                            except Exception as e:
+                                logger.warning(f"Failed to load normalizer: {e}")
+                                normalizer = None
+                        logger.info(f"Testing REGRESSION model (detected from feature)")
+        
+        # Execute filename-based fallback if metadata is None (either file doesn't exist or was set to None due to missing fields)
+        if metadata is None:
             # Fallback: extract from filename
             parts = model_filename.split('_')
             
@@ -275,34 +356,98 @@ async def test_model(
                 logger.info(f"Testing CLASSIFICATION model: {num_classes} classes (from filename)")
             else:
                 training_mode = "regression"
+                num_outputs = 1  # Regression models have 1 output neuron
                 logger.info(f"Testing REGRESSION model (from filename)")
         
         if not feature:
             raise HTTPException(status_code=400, detail="Could not determine target feature from model")
         
         # Prepare test dataloaders using holdout data
-        try:
-            test_loader, test_stats = prepare_test_dataloaders(
-                feature=feature,
-                metadata=metadata if metadata else {},
+        # Only use prepare_test_dataloaders if metadata exists and has val_image_ids
+        if metadata and metadata.get('val_image_ids'):
+            try:
+                test_loader, test_stats = prepare_test_dataloaders(
+                    feature=feature,
+                    metadata=metadata,
+                    normalizer=normalizer,
+                    is_classification=is_classification,
+                    num_classes=num_classes,
+                    db=db
+                )
+            except Exception as e:
+                logger.error(f"Failed to prepare test data: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Failed to prepare test data: {str(e)}")
+        else:
+            # Fallback: Load all available images with the feature (metadata missing or incomplete)
+            logger.warning(f"Metadata missing or incomplete (no val_image_ids). Loading all available images with feature '{feature}' for testing. "
+                          f"Note: This may include images used during training (data leakage possible).")
+            
+            # Load all images with the target feature from database
+            from ai_training.dataset import DrawingDataset
+            from torch.utils.data import DataLoader
+            
+            all_images = db.query(TrainingDataImage).filter(
+                TrainingDataImage.features_data.isnot(None)
+            ).all()
+            
+            # Filter images that have the target feature
+            test_images = []
+            for img in all_images:
+                try:
+                    features = json.loads(img.features_data)
+                    if feature in features or (is_classification and 'Custom_Class' in features):
+                        test_images.append({
+                            'id': img.id,
+                            'processed_image_data': img.processed_image_data,
+                            'features_data': img.features_data
+                        })
+                except (json.JSONDecodeError, KeyError):
+                    continue
+            
+            if len(test_images) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"No images found with feature '{feature}' in database"
+                )
+            
+            logger.info(f"Loaded {len(test_images)} images for testing (fallback mode - may include training data)")
+            
+            # Create test dataloader
+            test_dataset = DrawingDataset(
+                test_images,
+                feature,
+                transform=None,
                 normalizer=normalizer,
                 is_classification=is_classification,
-                num_classes=num_classes,
-                db=db
+                num_classes=num_classes
             )
-        except Exception as e:
-            logger.error(f"Failed to prepare test data: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Failed to prepare test data: {str(e)}")
+            
+            test_loader = DataLoader(
+                test_dataset,
+                batch_size=8,
+                shuffle=False
+            )
+            
+            test_stats = {
+                'test_samples': len(test_dataset),
+                'test_batches': len(test_loader)
+            }
         
         # Validate test dataloader
         if len(test_loader) == 0:
             raise HTTPException(status_code=400, detail=f"No test samples found for feature '{feature}'")
         
+        # Get use_sigmoid from metadata (if available)
+        use_sigmoid = None
+        if metadata:
+            use_sigmoid = metadata.get('use_sigmoid')
+        
         # Create trainer and load model
         trainer = CNNTrainer(
             num_outputs=num_outputs,
             normalizer=normalizer,
-            training_mode=training_mode
+            training_mode=training_mode,
+            use_sigmoid=use_sigmoid  # Use explicit value from metadata if available
         )
         trainer.load_model(str(model_path))
         

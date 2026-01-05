@@ -20,7 +20,7 @@ from config import get_config
 
 # Setup logging
 config = get_config()
-setup_from_config(config.get_section('logging'))
+setup_from_config(config)  # Pass full config, not just logging section
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/ai-training", tags=["ai_training_base"])
@@ -351,6 +351,9 @@ def run_training_job(config):
                     'config': aug_stats.get('augmentation_config', {})
                 }
                 
+                # Transfer synthetic_bad_images info from aug_stats to stats
+                stats['synthetic_bad_images'] = aug_stats.get('synthetic_bad_images', {'enabled': False})
+                
             finally:
                 db.close()
         else:
@@ -386,6 +389,12 @@ def run_training_job(config):
             
             metrics = trainer.train_epoch(train_loader, val_loader)
             
+            # Update training history
+            trainer.history['epoch'].append(epoch)
+            trainer.history['train_loss'].append(metrics['train_loss'])
+            if metrics['val_loss'] is not None:
+                trainer.history['val_loss'].append(metrics['val_loss'])
+            
             training_state['progress']['train_loss'] = metrics['train_loss']
             training_state['progress']['val_loss'] = metrics['val_loss']
         
@@ -399,6 +408,7 @@ def run_training_job(config):
             'target_feature': config['target_feature'],
             'training_mode': training_mode,
             'num_classes': num_classes,
+            'use_sigmoid': trainer.use_sigmoid,  # Store sigmoid usage for model loading
             'training_config': {
                 'train_split': config['train_split'],
                 'num_epochs': config['num_epochs'],

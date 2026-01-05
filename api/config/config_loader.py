@@ -43,7 +43,7 @@ class ConfigLoader:
     
     def _apply_env_overrides(self):
         """Apply environment variable overrides to config."""
-        # Example: NPSKETCH_TRAINING_BATCH_SIZE=16
+        # Example: NPSKETCH_TRAINING_DEFAULTS_BATCH_SIZE=16
         prefix = "NPSKETCH_"
         
         for key, value in os.environ.items():
@@ -51,11 +51,60 @@ class ConfigLoader:
                 # Remove prefix and convert to lowercase
                 config_key = key[len(prefix):].lower()
                 
-                # Parse path (e.g., "training_batch_size" -> ["training", "batch_size"])
-                parts = config_key.split('_')
+                # Parse path by matching against actual YAML structure
+                # This handles underscores in key names correctly
+                parts = self._parse_config_path(config_key)
                 
-                # Try to find and set in config
-                self._set_nested_value(self._config, parts, value)
+                if parts:
+                    # Try to find and set in config
+                    self._set_nested_value(self._config, parts, value)
+    
+    def _parse_config_path(self, env_key: str) -> list:
+        """
+        Parse environment variable key into config path parts.
+        
+        Handles underscores in key names by matching against actual YAML structure.
+        
+        Args:
+            env_key: Environment variable key without prefix (e.g., "training_defaults_batch_size")
+        
+        Returns:
+            List of path parts (e.g., ["training", "defaults", "batch_size"])
+        """
+        # Split by underscores
+        all_parts = env_key.split('_')
+        
+        # Try to match against actual config structure
+        # Start from root and try to match longest possible keys
+        current = self._config
+        result = []
+        i = 0
+        
+        while i < len(all_parts):
+            # Try to match progressively longer key names
+            matched = False
+            for length in range(len(all_parts) - i, 0, -1):
+                # Try key made from next 'length' parts
+                candidate_key = '_'.join(all_parts[i:i+length])
+                
+                if isinstance(current, dict) and candidate_key in current:
+                    result.append(candidate_key)
+                    current = current[candidate_key]
+                    i += length
+                    matched = True
+                    break
+            
+            if not matched:
+                # If no match found, try single part (for backward compatibility)
+                if isinstance(current, dict) and all_parts[i] in current:
+                    result.append(all_parts[i])
+                    current = current[all_parts[i]]
+                    i += 1
+                else:
+                    # Path not found, return empty list
+                    return []
+        
+        return result
     
     def _set_nested_value(self, config: Dict, parts: list, value: str):
         """Set nested configuration value."""

@@ -140,6 +140,7 @@ class TargetNormalizer:
     def get_config(self) -> Dict:
         """Get normalizer configuration for saving."""
         return {
+            'enabled': True,  # Explicitly mark as enabled
             'method': self.method,
             'min_value': self.min_value,
             'max_value': self.max_value,
@@ -151,6 +152,14 @@ class TargetNormalizer:
     @classmethod
     def from_config(cls, config: Dict) -> 'TargetNormalizer':
         """Create normalizer from saved configuration."""
+        # First check if normalization is explicitly disabled
+        if not config.get('enabled', True):
+            raise ValueError("Normalizer is disabled in config")
+        
+        # Then check if method key exists (required for creating normalizer)
+        if 'method' not in config:
+            raise ValueError("Normalizer config is missing required 'method' key")
+        
         normalizer = cls(
             method=config['method'],
             value_range=config.get('value_range')

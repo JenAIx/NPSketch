@@ -101,8 +101,16 @@ def get_model_summary(model: DrawingClassifier) -> Dict:
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     
-    # Get output size
-    output_size = model.backbone.fc[-1].out_features if isinstance(model.backbone.fc, nn.Sequential) else 1
+    # Get output size - find last Linear layer (may be followed by Sigmoid)
+    output_size = 1
+    if isinstance(model.backbone.fc, nn.Sequential):
+        # Find last Linear layer (not Sigmoid/ReLU/Dropout)
+        for layer in reversed(model.backbone.fc):
+            if isinstance(layer, nn.Linear):
+                output_size = layer.out_features
+                break
+    elif isinstance(model.backbone.fc, nn.Linear):
+        output_size = model.backbone.fc.out_features
     
     # Get head architecture details
     head_layers = []

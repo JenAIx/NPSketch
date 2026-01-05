@@ -206,11 +206,21 @@ class CNNTrainer:
                     all_targets.extend(targets.cpu().numpy())
                 else:
                     # Regression: get raw output values
+                    # Clamp to [0, 1] if using sigmoid (safety check)
+                    if self.use_sigmoid:
+                        outputs = torch.clamp(outputs, 0.0, 1.0)
                     all_predictions.extend(outputs.cpu().numpy().flatten())
                     all_targets.extend(targets.cpu().numpy().flatten())
         
         predictions = np.array(all_predictions)
         targets = np.array(all_targets)
+        
+        # Debug: Log prediction range before denormalization (only if debug level)
+        if self.training_mode == "regression" and len(predictions) > 0:
+            logger.debug(f"Model outputs (before denormalization): min={predictions.min():.6f}, max={predictions.max():.6f}, mean={predictions.mean():.6f}")
+            logger.debug(f"use_sigmoid: {self.use_sigmoid}, has_normalizer: {self.normalizer is not None}")
+        elif self.training_mode == "regression" and len(predictions) == 0:
+            logger.warning("Empty predictions array in regression mode - skipping debug logging")
         
         if self.training_mode == "classification":
             # Classification metrics
@@ -223,8 +233,14 @@ class CNNTrainer:
         """Calculate regression metrics (MAE, RMSE, R², etc.)"""
         # Denormalize if normalizer is provided
         if self.normalizer is not None:
+            predictions_before = predictions.copy()
+            targets_before = targets.copy()
+            
             predictions = self.normalizer.inverse_transform(predictions)
             targets = self.normalizer.inverse_transform(targets)
+            
+            # Debug: Log after denormalization (only if debug level)
+            logger.debug(f"After denormalization: min={predictions.min():.2f}, max={predictions.max():.2f}, mean={predictions.mean():.2f}")
         
         # Calculate metrics
         mse = np.mean((predictions - targets) ** 2)
@@ -290,7 +306,8 @@ class CNNTrainer:
         
         return {
             'accuracy': float(accuracy),
-            'macro_f1': float(macro_f1),
+            'macro_f1': float(macro_f1),  # Keep for backward compatibility
+            'f1_score_macro': float(macro_f1),  # Frontend expects this key
             'per_class': per_class_metrics,
             'confusion_matrix': confusion_matrix.tolist(),
             'predictions': predictions.tolist()[:1000],

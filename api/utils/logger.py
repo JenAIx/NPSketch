@@ -131,8 +131,14 @@ def setup_from_config(config):
         # ConfigLoader instance
         logging_config = config.get_section('logging')
     elif isinstance(config, dict):
-        # Dict with 'logging' key
-        logging_config = config.get('logging', {})
+        # Check if it's already the logging section (has 'level' or 'format' keys)
+        # or if it's a full config dict with 'logging' key
+        if 'level' in config or 'format' in config or 'file' in config or 'console' in config:
+            # Already the logging section
+            logging_config = config
+        else:
+            # Full config dict with 'logging' key
+            logging_config = config.get('logging', {})
     else:
         raise TypeError(f"config must be ConfigLoader or dict, got {type(config)}")
     

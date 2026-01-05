@@ -223,6 +223,7 @@ class TrainingDataLoader:
         
         # Check if classification
         is_classification_mode = target_feature.startswith('Custom_Class_')
+        num_classes_str = None  # Initialize to avoid NameError
         if is_classification_mode:
             num_classes_str = target_feature.replace('Custom_Class_', '')
         
@@ -386,6 +387,7 @@ class TrainingDataLoader:
         
         # Check if classification
         is_classification_mode = target_feature.startswith('Custom_Class_')
+        num_classes_str = None  # Initialize to avoid NameError
         if is_classification_mode:
             num_classes_str = target_feature.replace('Custom_Class_', '')
         
@@ -431,6 +433,8 @@ class TrainingDataLoader:
             # Track original length for potential rollback
             original_images_count = len(images_data)
             n_added_successfully = 0
+            n_before_rollback = 0  # Track count before rollback for finally block
+            n_generated = 0  # Track actual count of generated images (regardless of add success)
             
             try:
                 from ai_training.synthetic_bad_images import generate_synthetic_bad_images
@@ -445,9 +449,15 @@ class TrainingDataLoader:
                     random_seed=random_seed
                 )
                 
+                # Track actual generation count (regardless of whether they're successfully added)
+                n_generated = len(synthetic_images)
+                
                 # Determine target structure ONCE (before loop)
                 if is_classification_mode:
                     # For classification: Get Custom_Class structure from a real image
+                    if num_classes_str is None:
+                        raise ValueError(f"num_classes_str is None for classification mode")
+                    
                     sample_features = None
                     for img_data in images_data[:5]:
                         try:
@@ -476,6 +486,9 @@ class TrainingDataLoader:
                     try:
                         # Create features_data based on mode
                         if is_classification_mode:
+                            if num_classes_str is None:
+                                raise ValueError(f"num_classes_str is None for classification mode")
+                            
                             features_dict = {
                                 "Custom_Class": {
                                     num_classes_str: {
@@ -521,6 +534,8 @@ class TrainingDataLoader:
             
             except Exception as e:
                 # Rollback: Remove any partially added synthetic images
+                # Store count before resetting for finally block
+                n_before_rollback = n_added_successfully
                 if n_added_successfully > 0:
                     logger.warning(f"Rolling back {n_added_successfully} partially added synthetic images...")
                     images_data = images_data[:original_images_count]
@@ -532,17 +547,35 @@ class TrainingDataLoader:
             
             finally:
                 # Always update synthetic_info to reflect actual state
+                # Use n_added_successfully if > 0 (successful path), otherwise check if we had partial success
                 if n_added_successfully > 0:
                     if not synthetic_info.get('enabled'):
                         # Update if not already set (shouldn't happen, but safety net)
                         synthetic_info = {
                             'enabled': True,
                             'n_samples': synthetic_n_samples,
-                            'n_generated': n_added_successfully,
+                            'n_generated': n_generated,  # Use actual generation count, not added count
                             'n_added': n_added_successfully,
                             'complexity_levels': 5,
                             'score_threshold': 20.0,
                             'partial': True  # Flag to indicate partial success
+                        }
+                elif n_before_rollback > 0:
+                    # Exception occurred but we had partial success before rollback
+                    # Ensure synthetic_info reflects that synthetic images were attempted but rolled back
+                    if synthetic_info.get('enabled'):
+                        synthetic_info['partial'] = True
+                        synthetic_info['n_added'] = 0  # All were rolled back
+                    else:
+                        # Update synthetic_info to reflect generation attempt (even if rolled back)
+                        synthetic_info = {
+                            'enabled': True,
+                            'n_samples': synthetic_n_samples,
+                            'n_generated': n_generated,  # Use actual generation count
+                            'n_added': 0,  # All were rolled back
+                            'complexity_levels': 5,
+                            'score_threshold': 20.0,
+                            'partial': True  # Flag to indicate rollback occurred
                         }
         
         # Create train/val split
@@ -552,6 +585,8 @@ class TrainingDataLoader:
             
             # Extract target value
             if is_classification_mode:
+                if num_classes_str is None:
+                    raise ValueError(f"num_classes_str is None for classification mode (target_feature={target_feature})")
                 y_values.append(float(features["Custom_Class"][num_classes_str]["label"]))
             else:
                 y_values.append(float(features[target_feature]))
