@@ -130,6 +130,32 @@ All notable changes to NPSketch will be documented in this file.
 - ✅ Need to distinguish "bad" from "good"
 - ❌ Already balanced data (> 10% low scores)
 
+### Bugfixes (2025-12-30)
+
+#### Synthetic Images ID Filter in Model Testing
+- **Problem**: Test model endpoint tried to load synthetic images from database (IDs like "synthetic_bad_0")
+- **Impact**: Missing 14 validation samples, incorrect R² scores (-23.877 instead of 0.917)
+- **Solution**: Filter out string IDs before database query, only use integer IDs
+- **Result**: Test metrics now match training validation metrics correctly
+
+#### Duplicate Logging in Exception Handlers
+- **Problem**: Same error logged twice in Oxford extraction endpoint
+- **Impact**: Duplicate log entries causing confusion
+- **Solution**: Removed redundant logger.error() call and traceback.print_exc()
+- **Result**: Clean, single-entry error logs with full traceback via exc_info=True
+
+#### Integer Division Remainder Loss
+- **Problem**: n_samples // complexity_levels discarded remainder (51 images → 50 generated)
+- **Impact**: Fewer synthetic images than requested
+- **Solution**: Distribute remainder across last complexity levels
+- **Result**: Exactly n_samples images generated
+
+#### Metadata Inconsistency on Partial Errors
+- **Problem**: Partial synthetic images added to dataset without metadata update on error
+- **Impact**: Metadata showed "disabled" but images were present
+- **Solution**: Rollback logic + per-image error handling + finally safety net
+- **Result**: Guaranteed consistency between dataset and metadata
+
 ---
 
 ## [1.0.0] - 2025-11-12
@@ -195,7 +221,40 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
-**Current Version:** 1.1.0  
-**Last Updated:** 2025-12-29  
+---
+
+## [1.1.2] - 2026-01-05
+
+### Fixed - Regression Model Output Range
+
+**Problem:** Regression models could output values outside [0, 1] range (e.g., -0.2091)
+
+**Impact:** 
+- Denormalized predictions outside valid range (e.g., -12.5 instead of 0-60)
+- Negative R² scores during testing (-23.877)
+- Model predictions unreliable
+
+**Solution:** Added Sigmoid activation at output layer for regression models
+- Ensures output strictly in [0, 1] range
+- Auto-enabled for regression with normalization
+- Configurable via `use_sigmoid` parameter
+
+**Changes:**
+- `DrawingClassifier`: Added `use_sigmoid` parameter
+- `CNNTrainer`: Auto-enables Sigmoid for regression with normalizer
+- Config: Added `model.regression.use_sigmoid: true` setting
+
+**Breaking Change:** Requires retraining all regression models with normalized targets
+
+**Benefits:**
+- Guaranteed valid output range
+- Better numerical stability
+- More reliable predictions
+- Proper bounded regression
+
+---
+
+**Current Version:** 1.1.2  
+**Last Updated:** 2026-01-05  
 **Status:** Production Ready
 

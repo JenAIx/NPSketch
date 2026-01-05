@@ -114,19 +114,27 @@ def get_logger(name: str, level: Optional[str] = None) -> logging.Logger:
     return logger
 
 
-def setup_from_config(config: dict):
+def setup_from_config(config):
     """
-    Setup logging from configuration dictionary.
+    Setup logging from configuration object or dictionary.
     
     Args:
-        config: Configuration dict with logging section
+        config: ConfigLoader instance or full config dict (with 'logging' key)
     
     Example:
         >>> from config import get_config
         >>> config = get_config()
-        >>> setup_from_config(config.get_section("logging"))
+        >>> setup_from_config(config)  # Pass full config object
     """
-    logging_config = config.get('logging', {})
+    # Handle both ConfigLoader and dict
+    if hasattr(config, 'get_section'):
+        # ConfigLoader instance
+        logging_config = config.get_section('logging')
+    elif isinstance(config, dict):
+        # Dict with 'logging' key
+        logging_config = config.get('logging', {})
+    else:
+        raise TypeError(f"config must be ConfigLoader or dict, got {type(config)}")
     
     # Extract settings
     log_level = logging_config.get('level', 'INFO')

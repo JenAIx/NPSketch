@@ -146,6 +146,21 @@
                     return;
                 }
                 
+                // Load display labels from metadata for each model
+                for (let model of data.models) {
+                    if (model.has_metadata) {
+                        try {
+                            const metadataResp = await fetch(`/api/ai-training/models/${encodeURIComponent(model.filename)}/metadata`);
+                            const metadata = await metadataResp.json();
+                            model.display_label = metadata.display_label || model.feature;
+                        } catch (e) {
+                            model.display_label = model.feature;
+                        }
+                    } else {
+                        model.display_label = model.feature;
+                    }
+                }
+                
                 container.innerHTML = data.models.map(model => {
                     const date = new Date(model.created_at * 1000).toLocaleString();
                     const safeName = model.filename.replace(/[^a-zA-Z0-9]/g, '_');
@@ -153,12 +168,15 @@
                         ? '<span style="background: #28a745; color: white; padding: 2px 8px; border-radius: 8px; font-size: 0.75em; margin-left: 8px;">📋 Metadata</span>'
                         : '';
                     
+                    // Display label will be loaded from metadata if available
+                    const displayName = model.display_label || model.feature;
+                    
                     return `
                         <div style="background: white; border: 2px solid #dee2e6; border-radius: 8px; padding: 15px; margin-bottom: 10px;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; cursor: pointer;" onclick="toggleMetadata('${model.filename}')">
                                 <div>
-                                    <div style="font-weight: 600; color: #333; font-size: 1.1em;">
-                                        ${model.feature}${metadataBadge}
+                                    <div style="font-weight: 600; color: #333; font-size: 1.1em;" id="display-name-${safeName}">
+                                        ${displayName}${metadataBadge}
                                     </div>
                                     <div style="color: #666; font-size: 0.9em;">${model.filename}</div>
                                 </div>
@@ -176,6 +194,9 @@
                             <div style="display: flex; gap: 10px;">
                                 <button class="btn" style="padding: 8px 16px; font-size: 0.9em;" onclick="testModel('${model.filename}')">
                                     🧪 Test Model
+                                </button>
+                                <button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.9em; background: #667eea;" onclick="renameModel('${model.filename}', '${displayName.replace(/'/g, "\\'")}')">
+                                    ✏️ Rename
                                 </button>
                                 <button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.9em; background: #dc3545;" onclick="deleteModel('${model.filename}')">
                                     🗑️ Delete
@@ -302,6 +323,11 @@
                             ${metadata.training_mode === 'classification' ? '🏷️ Classification' : '📊 Regression'}
                         </span>
                     </div>
+                    ${metadata.display_label ? `
+                        <div style="margin-bottom: 12px; padding: 8px; background: #e7f3ff; border-radius: 4px; border-left: 3px solid #667eea; color: #333;">
+                            <strong>Display Label:</strong> ${metadata.display_label}
+                        </div>
+                    ` : ''}
                     <div style="margin-bottom: 12px; padding: 8px; background: #f8f9fa; border-radius: 4px; color: #333;">
                         <strong>Target Feature:</strong> ${metadata.target_feature || 'N/A'}
                         ${metadata.num_classes ? ` <span style="color: #666;">(${metadata.num_classes} classes)</span>` : ''}
@@ -586,6 +612,44 @@
                 if (data.success) {
                     alert(`Model deleted: ${filename}`);
                     loadModels();
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+        
+        async function renameModel(filename, currentLabel) {
+            const newLabel = prompt(`Enter new label for model "${filename}":`, currentLabel);
+            
+            if (!newLabel || newLabel.trim() === '' || newLabel === currentLabel) {
+                return; // User cancelled or no change
+            }
+            
+            try {
+                const response = await fetch(`/api/ai-training/models/${encodeURIComponent(filename)}/rename`, {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({new_label: newLabel.trim()})
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    alert(`Model renamed to: ${data.new_label}`);
+                    
+                    // Update the display name in the UI without full reload
+                    const safeName = filename.replace(/[^a-zA-Z0-9]/g, '_');
+                    const displayNameElement = document.getElementById(`display-name-${safeName}`);
+                    if (displayNameElement) {
+                        const metadataBadge = displayNameElement.innerHTML.includes('📋 Metadata') 
+                            ? '<span style="background: #28a745; color: white; padding: 2px 8px; border-radius: 8px; font-size: 0.75em; margin-left: 8px;">📋 Metadata</span>'
+                            : '';
+                        displayNameElement.innerHTML = `${data.new_label}${metadataBadge}`;
+                    }
+                    
+                    // Update metadata cache if exists
+                    if (metadataCache[filename]) {
+                        metadataCache[filename].display_label = data.new_label;
+                    }
                 }
             } catch (error) {
                 alert(`Error: ${error.message}`);

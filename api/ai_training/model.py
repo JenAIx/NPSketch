@@ -19,15 +19,17 @@ class DrawingClassifier(nn.Module):
     Based on ResNet-18 with custom output head for multi-target prediction.
     """
     
-    def __init__(self, num_outputs: int = 1, pretrained: bool = True):
+    def __init__(self, num_outputs: int = 1, pretrained: bool = True, use_sigmoid: bool = False):
         """
         Initialize the model.
         
         Args:
             num_outputs: Number of output neurons (features to predict)
             pretrained: Use ImageNet pre-trained weights
+            use_sigmoid: Use Sigmoid activation at output (for regression with normalized targets)
         """
         super(DrawingClassifier, self).__init__()
+        self.use_sigmoid = use_sigmoid
         
         # Load pre-trained ResNet-18 (using modern API)
         if pretrained:
@@ -57,12 +59,23 @@ class DrawingClassifier(nn.Module):
         num_features = self.backbone.fc.in_features
         
         # Replace final layer with custom head
-        self.backbone.fc = nn.Sequential(
-            nn.Linear(num_features, 256),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(256, num_outputs)
-        )
+        if use_sigmoid:
+            # For regression with normalized targets [0, 1]
+            self.backbone.fc = nn.Sequential(
+                nn.Linear(num_features, 256),
+                nn.ReLU(),
+                nn.Dropout(0.5),
+                nn.Linear(256, num_outputs),
+                nn.Sigmoid()  # Ensures output in [0, 1]
+            )
+        else:
+            # For classification or raw regression
+            self.backbone.fc = nn.Sequential(
+                nn.Linear(num_features, 256),
+                nn.ReLU(),
+                nn.Dropout(0.5),
+                nn.Linear(256, num_outputs)
+            )
     
     def forward(self, x):
         """Forward pass."""

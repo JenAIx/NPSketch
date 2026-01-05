@@ -105,6 +105,10 @@ model:
     hidden_size: 256
     dropout: 0.5
   
+  # Output activation (for regression)
+  regression:
+    use_sigmoid: true  # Ensures output in [0, 1] for normalized targets
+  
   # Device settings
   device: "cpu"  # or "cuda" if GPU available
   

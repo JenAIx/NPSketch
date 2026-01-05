@@ -31,7 +31,8 @@ class CNNTrainer:
         learning_rate: float = 0.001,
         device: str = None,
         normalizer=None,
-        training_mode: str = "regression"
+        training_mode: str = "regression",
+        use_sigmoid: bool = None
     ):
         """
         Initialize CNN trainer.
@@ -42,11 +43,19 @@ class CNNTrainer:
             device: 'cuda', 'cpu', or None (auto-detect)
             normalizer: Target normalizer (None for classification)
             training_mode: 'regression' or 'classification'
+            use_sigmoid: Use Sigmoid at output (auto: True for regression with normalizer, False otherwise)
         """
         self.num_outputs = num_outputs
         self.learning_rate = learning_rate
         self.normalizer = normalizer
         self.training_mode = training_mode
+        
+        # Auto-determine use_sigmoid if not specified
+        if use_sigmoid is None:
+            # Use Sigmoid for regression with normalization
+            use_sigmoid = (training_mode == "regression" and normalizer is not None)
+        
+        self.use_sigmoid = use_sigmoid
         
         # Auto-detect device
         if device is None:
@@ -65,8 +74,11 @@ class CNNTrainer:
         logger.info(f"Using device: {self.device}")
         
         # Initialize model
-        self.model = DrawingClassifier(num_outputs=num_outputs, pretrained=True)
+        self.model = DrawingClassifier(num_outputs=num_outputs, pretrained=True, use_sigmoid=use_sigmoid)
         self.model.to(self.device)
+        
+        if use_sigmoid:
+            logger.info(f"Using Sigmoid output activation (output range: [0, 1])")
         
         # Optimizer and loss - conditional based on training mode
         self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)

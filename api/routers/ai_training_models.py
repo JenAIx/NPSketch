@@ -18,6 +18,93 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/ai-training", tags=["ai_training_models"])
 
 
+def prepare_test_dataloaders(
+    feature: str,
+    metadata: dict,
+    normalizer,
+    is_classification: bool,
+    num_classes: int,
+    db: Session
+):
+    """
+    Prepare test dataloaders using validation data from metadata.
+    
+    Uses val_image_ids from model metadata (original images, no augmentation/synthetic).
+    Fast and avoids timeout issues.
+    
+    Args:
+        feature: Target feature name
+        metadata: Model metadata
+        normalizer: Normalizer instance (if used)
+        is_classification: True for classification mode
+        num_classes: Number of classes (for classification)
+        db: Database session
+    
+    Returns:
+        (test_loader, stats)
+    """
+    # Get validation IDs from metadata
+    val_image_ids = metadata.get('val_image_ids', [])
+    
+    # Filter to only integer IDs (exclude synthetic images like "synthetic_bad_0")
+    val_image_ids_db = [id for id in val_image_ids if isinstance(id, int)]
+    
+    n_synthetic_val = len(val_image_ids) - len(val_image_ids_db)
+    
+    if n_synthetic_val > 0:
+        logger.info(f"Filtered out {n_synthetic_val} synthetic validation images")
+    
+    logger.info(f"Using {len(val_image_ids_db)} validation images from metadata (original, no augmentation)")
+    
+    if len(val_image_ids_db) == 0:
+        raise ValueError(f"No validation images in metadata")
+    
+    # Load validation images from DB
+    val_images = db.query(TrainingDataImage).filter(
+        TrainingDataImage.id.in_(val_image_ids_db),
+        TrainingDataImage.features_data.isnot(None)
+    ).all()
+    
+    if len(val_images) == 0:
+        raise ValueError(f"Validation images not found in database (IDs may have been deleted)")
+    
+    test_images = []
+    for img in val_images:
+        test_images.append({
+            'id': img.id,
+            'processed_image_data': img.processed_image_data,
+            'features_data': img.features_data
+        })
+    
+    logger.info(f"Loaded {len(test_images)} validation images for testing")
+    
+    # Create test dataloader (no train/val split, just test)
+    from ai_training.dataset import DrawingDataset
+    from torch.utils.data import DataLoader
+    
+    test_dataset = DrawingDataset(
+        test_images,
+        feature,
+        transform=None,
+        normalizer=normalizer,
+        is_classification=is_classification,
+        num_classes=num_classes
+    )
+    
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=8,
+        shuffle=False
+    )
+    
+    stats = {
+        'test_samples': len(test_dataset),
+        'test_batches': len(test_loader)
+    }
+    
+    return test_loader, stats
+
+
 @router.get("/models")
 async def list_models():
     """List all saved models with metadata."""
@@ -193,102 +280,25 @@ async def test_model(
         if not feature:
             raise HTTPException(status_code=400, detail="Could not determine target feature from model")
         
-        # Check if we have original train/val image IDs in metadata
-        train_image_ids = None
-        val_image_ids = None
-        if metadata is not None:
-            train_image_ids = metadata.get('train_image_ids')
-            val_image_ids = metadata.get('val_image_ids')
+        # Prepare test dataloaders using holdout data
+        try:
+            test_loader, test_stats = prepare_test_dataloaders(
+                feature=feature,
+                metadata=metadata if metadata else {},
+                normalizer=normalizer,
+                is_classification=is_classification,
+                num_classes=num_classes,
+                db=db
+            )
+        except Exception as e:
+            logger.error(f"Failed to prepare test data: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to prepare test data: {str(e)}")
         
-        # Load training data
-        if train_image_ids and val_image_ids:
-            # Use original train/val split from metadata
-            logger.info(f"Using original train/val split from metadata: {len(train_image_ids)} train, {len(val_image_ids)} val")
-            
-            # Load only the specific images from metadata
-            all_ids = set(train_image_ids + val_image_ids)
-            images = db.query(TrainingDataImage).filter(
-                TrainingDataImage.id.in_(all_ids),
-                TrainingDataImage.features_data.isnot(None)
-            ).all()
-            
-            if not images:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"None of the original training images (IDs: {list(all_ids)[:10]}...) found in database. "
-                           f"The database may have been modified since training."
-                )
-            
-            images_data = []
-            for img in images:
-                images_data.append({
-                    'id': img.id,
-                    'processed_image_data': img.processed_image_data,
-                    'features_data': img.features_data
-                })
-            
-            # Create dataloaders from specific image IDs
-            try:
-                from ai_training.dataset import create_dataloaders_from_ids
-                train_loader, val_loader, stats = create_dataloaders_from_ids(
-                    images_data,
-                    feature,
-                    train_image_ids,
-                    val_image_ids,
-                    batch_size=8,
-                    shuffle=False,  # Don't shuffle for testing
-                    normalizer=normalizer,
-                    is_classification=is_classification,
-                    num_classes=num_classes
-                )
-                logger.info(f"Created dataloaders from metadata: {stats['train_samples']} train, {stats['val_samples']} val samples")
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=f"Dataset error: {str(e)}")
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Failed to create dataloaders from metadata: {str(e)}")
-        else:
-            # Fallback: Create new split (for older models without image IDs in metadata)
-            logger.info("No train/val image IDs in metadata, creating new split")
-            
-            images = db.query(TrainingDataImage).filter(
-                TrainingDataImage.features_data.isnot(None)
-            ).all()
-            
-            if not images:
-                raise HTTPException(status_code=400, detail="No training data found in database")
-            
-            images_data = []
-            for img in images:
-                images_data.append({
-                    'id': img.id,
-                    'processed_image_data': img.processed_image_data,
-                    'features_data': img.features_data
-                })
-            
-            # Create dataloaders with new split
-            try:
-                train_loader, val_loader, stats = create_dataloaders(
-                    images_data,
-                    feature,
-                    train_split=0.8,
-                    batch_size=8,
-                    normalizer=normalizer,
-                    is_classification=is_classification,
-                    num_classes=num_classes
-                )
-                logger.info(f"Created dataloaders with new split: {stats['train_samples']} train, {stats['val_samples']} val samples")
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=f"Dataset error: {str(e)}")
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Failed to create dataloaders: {str(e)}")
+        # Validate test dataloader
+        if len(test_loader) == 0:
+            raise HTTPException(status_code=400, detail=f"No test samples found for feature '{feature}'")
         
-        # Validate that dataloaders are not empty
-        if len(train_loader) == 0:
-            raise HTTPException(status_code=400, detail=f"No training samples found for feature '{feature}'")
-        if len(val_loader) == 0:
-            raise HTTPException(status_code=400, detail=f"No validation samples found for feature '{feature}'")
-        
-        # Create trainer with correct configuration
+        # Create trainer and load model
         trainer = CNNTrainer(
             num_outputs=num_outputs,
             normalizer=normalizer,
@@ -296,10 +306,9 @@ async def test_model(
         )
         trainer.load_model(str(model_path))
         
-        # Evaluate on both sets
+        # Evaluate on test set
         try:
-            train_metrics = trainer.evaluate_metrics(train_loader)
-            val_metrics = trainer.evaluate_metrics(val_loader)
+            test_metrics = trainer.evaluate_metrics(test_loader)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to evaluate model: {str(e)}")
         
@@ -309,9 +318,9 @@ async def test_model(
             'target_feature': feature,
             'training_mode': training_mode,
             'num_outputs': num_outputs,
-            'train_metrics': train_metrics,
-            'val_metrics': val_metrics,
-            'dataset_stats': stats
+            'val_metrics': test_metrics,  # Use 'val_metrics' key for frontend compatibility
+            'test_samples': test_stats['test_samples'],
+            'test_type': 'validation_split'  # Using validation split from training
         }
         
     except HTTPException:
@@ -542,6 +551,47 @@ async def delete_model(model_filename: str):
             return {"success": True, "message": f"Model and metadata deleted: {model_filename}"}
         
         return {"success": True, "message": f"Model deleted: {model_filename}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/models/{model_filename}/rename")
+async def rename_model(model_filename: str, request: dict = Body(...)):
+    """Rename a model by updating its display label in metadata."""
+    from pathlib import Path
+    import json
+    
+    new_label = request.get('new_label', '').strip()
+    if not new_label:
+        raise HTTPException(status_code=400, detail="new_label is required")
+    
+    model_path = Path("/app/data/models") / model_filename
+    if not model_path.exists():
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    metadata_path = Path("/app/data/models") / f"{model_path.stem}_metadata.json"
+    
+    try:
+        # Load existing metadata or create new one
+        if metadata_path.exists():
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+        else:
+            # Create minimal metadata if it doesn't exist
+            metadata = {}
+        
+        # Update the display label
+        metadata['display_label'] = new_label
+        
+        # Save updated metadata
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        return {
+            "success": True,
+            "message": f"Model renamed to: {new_label}",
+            "new_label": new_label
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

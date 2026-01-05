@@ -443,6 +443,9 @@ print(f"Val: {stats['val']['total']} images")
   - Regression: MSE (Mean Squared Error)
   - Classification: CrossEntropyLoss
 - **Regularization**: Dropout (0.5)
+- **Output Activation**:
+  - Regression: Sigmoid (ensures output in [0, 1] for normalized targets)
+  - Classification: None (CrossEntropyLoss handles softmax internally)
 - **Input Preprocessing**: Normalization to [0, 1]
 - **Target Preprocessing**: 
   - Regression: Min-max normalization [0, 1]
@@ -496,6 +499,73 @@ print(f"Val: {stats['val']['total']} images")
   }
 }
 ```
+
+### Model Testing & Validation
+
+**Test Trained Models:**
+
+After training, validate model performance using the built-in testing functionality.
+
+**Access:**
+1. Navigate to http://localhost/ai_training_overview.html
+2. Click "▼ Show Details" on any trained model
+3. Click "🧪 Test Model" button
+
+**What Happens:**
+- Loads the original train/validation split from metadata
+- Filters out synthetic images (not in database)
+- Evaluates model on both train and validation sets
+- Displays comprehensive metrics
+
+**Test Results Display:**
+
+**For Regression Models:**
+```
+R²: 0.917 (green if > 0.7)
+RMSE: 4.80
+MAE: 3.36
+Tested on 182 validation samples
+```
+
+**For Classification Models:**
+```
+Accuracy: 86.3% (green if > 70%)
+F1 (Macro): 84.1%
+Precision: 85.6%
+Per-Class Metrics expandable
+Tested on 182 validation samples
+```
+
+**Important Notes:**
+- ✅ Uses same train/val split as during training (reproducible)
+- ✅ Filters out synthetic images automatically (not in DB)
+- ✅ Applies same normalization as during training
+- ⚠️ **For models trained with augmentation**: Test runs on original images (not augmented) for speed
+  - This is faster and avoids timeout
+  - Test metrics may differ from training validation metrics
+  - Training validation metrics (shown in metadata) are the "true" performance
+- ⚠️ Validation samples must still exist in database (unchanged since training)
+
+**Why do test metrics differ?**
+- Model trained on augmented data (6x multiplier: rotations, translations, warping)
+- Test evaluates on original images only (no augmentation)
+- This is a pragmatic trade-off: Speed vs. exact reproducibility
+- **Use training validation metrics** (R²: 0.917) as the accurate performance measure
+
+**Interpreting Results:**
+
+**Good Model:**
+- Regression: R² > 0.7, RMSE/MAE reasonable
+- Classification: Accuracy > 70%, F1 > 0.7
+- Train and Val metrics similar (no overfitting)
+
+**Overfitting:**
+- Train metrics much better than Val metrics
+- Large gap indicates model memorized training data
+
+**Underfitting:**
+- Both Train and Val metrics poor
+- Model too simple or not trained enough
 
 ### Classification Training
 
@@ -1068,8 +1138,8 @@ MIT License - feel free to use and modify for your projects.
 ## 👤 Author
 
 **Stefan Brodoehl**  
-Date: October-December 2025  
-Version: 1.1.0
+Date: October-December 2025, January 2026  
+Version: 1.1.2
 
 ---
 
