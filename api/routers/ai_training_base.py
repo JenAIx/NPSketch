@@ -305,6 +305,9 @@ def run_training_job(config):
             training_mode = "classification"
             normalizer = None  # NO normalization for classification!
             
+            # Update training_config to reflect actual state (normalization is always disabled for classification)
+            training_state['progress']['training_config']['use_normalization'] = False
+            
             logger.info(f"Training mode: CLASSIFICATION ({num_classes} classes)")
             logger.info(f"Output neurons: {num_outputs}")
             logger.info("Target normalization: Disabled (classification uses raw class indices)")
@@ -314,8 +317,13 @@ def run_training_job(config):
             training_mode = "regression"
             
             normalizer = None
+            actual_normalization_enabled = False
             if use_normalization:
                 normalizer = get_normalizer_for_feature(target_feature)
+                actual_normalization_enabled = (normalizer is not None)
+            
+            # Update training_config to reflect actual state
+            training_state['progress']['training_config']['use_normalization'] = actual_normalization_enabled
             
             logger.info("Training mode: REGRESSION")
             logger.info(f"Output neurons: {num_outputs}")

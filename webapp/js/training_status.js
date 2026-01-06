@@ -274,7 +274,7 @@ class TrainingStatus {
                                 </div>
                                 <div>
                                     <div style="color: #666;">Normalization</div>
-                                    <div style="font-weight: 600;">${progress.training_config.use_normalization ? 'Enabled ([0,1])' : 'Disabled (raw)'}</div>
+                                    <div style="font-weight: 600;">${progress.training_config.use_normalization ? 'Enabled ([0,1])' : progress.training_mode === 'classification' ? 'Disabled (classification)' : 'Disabled (raw)'}</div>
                                 </div>
                             </div>
                         </div>
