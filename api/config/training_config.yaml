@@ -23,6 +23,20 @@ training:
     learning_rate_max: 0.1
     batch_size_min: 1
     batch_size_max: 128
+  
+  # Learning rate scheduling
+  lr_scheduling:
+    enabled: true
+    strategy: "reduce_on_plateau"  # ReduceLROnPlateau
+    factor: 0.5                    # Reduce by 50%
+    patience: 5                     # Wait 5 epochs
+    min_lr: 0.000001               # Minimum LR (1e-6)
+    threshold: 0.001               # Min change to count as improvement
+  
+  # Differential learning rates
+  differential_lr:
+    enabled: true
+    backbone_multiplier: 0.1       # Backbone LR = LR * 0.1
 
 # Data augmentation configuration
 augmentation:

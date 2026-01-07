@@ -189,6 +189,9 @@ async def start_training(config_dict: dict = Body(...), db: Session = Depends(ge
         use_normalization = training_config.use_normalization
         add_synthetic_bad_images = training_config.add_synthetic_bad_images
         synthetic_n_samples = training_config.synthetic_n_samples
+        use_lr_scheduling = training_config.use_lr_scheduling
+        use_differential_lr = training_config.use_differential_lr
+        backbone_lr_multiplier = training_config.backbone_lr_multiplier
         
         # Validation is now handled by Pydantic, but keep for backwards compatibility
         if num_epochs < 1 or num_epochs > 1000:
@@ -217,6 +220,9 @@ async def start_training(config_dict: dict = Body(...), db: Session = Depends(ge
             'use_normalization': use_normalization,
             'add_synthetic_bad_images': add_synthetic_bad_images,
             'synthetic_n_samples': synthetic_n_samples,
+            'use_lr_scheduling': use_lr_scheduling,
+            'use_differential_lr': use_differential_lr,
+            'backbone_lr_multiplier': backbone_lr_multiplier,
             'images_data': images_data,
             'db_session': db
         }
@@ -418,7 +424,10 @@ def run_training_job(config):
             learning_rate=config['learning_rate'],
             normalizer=normalizer,
             training_mode=training_mode,
-            class_weights=class_weights
+            class_weights=class_weights,
+            use_lr_scheduling=config.get('use_lr_scheduling', True),
+            use_differential_lr=config.get('use_differential_lr', True),
+            backbone_lr_multiplier=config.get('backbone_lr_multiplier', 0.1)
         )
         
         epoch_times = []  # Track time per epoch for estimation
@@ -480,7 +489,10 @@ def run_training_job(config):
                 'learning_rate': config['learning_rate'],
                 'batch_size': config['batch_size'],
                 'use_augmentation': config.get('use_augmentation', True),
-                'use_normalization': config.get('use_normalization', True)
+                'use_normalization': config.get('use_normalization', True),
+                'use_lr_scheduling': config.get('use_lr_scheduling', True),
+                'use_differential_lr': config.get('use_differential_lr', True),
+                'backbone_lr_multiplier': config.get('backbone_lr_multiplier', 0.1)
             },
             'normalization': normalizer.get_config() if normalizer else {'enabled': False},
             'augmentation': stats.get('augmentation', {'enabled': False}),
@@ -488,6 +500,20 @@ def run_training_job(config):
             'class_weights': {
                 'enabled': class_weights is not None,
                 'weights': class_weights if class_weights else None
+            },
+            'lr_scheduling': {
+                'enabled': config.get('use_lr_scheduling', True),
+                'strategy': 'ReduceLROnPlateau',
+                'factor': 0.5,
+                'patience': 5,
+                'min_lr': 1e-6,
+                'final_lr': trainer.history.get('learning_rate', [config['learning_rate']])[-1] if trainer.history.get('learning_rate') else config['learning_rate']
+            },
+            'differential_lr': {
+                'enabled': config.get('use_differential_lr', True),
+                'backbone_multiplier': config.get('backbone_lr_multiplier', 0.1),
+                'backbone_lr': config['learning_rate'] * config.get('backbone_lr_multiplier', 0.1) if config.get('use_differential_lr', True) else config['learning_rate'],
+                'head_lr': config['learning_rate']
             },
             'dataset': {
                 'total_samples': stats['total_samples'],

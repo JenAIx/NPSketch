@@ -312,6 +312,8 @@
             const normalization = metadata.normalization || {};
             const synthetic = metadata.synthetic_bad_images || {};
             const classWeights = metadata.class_weights || {};
+            const lrScheduling = metadata.lr_scheduling || {};
+            const differentialLr = metadata.differential_lr || {};
             const modelInfo = metadata.model || {};
             const trainingHistory = metadata.training_history || {};
             
@@ -523,6 +525,38 @@
                                     </span>
                                 ` : ''}
                             `}
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">📉 Learning Rate Scheduling</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
+                            <span style="color: ${lrScheduling.enabled ? '#28a745' : '#6c757d'};">
+                                ${lrScheduling.enabled ? '✅ Enabled' : '❌ Disabled'}
+                            </span>
+                            ${lrScheduling.enabled ? `
+                                <br><span style="font-size: 0.85em; color: #666;">
+                                    Strategy: <strong>${lrScheduling.strategy || 'ReduceLROnPlateau'}</strong>
+                                    <br>Final LR: <strong>${lrScheduling.final_lr?.toFixed(6) || 'N/A'}</strong>
+                                </span>
+                            ` : ''}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">🎯 Differential Learning Rates</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
+                            <span style="color: ${differentialLr.enabled ? '#28a745' : '#6c757d'};">
+                                ${differentialLr.enabled ? '✅ Enabled' : '❌ Disabled'}
+                            </span>
+                            ${differentialLr.enabled ? `
+                                <br><span style="font-size: 0.85em; color: #666;">
+                                    Backbone: <strong>${differentialLr.backbone_lr?.toFixed(6) || 'N/A'}</strong>
+                                    <br>Head: <strong>${differentialLr.head_lr?.toFixed(6) || 'N/A'}</strong>
+                                </span>
+                            ` : ''}
                         </div>
                     </div>
                 </div>

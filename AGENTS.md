@@ -347,6 +347,19 @@ docker logs npsketch-api
 - **Split Strategy**: Stratified by class labels (ensures balanced train/val split)
 - **Imbalance Detection**: Warns if class ratio > 3:1
 
+### Learning Rate Optimization
+- **LR Scheduling**: ReduceLROnPlateau automatically reduces LR when val_loss plateaus
+  - Enabled by default (`use_lr_scheduling: true`)
+  - Factor: 0.5 (halve LR), Patience: 5 epochs, Min LR: 1e-6
+  - Logs LR changes: `Learning Rate reduced: 0.001000 → 0.000500`
+  - Stored in metadata (`lr_scheduling.final_lr`)
+- **Differential LR**: Different learning rates for backbone vs head
+  - Enabled by default (`use_differential_lr: true`)
+  - Backbone: `LR × 0.1` (slow adaptation of pre-trained weights)
+  - Head: `LR × 1.0` (fast learning of new task-specific layers)
+  - Stored in metadata (`differential_lr.backbone_lr`, `differential_lr.head_lr`)
+- **Configuration**: Set in `training_config.yaml` or via TrainingConfig Pydantic model
+
 ### Import Methods
 - **MAT/OCS:** Web interface (`/api/extract-training-data`)
 - **Oxford:** Command-line scripts (`oxford_extraction/oxford_normalizer.py` + `oxford_extraction/oxford_db_populator.py`)
@@ -437,7 +450,10 @@ try:
     config = TrainingConfig(
         target_feature="Total_Score",
         train_split=0.8,
-        num_epochs=50
+        num_epochs=50,
+        use_lr_scheduling=True,      # Enable LR scheduling
+        use_differential_lr=True,    # Enable differential LR
+        backbone_lr_multiplier=0.1  # Backbone LR = LR × 0.1
     )
     # Type-safe access: config.batch_size → guaranteed int
 except ValidationError as e:
@@ -445,7 +461,7 @@ except ValidationError as e:
 ```
 
 **Available Models:**
-- `TrainingConfig` - Training parameters
+- `TrainingConfig` - Training parameters (includes LR scheduling & differential LR)
 - `AugmentationConfig` - Augmentation settings
 - `SyntheticImageConfig` - Synthetic image generation
 - `ModelMetadata` - Model metadata structure
@@ -476,8 +492,8 @@ logger.debug("Debugging only")
 
 ---
 
-**Last Updated:** 2025-12-29  
-**Container Name:** `npsketch-api`  
-**Working Directory:** `/app`  
-**Version:** 1.1.0
+**Last Updated:** 2026-01-07 
+**Container Name:** `npsketch-api` 
+**Working Directory:** `/app` 
+**Version:** 1.1.4
 

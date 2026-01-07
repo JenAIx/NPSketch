@@ -439,6 +439,15 @@ print(f"Val: {stats['val']['total']} images")
 
 **Training Details:**
 - **Optimizer**: Adam
+- **Learning Rate Scheduling**: ReduceLROnPlateau (automatic LR reduction when val_loss plateaus)
+  - Factor: 0.5 (halve LR on reduction)
+  - Patience: 5 epochs
+  - Min LR: 1e-6
+  - Automatically enabled, reduces LR when validation loss stagnates
+- **Differential Learning Rates**: Different LRs for backbone vs head
+  - Backbone LR: `learning_rate × 0.1` (10x smaller for pre-trained ResNet layers)
+  - Head LR: `learning_rate × 1.0` (normal rate for new classification/regression head)
+  - Preserves ImageNet pre-trained features while allowing head to learn quickly
 - **Loss Functions**: 
   - Regression: MSE (Mean Squared Error)
   - Classification: CrossEntropyLoss (with automatic class weights for imbalanced data)

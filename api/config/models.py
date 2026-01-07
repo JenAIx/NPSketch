@@ -25,6 +25,9 @@ class TrainingConfig(BaseModel):
     use_normalization: bool = Field(True, description="Enable target normalization")
     add_synthetic_bad_images: bool = Field(False, description="Add synthetic bad images")
     synthetic_n_samples: int = Field(50, ge=0, le=500, description="Number of synthetic images")
+    use_lr_scheduling: bool = Field(True, description="Enable learning rate scheduling (ReduceLROnPlateau)")
+    use_differential_lr: bool = Field(True, description="Use different learning rates for backbone vs head")
+    backbone_lr_multiplier: float = Field(0.1, gt=0, le=1.0, description="Backbone LR multiplier (0.1 = 10x smaller)")
     
     @field_validator('synthetic_n_samples')
     @classmethod

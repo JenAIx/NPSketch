@@ -7,6 +7,7 @@ Trains CNN models to predict features/scores from neuropsychological drawings.
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 import numpy as np
 import json
@@ -33,25 +34,34 @@ class CNNTrainer:
         normalizer=None,
         training_mode: str = "regression",
         use_sigmoid: bool = None,
-        class_weights: list = None
+        class_weights: list = None,
+        use_lr_scheduling: bool = True,
+        use_differential_lr: bool = True,
+        backbone_lr_multiplier: float = 0.1
     ):
         """
         Initialize CNN trainer.
         
         Args:
             num_outputs: Number of output features to predict
-            learning_rate: Learning rate for optimizer
+            learning_rate: Learning rate for optimizer (head LR if differential LR is used)
             device: 'cuda', 'cpu', or None (auto-detect)
             normalizer: Target normalizer (None for classification)
             training_mode: 'regression' or 'classification'
             use_sigmoid: Use Sigmoid at output (auto: True for regression with normalizer, False otherwise)
             class_weights: Optional class weights for CrossEntropyLoss (classification only)
+            use_lr_scheduling: Enable ReduceLROnPlateau scheduling (default: True)
+            use_differential_lr: Use different LRs for backbone vs head (default: True)
+            backbone_lr_multiplier: Backbone LR multiplier (default: 0.1 = 10x smaller)
         """
         self.num_outputs = num_outputs
         self.learning_rate = learning_rate
         self.normalizer = normalizer
         self.training_mode = training_mode
         self.class_weights = class_weights
+        self.use_lr_scheduling = use_lr_scheduling
+        self.use_differential_lr = use_differential_lr
+        self.backbone_lr_multiplier = backbone_lr_multiplier
         
         # Auto-determine use_sigmoid if not specified
         if use_sigmoid is None:
@@ -83,8 +93,33 @@ class CNNTrainer:
         if use_sigmoid:
             logger.info(f"Using Sigmoid output activation (output range: [0, 1])")
         
-        # Optimizer and loss - conditional based on training mode
-        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        # Optimizer with optional differential learning rates
+        if use_differential_lr:
+            # Separate parameter groups: Backbone (smaller LR) and Head (normal LR)
+            backbone_params = []
+            head_params = []
+            
+            for name, param in self.model.named_parameters():
+                if 'fc' in name:  # Head layers (fc = final fully connected)
+                    head_params.append(param)
+                else:  # Backbone layers (conv1, bn1, layer1-4)
+                    backbone_params.append(param)
+            
+            backbone_lr = learning_rate * backbone_lr_multiplier
+            head_lr = learning_rate
+            
+            self.optimizer = optim.Adam([
+                {'params': backbone_params, 'lr': backbone_lr},
+                {'params': head_params, 'lr': head_lr}
+            ])
+            
+            logger.info(f"Differential Learning Rates enabled:")
+            logger.info(f"  Backbone LR: {backbone_lr:.6f} ({len(backbone_params)} param groups)")
+            logger.info(f"  Head LR: {head_lr:.6f} ({len(head_params)} param groups)")
+        else:
+            # Standard: All parameters with same LR
+            self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+            logger.info(f"Standard Learning Rate: {learning_rate:.6f} (all parameters)")
         
         if training_mode == "classification":
             # Use class weights if provided
@@ -101,10 +136,29 @@ class CNNTrainer:
             self.criterion = nn.MSELoss()
             logger.info(f"Loss function: MSELoss (regression)")
         
+        # Learning rate scheduler
+        self.scheduler = None
+        if use_lr_scheduling:
+            self.scheduler = ReduceLROnPlateau(
+                self.optimizer,
+                mode='min',           # Minimize validation loss
+                factor=0.5,           # Reduce LR by 50%
+                patience=5,            # Wait 5 epochs without improvement
+                verbose=False,         # We'll log manually
+                min_lr=1e-6,          # Minimum LR
+                threshold=0.001       # Minimum change to count as improvement
+            )
+            logger.info(f"Learning Rate Scheduling enabled:")
+            logger.info(f"  Strategy: ReduceLROnPlateau")
+            logger.info(f"  Factor: 0.5 (halve LR)")
+            logger.info(f"  Patience: 5 epochs")
+            logger.info(f"  Min LR: 1e-6")
+        
         # Training history
         self.history = {
             'train_loss': [],
             'val_loss': [],
+            'learning_rate': [],  # Track LR changes
             'epoch': []
         }
         
@@ -157,9 +211,20 @@ class CNNTrainer:
         if val_loader:
             val_loss = self.evaluate(val_loader)
         
+        # Learning rate scheduling (if enabled and validation loss available)
+        if self.scheduler is not None and val_loss is not None:
+            old_lr = self.optimizer.param_groups[0]['lr']
+            self.scheduler.step(val_loss)
+            new_lr = self.optimizer.param_groups[0]['lr']
+            
+            # Log LR changes
+            if new_lr != old_lr:
+                logger.info(f"Learning Rate reduced: {old_lr:.6f} → {new_lr:.6f}")
+        
         metrics = {
             'train_loss': np.mean(train_losses),
-            'val_loss': val_loss
+            'val_loss': val_loss,
+            'learning_rate': self.optimizer.param_groups[0]['lr']
         }
         
         return metrics
@@ -361,6 +426,7 @@ class CNNTrainer:
             self.history['train_loss'].append(metrics['train_loss'])
             if metrics['val_loss'] is not None:
                 self.history['val_loss'].append(metrics['val_loss'])
+            self.history['learning_rate'].append(metrics.get('learning_rate', self.learning_rate))
             
             # Log progress
             if metrics['val_loss'] is not None:
