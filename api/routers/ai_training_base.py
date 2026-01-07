@@ -404,11 +404,21 @@ def run_training_job(config):
         training_state['progress']['training_mode'] = training_mode
         training_state['progress']['num_classes'] = num_classes if is_classification else None
         
+        # Get class weights for classification
+        class_weights = None
+        if is_classification:
+            class_weights = stats.get('class_weights')
+            if class_weights:
+                logger.info(f"Using class weights for balanced loss calculation")
+            else:
+                logger.warning("No class weights available - using unweighted loss")
+        
         trainer = CNNTrainer(
             num_outputs=num_outputs,
             learning_rate=config['learning_rate'],
             normalizer=normalizer,
-            training_mode=training_mode
+            training_mode=training_mode,
+            class_weights=class_weights
         )
         
         epoch_times = []  # Track time per epoch for estimation
@@ -475,6 +485,10 @@ def run_training_job(config):
             'normalization': normalizer.get_config() if normalizer else {'enabled': False},
             'augmentation': stats.get('augmentation', {'enabled': False}),
             'synthetic_bad_images': stats.get('synthetic_bad_images', {'enabled': False}),
+            'class_weights': {
+                'enabled': class_weights is not None,
+                'weights': class_weights if class_weights else None
+            },
             'dataset': {
                 'total_samples': stats['total_samples'],
                 'train_samples': stats['train_samples'],

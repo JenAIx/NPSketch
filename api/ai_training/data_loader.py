@@ -311,17 +311,38 @@ class TrainingDataLoader:
         
         # Log distribution details (different for classification vs regression)
         if is_classification_mode:
-            # Classification: show class distribution
+            # Classification: show class distribution with percentages
             train_counts = split_info['train_distribution']['class_counts']
             test_counts = split_info['test_distribution']['class_counts']
+            total_train = split_info['train_distribution']['count']
+            total_test = split_info['test_distribution']['count']
             
-            logger.info(f"Train set: {split_info['train_distribution']['count']} samples")
-            for cls, count in train_counts.items():
-                logger.info(f"  Class {cls}: {count} samples")
+            logger.info("="*60)
+            logger.info("CLASS DISTRIBUTION ANALYSIS")
+            logger.info("="*60)
             
-            logger.info(f"Test set: {split_info['test_distribution']['count']} samples")
-            for cls, count in test_counts.items():
-                logger.info(f"  Class {cls}: {count} samples")
+            logger.info(f"\nTrain set: {total_train} samples")
+            for cls, count in sorted(train_counts.items()):
+                pct = (count / total_train * 100) if total_train > 0 else 0
+                logger.info(f"  Class {cls}: {count:4d} samples ({pct:5.1f}%)")
+            
+            logger.info(f"\nValidation set: {total_test} samples")
+            for cls, count in sorted(test_counts.items()):
+                pct = (count / total_test * 100) if total_test > 0 else 0
+                logger.info(f"  Class {cls}: {count:4d} samples ({pct:5.1f}%)")
+            
+            # Check for imbalance
+            if train_counts:
+                max_count = max(train_counts.values())
+                min_count = min(train_counts.values())
+                if min_count > 0:
+                    imbalance_ratio = max_count / min_count
+                    logger.info(f"\nClass imbalance ratio: {imbalance_ratio:.2f}:1")
+                    if imbalance_ratio > 3:
+                        logger.warning(f"  HIGH IMBALANCE DETECTED (>{imbalance_ratio:.1f}:1)")
+                        logger.warning("  Consider using class weights or resampling")
+            
+            logger.info("="*60)
         else:
             # Regression: show statistical distribution
             logger.info(f"Train distribution: mean={split_info['train_distribution']['mean']:.3f}, "
@@ -601,8 +622,13 @@ class TrainingDataLoader:
             # For classification: stratify by class labels
             from ai_training.split_strategy import stratified_split_classification
             
-            logger.info(f"Split strategy: stratified_classification (by class labels)")
-            logger.info(f"Number of classes: {len(np.unique(y_array))}")
+            unique_classes = np.unique(y_array)
+            logger.info("="*60)
+            logger.info("SPLIT STRATEGY: CLASSIFICATION")
+            logger.info("="*60)
+            logger.info(f"Total samples: {len(y_array)}")
+            logger.info(f"Number of classes: {len(unique_classes)}")
+            logger.info(f"Train/Val split: {train_split*100:.0f}% / {(1-train_split)*100:.0f}%")
             
             _, _, _, _, split_info = stratified_split_classification(
                 indices.reshape(-1, 1),
@@ -610,6 +636,15 @@ class TrainingDataLoader:
                 train_split=train_split,
                 random_seed=random_seed
             )
+            
+            # Log split quality warnings
+            if split_info.get('warnings'):
+                logger.warning("\nSPLIT QUALITY WARNINGS:")
+                for warning in split_info['warnings']:
+                    logger.warning(f"  - {warning}")
+            else:
+                logger.info("\n✓ Split quality: GOOD (well-balanced)")
+            logger.info("="*60)
             
             # Get actual indices for classification
             np.random.seed(random_seed)
@@ -665,7 +700,33 @@ class TrainingDataLoader:
             'val': val_indices
         }
         
-        logger.info(f"Train: {len(train_indices)} images, Val: {len(val_indices)} images")
+        # Log final split statistics with class distribution
+        if is_classification_mode:
+            logger.info("\n" + "="*60)
+            logger.info("FINAL SPLIT DISTRIBUTION")
+            logger.info("="*60)
+            logger.info(f"Train: {len(train_indices)} images, Val: {len(val_indices)} images")
+            
+            # Count classes in train/val
+            train_y = [y_array[i] for i in train_indices]
+            val_y = [y_array[i] for i in val_indices]
+            
+            unique_classes = sorted(np.unique(y_array).astype(int))
+            logger.info("\nClass distribution:")
+            logger.info(f"{'Class':<8} {'Train':<12} {'Val':<12} {'Total':<12}")
+            logger.info("-" * 44)
+            
+            for cls in unique_classes:
+                train_count = train_y.count(float(cls))
+                val_count = val_y.count(float(cls))
+                total_count = train_count + val_count
+                train_pct = (train_count / len(train_indices) * 100) if len(train_indices) > 0 else 0
+                val_pct = (val_count / len(val_indices) * 100) if len(val_indices) > 0 else 0
+                logger.info(f"{cls:<8} {train_count:4d} ({train_pct:4.1f}%) {val_count:4d} ({val_pct:4.1f}%) {total_count:4d}")
+            
+            logger.info("="*60)
+        else:
+            logger.info(f"Train: {len(train_indices)} images, Val: {len(val_indices)} images")
         
         # Extract actual image IDs from split indices
         train_image_ids = [images_data[i]['id'] for i in train_indices if i < len(images_data) and 'id' in images_data[i]]

@@ -311,6 +311,7 @@
             const augmentation = metadata.augmentation || {};
             const normalization = metadata.normalization || {};
             const synthetic = metadata.synthetic_bad_images || {};
+            const classWeights = metadata.class_weights || {};
             const modelInfo = metadata.model || {};
             const trainingHistory = metadata.training_history || {};
             
@@ -545,7 +546,22 @@
                     </div>
                     
                     <div>
-                        <!-- Empty placeholder for grid alignment -->
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">⚖️ Class Weights</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
+                            ${metadata.training_mode === 'classification' && classWeights.enabled && classWeights.weights ? `
+                                <span style="color: #28a745;">✅ Enabled</span>
+                                <br><span style="font-size: 0.85em; color: #666;">
+                                    ${classWeights.weights.map((w, idx) => `
+                                        Class ${idx}: <strong>${w.toFixed(4)}</strong>
+                                    `).join('<br>')}
+                                </span>
+                            ` : metadata.training_mode === 'classification' ? `
+                                <span style="color: #ffc107;">⚠️ Not used</span>
+                                <br><span style="font-size: 0.8em; color: #666;">Model trained without class weights</span>
+                            ` : `
+                                <span style="color: #6c757d;">N/A (Regression)</span>
+                            `}
+                        </div>
                     </div>
                 </div>
                 

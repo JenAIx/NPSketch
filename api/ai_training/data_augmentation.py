@@ -572,7 +572,7 @@ class ImageAugmentor:
         
         # Log safety statistics
         if safety_stats['conservative'] > 0:
-            logger.warning(f"Content protection: {safety_stats['conservative']}/{num_augmentations} augmentations used conservative parameters")
+            logger.debug(f"Content protection: {safety_stats['conservative']}/{num_augmentations} augmentations used conservative parameters")
         
         return augmented_images
 

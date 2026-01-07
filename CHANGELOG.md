@@ -203,6 +203,7 @@ All notable changes to NPSketch will be documented in this file.
 ## Future Roadmap
 
 ### Planned Features
+- [x] Weighted loss function for imbalanced classification (✅ Implemented in v1.1.3)
 - [ ] Weighted loss function for imbalanced regression
 - [ ] Caching for line extraction (faster synthetic generation)
 - [ ] Adaptive synthetic count based on data imbalance
@@ -254,7 +255,63 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
-**Current Version:** 1.1.2  
-**Last Updated:** 2026-01-05  
+## [1.1.3] - 2026-01-07
+
+### Added - Class Weights for Classification Training
+
+**Problem:** Classification models showed higher validation loss due to class imbalance (e.g., 2.4% vs 6.4% class distribution)
+
+**Solution:** Automatic class weight calculation and application for balanced loss function
+
+#### Features
+- **Automatic Class Weight Calculation**: Inverse frequency weighting based on training data distribution
+- **CrossEntropyLoss Integration**: Weights automatically applied to loss function
+- **Detailed Logging**: Class distribution analysis with imbalance ratio warnings
+- **Metadata Storage**: Class weights saved in model metadata for reproducibility
+- **UI Display**: Class weights shown in model overview page
+
+#### Changes
+- `dataset.py`: Calculate class weights in `create_dataloaders()` and `create_augmented_dataloaders()`
+- `trainer.py`: Added `class_weights` parameter to `CNNTrainer.__init__()`
+- `ai_training_base.py`: Extract and pass class weights from stats to trainer
+- `data_loader.py`: Enhanced logging with class distribution tables and imbalance detection
+- `ai_training_overview.html`: Display class weights in model metadata view
+
+#### Logging Improvements
+- **Class Distribution Analysis**: Detailed tables showing train/val distribution with percentages
+- **Imbalance Detection**: Automatic calculation and warning if ratio > 3:1
+- **Split Quality Validation**: Enhanced warnings for unbalanced splits
+- **Content Protection**: Changed from WARNING to DEBUG level to reduce log noise
+
+#### Example Output
+```
+CLASS DISTRIBUTION ANALYSIS
+Train set: 773 samples
+  Class 0:  111 samples ( 14.4%)
+  Class 1:  121 samples ( 15.7%)
+  Class 2:  244 samples ( 31.6%)
+  Class 3:  297 samples ( 38.4%)
+
+Class imbalance ratio: 2.68:1
+
+Class weights: [10.4459, 9.5826, 4.7520, 3.9040]
+```
+
+#### Benefits
+- **Better Model Performance**: Improved validation loss for imbalanced datasets
+- **Automatic Handling**: No manual configuration needed
+- **Transparency**: Full visibility into class distribution and weights used
+- **Reproducibility**: Weights stored in model metadata
+
+#### Technical Details
+- Weight formula: `weight = total_samples / (num_classes * class_count)`
+- Only applies to classification mode (regression unchanged)
+- Backward compatible: Old models without weights still work
+- Logging level: Content protection warnings moved to DEBUG
+
+---
+
+**Current Version:** 1.1.3  
+**Last Updated:** 2026-01-07  
 **Status:** Production Ready
 

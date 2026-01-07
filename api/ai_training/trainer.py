@@ -32,7 +32,8 @@ class CNNTrainer:
         device: str = None,
         normalizer=None,
         training_mode: str = "regression",
-        use_sigmoid: bool = None
+        use_sigmoid: bool = None,
+        class_weights: list = None
     ):
         """
         Initialize CNN trainer.
@@ -44,11 +45,13 @@ class CNNTrainer:
             normalizer: Target normalizer (None for classification)
             training_mode: 'regression' or 'classification'
             use_sigmoid: Use Sigmoid at output (auto: True for regression with normalizer, False otherwise)
+            class_weights: Optional class weights for CrossEntropyLoss (classification only)
         """
         self.num_outputs = num_outputs
         self.learning_rate = learning_rate
         self.normalizer = normalizer
         self.training_mode = training_mode
+        self.class_weights = class_weights
         
         # Auto-determine use_sigmoid if not specified
         if use_sigmoid is None:
@@ -84,8 +87,16 @@ class CNNTrainer:
         self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
         
         if training_mode == "classification":
-            self.criterion = nn.CrossEntropyLoss()
-            logger.info(f"Loss function: CrossEntropyLoss (classification, {num_outputs} classes)")
+            # Use class weights if provided
+            if class_weights is not None:
+                weights_tensor = torch.tensor(class_weights, dtype=torch.float32).to(self.device)
+                self.criterion = nn.CrossEntropyLoss(weight=weights_tensor)
+                logger.info(f"Loss function: CrossEntropyLoss with class weights (classification, {num_outputs} classes)")
+                logger.info(f"  Class weights: {[f'{w:.4f}' for w in class_weights]}")
+            else:
+                self.criterion = nn.CrossEntropyLoss()
+                logger.info(f"Loss function: CrossEntropyLoss without weights (classification, {num_outputs} classes)")
+                logger.warning("  No class weights provided - classes will be equally weighted")
         else:
             self.criterion = nn.MSELoss()
             logger.info(f"Loss function: MSELoss (regression)")

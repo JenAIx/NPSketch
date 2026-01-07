@@ -338,6 +338,15 @@ docker logs npsketch-api
   - Warping: TPS with 9 control points, ±15px displacement
   - Pipeline: Transform → Binarize (threshold 175) → Line normalize (2px)
 
+### Classification Training
+- **Class Weights**: Automatically calculated for imbalanced datasets
+  - Formula: `weight = total_samples / (num_classes * class_count)`
+  - Applied to CrossEntropyLoss automatically
+  - Stored in model metadata (`class_weights.weights`)
+  - Logged during training with distribution analysis
+- **Split Strategy**: Stratified by class labels (ensures balanced train/val split)
+- **Imbalance Detection**: Warns if class ratio > 3:1
+
 ### Import Methods
 - **MAT/OCS:** Web interface (`/api/extract-training-data`)
 - **Oxford:** Command-line scripts (`oxford_extraction/oxford_normalizer.py` + `oxford_extraction/oxford_db_populator.py`)
@@ -451,6 +460,7 @@ logger = get_logger(__name__)
 logger.info("Operation started")
 logger.warning("Warning message")
 logger.error("Error occurred", exc_info=True)
+logger.debug("Debugging only")
 ```
 
 **Log Configuration:**

@@ -431,6 +431,30 @@ def create_dataloaders(
     else:
         stats["split_info"] = {'method': 'unknown'}
     
+    # Calculate class weights for classification
+    if is_classification and num_classes is not None and split_info is not None:
+        train_dist = split_info.get('train_distribution', {})
+        train_counts = train_dist.get('class_counts', {})
+        
+        if train_counts:
+            total_samples = len(train_indices)
+            class_weights = []
+            
+            for cls_id in range(num_classes):
+                count = train_counts.get(cls_id, 0)
+                if count > 0:
+                    weight = total_samples / (num_classes * count)
+                else:
+                    weight = 1.0
+                class_weights.append(weight)
+            
+            stats['class_weights'] = class_weights
+            logger.info(f"\n>> Class weights calculated: {[f'{w:.4f}' for w in class_weights]}")
+        else:
+            stats['class_weights'] = None
+    else:
+        stats['class_weights'] = None
+    
     return train_loader, val_loader, stats
 
 
@@ -717,6 +741,46 @@ def create_augmented_dataloaders(
         "train_image_ids": metadata.get('train_image_ids', []),
         "val_image_ids": metadata.get('val_image_ids', [])
     }
+    
+    # Calculate class weights for classification from metadata
+    if is_classification:
+        split_info = metadata.get('split_info', {})
+        train_dist = split_info.get('train_distribution', {})
+        train_counts = train_dist.get('class_counts', {})
+        num_classes = split_info.get('num_classes', 0)
+        
+        if train_counts and num_classes > 0:
+            total_samples = len(train_dataset)
+            class_weights = []
+            
+            logger.info("="*60)
+            logger.info("CLASS DISTRIBUTION ANALYSIS (Augmented Data)")
+            logger.info("="*60)
+            logger.info(f"Total train samples: {total_samples}")
+            
+            for cls_id in range(num_classes):
+                # Try both string and int keys
+                count = train_counts.get(str(cls_id), train_counts.get(cls_id, 0))
+                if count > 0:
+                    weight = total_samples / (num_classes * count)
+                    pct = (count / total_samples) * 100 if total_samples > 0 else 0
+                    logger.info(f"  Class {cls_id}: {count} samples ({pct:.1f}%)")
+                else:
+                    weight = 1.0
+                    logger.info(f"  Class {cls_id}: 0 samples (WARNING!)")
+                class_weights.append(weight)
+            
+            logger.info("\nCalculated class weights (inverse frequency):")
+            for cls_id, weight in enumerate(class_weights):
+                logger.info(f"  Class {cls_id}: weight = {weight:.4f}")
+            logger.info("="*60)
+            
+            stats['class_weights'] = class_weights
+        else:
+            logger.warning("Could not calculate class weights from metadata")
+            stats['class_weights'] = None
+    else:
+        stats['class_weights'] = None
     
     return train_loader, val_loader, stats
 

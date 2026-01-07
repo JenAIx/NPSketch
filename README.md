@@ -441,7 +441,11 @@ print(f"Val: {stats['val']['total']} images")
 - **Optimizer**: Adam
 - **Loss Functions**: 
   - Regression: MSE (Mean Squared Error)
-  - Classification: CrossEntropyLoss
+  - Classification: CrossEntropyLoss (with automatic class weights for imbalanced data)
+- **Class Weights**: Automatically calculated using inverse frequency (only for classification)
+  - Formula: `weight = total_samples / (num_classes * class_count)`
+  - Applied automatically when class imbalance detected
+  - Stored in model metadata for reproducibility
 - **Regularization**: Dropout (0.5)
 - **Output Activation**:
   - Regression: Sigmoid (ensures output in [0, 1] for normalized targets)
