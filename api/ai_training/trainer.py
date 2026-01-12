@@ -548,12 +548,13 @@ class CNNTrainer:
                 callback=lambda batch, loss: callback(epoch, batch, loss) if callback else None
             )
             
-            # Store history
+            # Store history (learning_rate managed by caller to avoid duplication)
             self.history['epoch'].append(epoch)
             self.history['train_loss'].append(metrics['train_loss'])
             if metrics['val_loss'] is not None:
                 self.history['val_loss'].append(metrics['val_loss'])
-            self.history['learning_rate'].append(metrics.get('learning_rate', self.learning_rate))
+            # Note: learning_rate append removed to avoid duplication with training loop
+            # Callers should append metrics.get('learning_rate', self.learning_rate) themselves
             
             # Log progress
             if metrics['val_loss'] is not None:

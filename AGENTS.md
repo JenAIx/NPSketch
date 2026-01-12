@@ -333,10 +333,15 @@ docker logs npsketch-api
 - All normalized images: **568×274 pixels**
 - Line thickness: **2.00px** (Zhang-Suen + dilation)
 - Format: **RGB PNG** (black lines on white background)
-- Augmentation: **3× global + 2× local warping** (per image)
-  - Global: Rotation ±3°, Translation ±10px, Scaling 0.95-1.05×
-  - Warping: TPS with 9 control points, ±15px displacement
-  - Pipeline: Transform → Binarize (threshold 175) → Line normalize (2px)
+- Augmentation: **Enhanced diversity-controlled system** (6 augmentations per image, 7× total)
+  - **Pre-shrink**: 5% shrink creates ~14px margins for proper transformations
+  - **Mix**: 50% rotation+translation, 33% warping, 17% warp+combined
+  - **Rotation**: ±5° (increased from ±3°, excludes near-zero)
+  - **Translation**: ±3px (now works properly with margins, was ±2px)
+  - **Warping**: IDW interpolation, 9 control points, 15-20px displacement
+  - **Diversity control**: SSIM-based filtering (orig <0.95, augs <0.93)
+  - **Progressive retry**: Increases parameters if augmentation too similar
+  - **Pipeline**: Pre-shrink → Transform → Similarity check → Retry if needed → Binarize (175) → Line normalize (2px)
 
 ### Classification Training
 - **Class Weights**: Automatically calculated for imbalanced datasets

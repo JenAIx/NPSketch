@@ -70,16 +70,48 @@ class TrainingConfig(BaseModel):
 class AugmentationConfig(BaseModel):
     """Configuration for data augmentation."""
     
-    rotation_range: Tuple[float, float] = Field((-3, 3), description="Rotation range in degrees")
-    translation_range: Tuple[int, int] = Field((-10, 10), description="Translation range in pixels")
+    # Pre-shrink settings
+    pre_shrink_enabled: bool = Field(True, description="Enable pre-shrink for margin creation")
+    pre_shrink_factor: float = Field(0.95, ge=0.8, le=0.99, description="Shrink factor (0.95 = 5% shrink)")
+    
+    # Transformation ranges
+    rotation_range: Tuple[float, float] = Field((-5, 5), description="Rotation range in degrees")
+    translation_range: Tuple[int, int] = Field((-3, 3), description="Translation range in pixels")
     scale_range: Tuple[float, float] = Field((0.95, 1.05), description="Scale range")
-    num_augmentations: int = Field(5, ge=0, le=20, description="Number of augmentations per image")
-    use_warping: bool = Field(True, description="Enable local warping")
-    warping_displacement: int = Field(15, ge=5, le=30, description="Warping displacement in pixels")
+    num_augmentations: int = Field(6, ge=0, le=20, description="Number of augmentations per image")
+    
+    # Diversity quality control
+    diversity_control_enabled: bool = Field(True, description="Enable similarity-based diversity control")
+    similarity_to_original_max: float = Field(0.95, ge=0.5, le=0.99, description="Max SSIM to original")
+    similarity_between_augs_max: float = Field(0.93, ge=0.5, le=0.99, description="Max SSIM between augmentations")
+    max_attempts_per_augmentation: int = Field(10, ge=1, le=50, description="Max retry attempts")
+    progressive_aggressiveness: bool = Field(True, description="Increase params on retry")
+    
+    # Progressive parameters
+    rotation_multiplier_per_attempt: float = Field(0.15, ge=0, le=1, description="Rotation increase per retry")
+    translation_multiplier_per_attempt: float = Field(0.20, ge=0, le=1, description="Translation increase per retry")
+    warping_displacement_increase: int = Field(3, ge=0, le=10, description="Warping increase per retry")
+    max_rotation: float = Field(8, ge=0, le=15, description="Max rotation cap")
+    max_translation: int = Field(5, ge=0, le=20, description="Max translation cap")
+    max_warping_displacement: int = Field(25, ge=5, le=50, description="Max warping displacement")
+    
+    # Augmentation mix
+    rotation_translation_ratio: float = Field(0.50, ge=0, le=1, description="Ratio of rot+trans augmentations")
+    warping_only_ratio: float = Field(0.33, ge=0, le=1, description="Ratio of warping-only augmentations")
+    warping_combined_ratio: float = Field(0.17, ge=0, le=1, description="Ratio of warp+combined augmentations")
+    
+    # Warping settings
+    warping_displacement_min: int = Field(15, ge=5, le=30, description="Min warping displacement")
+    warping_displacement_max: int = Field(20, ge=5, le=50, description="Max warping displacement")
     warping_control_points: int = Field(9, ge=4, le=16, description="Number of warping control points")
-    warping_ratio: float = Field(0.4, ge=0, le=1, description="Ratio of augmentations using warping")
+    
+    # Quality settings
     binarization_threshold: int = Field(175, ge=0, le=255, description="Binarization threshold")
     line_thickness: int = Field(2, ge=1, le=5, description="Target line thickness in pixels")
+    
+    # Exclude near-zero
+    exclude_near_zero_rotation: float = Field(2.0, ge=0, le=5, description="Min rotation magnitude (exclude near-zero)")
+    exclude_near_zero_translation: int = Field(1, ge=0, le=3, description="Min translation magnitude")
     
     @field_validator('rotation_range', 'translation_range', 'scale_range')
     @classmethod

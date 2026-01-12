@@ -20,7 +20,7 @@ import numpy as np
 import cv2
 from PIL import Image
 import io
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 import os
 import json
 import shutil
@@ -28,6 +28,14 @@ from pathlib import Path
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Import SSIM for similarity checking
+try:
+    from skimage.metrics import structural_similarity as ssim
+    SSIM_AVAILABLE = True
+except ImportError:
+    logger.warning("scikit-image not available, diversity control will be disabled")
+    SSIM_AVAILABLE = False
 
 
 def apply_local_warp(
@@ -199,32 +207,102 @@ class ImageAugmentor:
     """
     Augments training images with realistic variations.
     
-    Includes content-aware bounds protection to prevent clipping lines.
+    NEW FEATURES:
+    - Pre-shrink for margin creation
+    - Diversity control (similarity-based filtering)
+    - Pairwise uniqueness checking
+    - Progressive aggressiveness on retry
     """
     
     def __init__(
         self,
-        rotation_range: Tuple[float, float] = (-3.0, 3.0),
-        translation_range: Tuple[int, int] = (-10, 10),
+        rotation_range: Tuple[float, float] = (-5.0, 5.0),
+        translation_range: Tuple[int, int] = (-3, 3),
         scale_range: Tuple[float, float] = (0.95, 1.05),
-        num_augmentations: int = 5,
-        safety_margin: int = 15
+        num_augmentations: int = 6,
+        safety_margin: int = 15,
+        # NEW: Pre-shrink settings
+        pre_shrink_enabled: bool = True,
+        pre_shrink_factor: float = 0.95,
+        # NEW: Diversity control settings
+        diversity_control_enabled: bool = True,
+        similarity_to_original_max: float = 0.95,
+        similarity_between_augs_max: float = 0.93,
+        max_attempts_per_augmentation: int = 10,
+        progressive_aggressiveness: bool = True,
+        # NEW: Progressive parameters
+        rotation_multiplier_per_attempt: float = 0.15,
+        translation_multiplier_per_attempt: float = 0.20,
+        warping_displacement_increase: int = 3,
+        max_rotation: float = 8.0,
+        max_translation: int = 5,
+        max_warping_displacement: int = 25,
+        # NEW: Augmentation mix
+        rotation_translation_ratio: float = 0.50,
+        warping_only_ratio: float = 0.33,
+        warping_combined_ratio: float = 0.17,
+        # NEW: Warping settings
+        warping_displacement_min: int = 15,
+        warping_displacement_max: int = 20,
+        # NEW: Exclude near-zero
+        exclude_near_zero_rotation: float = 2.0,
+        exclude_near_zero_translation: int = 1
     ):
         """
-        Initialize augmentor.
+        Initialize augmentor with enhanced diversity control.
         
         Args:
             rotation_range: Min/max rotation in degrees
             translation_range: Min/max translation in pixels
             scale_range: Min/max scale factor
             num_augmentations: Number of augmented versions per image
-            safety_margin: Minimum pixel margin from edges (default: 15)
+            safety_margin: Minimum pixel margin from edges
+            pre_shrink_enabled: Enable pre-shrink for margin creation
+            pre_shrink_factor: Shrink factor (0.95 = 5% shrink)
+            diversity_control_enabled: Enable similarity-based filtering
+            similarity_to_original_max: Max SSIM to original (reject if higher)
+            similarity_between_augs_max: Max SSIM between augmentations
+            max_attempts_per_augmentation: Max retry attempts
+            progressive_aggressiveness: Increase params on retry
+            [Additional parameters documented in config.yaml]
         """
         self.rotation_range = rotation_range
         self.translation_range = translation_range
         self.scale_range = scale_range
         self.num_augmentations = num_augmentations
         self.safety_margin = safety_margin
+        
+        # NEW: Pre-shrink settings
+        self.pre_shrink_enabled = pre_shrink_enabled
+        self.pre_shrink_factor = pre_shrink_factor
+        
+        # NEW: Diversity control
+        self.diversity_control_enabled = diversity_control_enabled
+        self.similarity_to_original_max = similarity_to_original_max
+        self.similarity_between_augs_max = similarity_between_augs_max
+        self.max_attempts_per_augmentation = max_attempts_per_augmentation
+        self.progressive_aggressiveness = progressive_aggressiveness
+        
+        # NEW: Progressive parameters
+        self.rotation_multiplier_per_attempt = rotation_multiplier_per_attempt
+        self.translation_multiplier_per_attempt = translation_multiplier_per_attempt
+        self.warping_displacement_increase = warping_displacement_increase
+        self.max_rotation = max_rotation
+        self.max_translation = max_translation
+        self.max_warping_displacement = max_warping_displacement
+        
+        # NEW: Augmentation mix
+        self.rotation_translation_ratio = rotation_translation_ratio
+        self.warping_only_ratio = warping_only_ratio
+        self.warping_combined_ratio = warping_combined_ratio
+        
+        # NEW: Warping settings
+        self.warping_displacement_min = warping_displacement_min
+        self.warping_displacement_max = warping_displacement_max
+        
+        # NEW: Exclude near-zero
+        self.exclude_near_zero_rotation = exclude_near_zero_rotation
+        self.exclude_near_zero_translation = exclude_near_zero_translation
     
     def augment_image(
         self,
@@ -310,6 +388,256 @@ class ImageAugmentor:
         augmented = normalize_line_thickness(augmented, target_thickness=2.0)
         
         return augmented
+    
+    def _apply_pre_shrink(self, image: np.ndarray) -> np.ndarray:
+        """
+        Apply pre-shrink to create margins for translation/rotation.
+        
+        Args:
+            image: Input image (H×W or H×W×3)
+        
+        Returns:
+            Shrunk image centered on white canvas (same size as input)
+        """
+        if not self.pre_shrink_enabled or self.pre_shrink_factor >= 1.0:
+            return image
+        
+        h, w = image.shape[:2]
+        new_h, new_w = int(h * self.pre_shrink_factor), int(w * self.pre_shrink_factor)
+        
+        # Shrink image
+        shrunk = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        
+        # Create white canvas
+        if len(image.shape) == 3:
+            canvas = np.ones((h, w, image.shape[2]), dtype=np.uint8) * 255
+        else:
+            canvas = np.ones((h, w), dtype=np.uint8) * 255
+        
+        # Center shrunk image on canvas
+        offset_y, offset_x = (h - new_h) // 2, (w - new_w) // 2
+        canvas[offset_y:offset_y+new_h, offset_x:offset_x+new_w] = shrunk
+        
+        logger.debug(f"Pre-shrink: {w}×{h} → {new_w}×{new_h}, margins: ~{offset_x}px")
+        
+        return canvas
+    
+    def _calculate_similarity(self, img1_gray: np.ndarray, img2_gray: np.ndarray) -> float:
+        """
+        Calculate structural similarity between two grayscale images.
+        
+        Args:
+            img1_gray: First grayscale image
+            img2_gray: Second grayscale image
+        
+        Returns:
+            SSIM score (1.0 = identical, 0.0 = completely different)
+        """
+        if not SSIM_AVAILABLE:
+            logger.warning("SSIM not available, returning 0.0 (assume different)")
+            return 0.0
+        
+        try:
+            similarity = ssim(img1_gray, img2_gray, data_range=255)
+            return float(similarity)
+        except Exception as e:
+            logger.error(f"SSIM calculation failed: {e}")
+            return 0.0
+    
+    def _get_augmentation_type(self, aug_idx: int, total_augs: int) -> str:
+        """
+        Determine augmentation type based on index and mix ratios.
+        
+        Args:
+            aug_idx: Index of current augmentation (0-based)
+            total_augs: Total number of augmentations
+        
+        Returns:
+            Augmentation type: 'rotation_translation', 'warping_only', or 'warping_combined'
+        """
+        # Calculate boundaries
+        rot_trans_count = int(total_augs * self.rotation_translation_ratio)
+        warp_only_count = int(total_augs * self.warping_only_ratio)
+        
+        if aug_idx < rot_trans_count:
+            return 'rotation_translation'
+        elif aug_idx < rot_trans_count + warp_only_count:
+            return 'warping_only'
+        else:
+            return 'warping_combined'
+    
+    def _generate_typed_augmentation(
+        self,
+        image: np.ndarray,
+        aug_type: str,
+        attempt: int = 1
+    ) -> Tuple[np.ndarray, Dict]:
+        """
+        Generate augmentation of specified type with progressive aggressiveness.
+        
+        Args:
+            image: Input image (already pre-shrunk if enabled)
+            aug_type: Type of augmentation
+            attempt: Attempt number (1-based, increases aggressiveness)
+        
+        Returns:
+            (augmented_image, parameters_dict)
+        """
+        # Calculate aggressiveness multiplier
+        if self.progressive_aggressiveness and attempt > 1:
+            aggr_mult = 1.0 + (attempt - 1) * self.rotation_multiplier_per_attempt
+        else:
+            aggr_mult = 1.0
+        
+        params = {'augmentation_type': aug_type, 'attempt': attempt}
+        
+        if aug_type == 'rotation_translation':
+            # Generate rotation (exclude near-zero)
+            if self.exclude_near_zero_rotation > 0:
+                # Choose either negative or positive range
+                if np.random.random() < 0.5:
+                    rotation = np.random.uniform(
+                        self.rotation_range[0],
+                        -self.exclude_near_zero_rotation
+                    )
+                else:
+                    rotation = np.random.uniform(
+                        self.exclude_near_zero_rotation,
+                        self.rotation_range[1]
+                    )
+            else:
+                rotation = np.random.uniform(*self.rotation_range)
+            
+            # Apply aggressiveness multiplier
+            rotation = rotation * aggr_mult
+            rotation = np.clip(rotation, -self.max_rotation, self.max_rotation)
+            
+            # Generate translation (exclude near-zero if configured)
+            if self.exclude_near_zero_translation > 0:
+                # Choose either negative or positive range (exclude [-exclude_near_zero_translation, exclude_near_zero_translation])
+                if np.random.random() < 0.5:
+                    # Negative range: [translation_range[0], -exclude_near_zero_translation) (exclusive upper bound)
+                    tx = np.random.randint(self.translation_range[0], -self.exclude_near_zero_translation)
+                    ty = np.random.randint(self.translation_range[0], -self.exclude_near_zero_translation)
+                else:
+                    # Positive range: [exclude_near_zero_translation + 1, translation_range[1]] (inclusive)
+                    tx = np.random.randint(self.exclude_near_zero_translation + 1, self.translation_range[1] + 1)
+                    ty = np.random.randint(self.exclude_near_zero_translation + 1, self.translation_range[1] + 1)
+            else:
+                tx = np.random.randint(self.translation_range[0], self.translation_range[1] + 1)
+                ty = np.random.randint(self.translation_range[0], self.translation_range[1] + 1)
+            
+            # Apply aggressiveness multiplier
+            if self.progressive_aggressiveness and attempt > 1:
+                trans_mult = 1.0 + (attempt - 1) * self.translation_multiplier_per_attempt
+                # Use proper rounding to increase magnitude in both directions
+                # int() truncates toward zero, so for negative values we need ceil
+                tx = int(np.sign(tx) * np.ceil(np.abs(tx * trans_mult)))
+                ty = int(np.sign(ty) * np.ceil(np.abs(ty * trans_mult)))
+            
+            tx = np.clip(tx, -self.max_translation, self.max_translation)
+            ty = np.clip(ty, -self.max_translation, self.max_translation)
+            
+            # Apply augmentation
+            aug_img = self.augment_image(image, rotation, tx, ty, scale=1.0)
+            
+            params.update({
+                'rotation': float(rotation),
+                'translation_x': int(tx),
+                'translation_y': int(ty),
+                'scale': 1.0
+            })
+        
+        elif aug_type == 'warping_only':
+            # Variable warping displacement with aggressiveness
+            base_displacement = np.random.randint(
+                self.warping_displacement_min,
+                self.warping_displacement_max + 1
+            )
+            
+            if self.progressive_aggressiveness and attempt > 1:
+                displacement = base_displacement + (attempt - 1) * self.warping_displacement_increase
+            else:
+                displacement = base_displacement
+            
+            displacement = min(displacement, self.max_warping_displacement)
+            
+            aug_img = apply_local_warp(
+                image,
+                num_control_points=9,
+                max_displacement=displacement,
+                safety_margin=15
+            )
+            
+            params.update({
+                'warping_displacement': int(displacement),
+                'warping_control_points': 9
+            })
+        
+        else:  # warping_combined
+            # Step 1: Apply warping
+            base_displacement = np.random.randint(
+                self.warping_displacement_min,
+                self.warping_displacement_max + 1
+            )
+            
+            if self.progressive_aggressiveness and attempt > 1:
+                displacement = base_displacement + (attempt - 1) * self.warping_displacement_increase
+            else:
+                displacement = base_displacement
+            
+            displacement = min(displacement, self.max_warping_displacement)
+            
+            warped = apply_local_warp(
+                image,
+                num_control_points=9,
+                max_displacement=displacement,
+                safety_margin=15
+            )
+            
+            # Step 2: Apply light transformation (50% of normal range)
+            rotation = np.random.uniform(*self.rotation_range) * 0.5 * aggr_mult
+            rotation = np.clip(rotation, -self.max_rotation, self.max_rotation)
+            
+            # Generate translation with light range (-2 to 2), excluding near-zero if configured
+            light_translation_min = -2
+            light_translation_max = 2
+            if self.exclude_near_zero_translation > 0:
+                # Choose either negative or positive range (exclude [-exclude_near_zero_translation, exclude_near_zero_translation])
+                if np.random.random() < 0.5:
+                    # Negative range: [light_translation_min, -exclude_near_zero_translation - 1]
+                    tx = np.random.randint(light_translation_min, -self.exclude_near_zero_translation)
+                    ty = np.random.randint(light_translation_min, -self.exclude_near_zero_translation)
+                else:
+                    # Positive range: [exclude_near_zero_translation + 1, light_translation_max]
+                    tx = np.random.randint(self.exclude_near_zero_translation + 1, light_translation_max + 1)
+                    ty = np.random.randint(self.exclude_near_zero_translation + 1, light_translation_max + 1)
+            else:
+                tx = np.random.randint(light_translation_min, light_translation_max + 1)
+                ty = np.random.randint(light_translation_min, light_translation_max + 1)
+            
+            if self.progressive_aggressiveness and attempt > 1:
+                trans_mult = 1.0 + (attempt - 1) * self.translation_multiplier_per_attempt
+                # Use proper rounding to increase magnitude in both directions
+                # int() truncates toward zero, so for negative values we need ceil
+                tx = int(np.sign(tx) * np.ceil(np.abs(tx * trans_mult)))
+                ty = int(np.sign(ty) * np.ceil(np.abs(ty * trans_mult)))
+            
+            tx = np.clip(tx, -self.max_translation, self.max_translation)
+            ty = np.clip(ty, -self.max_translation, self.max_translation)
+            
+            aug_img = self.augment_image(warped, rotation, tx, ty, scale=1.0)
+            
+            params.update({
+                'warping_displacement': int(displacement),
+                'warping_control_points': 9,
+                'rotation': float(rotation),
+                'translation_x': int(tx),
+                'translation_y': int(ty),
+                'scale': 1.0
+            })
+        
+        return aug_img, params
     
     def _get_content_bounds(self, image: np.ndarray) -> Tuple[int, int, int, int]:
         """
@@ -412,167 +740,223 @@ class ImageAugmentor:
         use_warping: bool = True
     ) -> List[Tuple[np.ndarray, Dict]]:
         """
-        Create multiple augmented versions of an image with content protection.
+        Create multiple augmented versions with pairwise diversity control.
         
-        NEW STRATEGY (Option 1): Combines global and local augmentations:
-        - First 60% (3/5): Pure global augmentation (rotation, translation, scaling)
-        - Last 40% (2/5): Local warping + global augmentation
-        
-        This provides diverse transformations while keeping the same number of images.
+        NEW ENHANCED STRATEGY:
+        1. Pre-shrink image by 5% to create ~14px margins
+        2. Generate augmentations with type-based distribution
+        3. Check similarity to original (reject if >95% similar)
+        4. Check similarity to all other augmentations (reject if >93% similar)
+        5. Retry with progressively more aggressive parameters if rejected
+        6. Track comprehensive diversity metrics
         
         Args:
             image: Input image
             num_augmentations: Number of augmentations (uses self.num_augmentations if None)
-            use_warping: Enable warping for subset of augmentations (default: True)
+            use_warping: Enable warping (default: True)
         
         Returns:
-            List of (augmented_image, parameters) tuples with augmentation info
+            List of (augmented_image, parameters) tuples with diversity metrics
         """
         if num_augmentations is None:
             num_augmentations = self.num_augmentations
         
+        # Step 1: Pre-shrink to create margins
+        image_shrunk = self._apply_pre_shrink(image)
+        
+        # Convert to grayscale for similarity comparisons
+        if len(image_shrunk.shape) == 3:
+            original_gray = cv2.cvtColor(image_shrunk, cv2.COLOR_RGB2GRAY)
+        else:
+            original_gray = image_shrunk.copy()
+        
         augmented_images = []
-        safety_stats = {'safe': 0, 'conservative': 0}
+        augmented_grays = []  # Store grayscale versions for pairwise comparison
         
-        # Calculate split: 60% global, 40% warp+global
-        num_global_only = int(num_augmentations * 0.6)
-        num_warp_global = num_augmentations - num_global_only
+        # Diversity statistics
+        diversity_stats = {
+            'accepted': 0,
+            'rejected_vs_original': 0,
+            'rejected_vs_augmentations': 0,
+            'total_attempts': 0,
+            'forced_accepts': 0,
+            'similarity_to_original': [],
+            'max_similarity_between_augs': []
+        }
         
-        # Generate pure global augmentations
-        for i in range(num_global_only):
-            # Generate random parameters
-            rotation = np.random.uniform(*self.rotation_range)
-            tx = np.random.randint(*self.translation_range)
-            ty = np.random.randint(*self.translation_range)
-            scale = np.random.uniform(*self.scale_range)
+        # Check if diversity control should be used
+        use_diversity_control = self.diversity_control_enabled and SSIM_AVAILABLE
+        
+        if not self.diversity_control_enabled:
+            logger.warning("Diversity control is disabled, augmentations may be redundant")
+        elif not SSIM_AVAILABLE:
+            logger.warning("SSIM (scikit-image) not available - diversity control disabled, proceeding without similarity filtering")
+            logger.warning("  Install scikit-image for diversity control: pip install scikit-image")
+            use_diversity_control = False
+        
+        # Generate augmentations (with or without diversity control)
+        for aug_idx in range(num_augmentations):
+            attempts = 0
+            accepted = False
+            best_aug = None
+            best_similarity_orig = 1.0
             
-            # Check if safe
-            is_safe = self._is_safe_augmentation(image, rotation, tx, ty, scale)
+            aug_type = self._get_augmentation_type(aug_idx, num_augmentations)
             
-            if not is_safe:
-                # Use conservative parameters (50% reduction)
-                rotation = rotation * 0.5
-                tx = int(tx * 0.5)
-                ty = int(ty * 0.5)
+            if use_diversity_control:
+                # Path 1: Diversity control enabled - use similarity checking with retries
+                while attempts < self.max_attempts_per_augmentation and not accepted:
+                    attempts += 1
+                    diversity_stats['total_attempts'] += 1
+                    
+                    # Generate augmentation with progressive aggressiveness
+                    aug_img, params = self._generate_typed_augmentation(
+                        image_shrunk,
+                        aug_type,
+                        attempt=attempts
+                    )
+                    
+                    # Convert to grayscale for comparison
+                    if len(aug_img.shape) == 3:
+                        aug_gray = cv2.cvtColor(aug_img, cv2.COLOR_RGB2GRAY)
+                    else:
+                        aug_gray = aug_img.copy()
+                    
+                    # Check 1: Similarity to original
+                    sim_to_original = self._calculate_similarity(original_gray, aug_gray)
+                    
+                    if sim_to_original >= self.similarity_to_original_max:
+                        diversity_stats['rejected_vs_original'] += 1
+                        # Track best attempt
+                        if sim_to_original < best_similarity_orig:
+                            best_similarity_orig = sim_to_original
+                            best_aug = (aug_img, params, aug_gray, sim_to_original)
+                        continue  # Retry
+                    
+                    # Check 2: Similarity to all existing augmentations
+                    max_sim_to_augs = 0.0
+                    too_similar_to_aug = False
+                    
+                    for prev_gray in augmented_grays:
+                        sim = self._calculate_similarity(prev_gray, aug_gray)
+                        max_sim_to_augs = max(max_sim_to_augs, sim)
+                        
+                        if sim >= self.similarity_between_augs_max:
+                            too_similar_to_aug = True
+                            diversity_stats['rejected_vs_augmentations'] += 1
+                            break
+                    
+                    if too_similar_to_aug:
+                        # Track best attempt
+                        if sim_to_original < best_similarity_orig:
+                            best_similarity_orig = sim_to_original
+                            best_aug = (aug_img, params, aug_gray, sim_to_original)
+                        continue  # Retry
+                    
+                    # Passed both checks - accept!
+                    augmented_images.append((aug_img, {
+                        **params,
+                        'similarity_to_original': float(sim_to_original),
+                        'max_similarity_to_augmentations': float(max_sim_to_augs),
+                        'attempts': attempts,
+                        'quality': 'optimal',
+                        'pre_shrink_applied': self.pre_shrink_enabled
+                    }))
+                    augmented_grays.append(aug_gray)
+                    diversity_stats['accepted'] += 1
+                    diversity_stats['similarity_to_original'].append(sim_to_original)
+                    diversity_stats['max_similarity_between_augs'].append(max_sim_to_augs)
+                    accepted = True
                 
-                # Verify conservative params are safe
-                if not self._is_safe_augmentation(image, rotation, tx, ty, scale):
-                    # Even more conservative: minimal transformation
-                    rotation = rotation * 0.5
-                    tx = int(tx * 0.5)
-                    ty = int(ty * 0.5)
-                    scale = 1.0 + (scale - 1.0) * 0.5
-                
-                safety_stats['conservative'] += 1
+                if not accepted:
+                    # Max attempts reached - use best attempt
+                    if best_aug:
+                        aug_img, params, aug_gray, sim = best_aug
+                        logger.warning(f"Aug {aug_idx} ({aug_type}): Max attempts reached, "
+                                      f"using best (sim_orig={sim:.3f})")
+                        augmented_images.append((aug_img, {
+                            **params,
+                            'similarity_to_original': float(sim),
+                            'max_similarity_to_augmentations': 0.0,
+                            'attempts': attempts,
+                            'quality': 'forced_accept',
+                            'pre_shrink_applied': self.pre_shrink_enabled
+                        }))
+                        augmented_grays.append(aug_gray)
+                        diversity_stats['forced_accepts'] += 1
+                    else:
+                        logger.error(f"Aug {aug_idx}: Failed to generate any augmentation")
             else:
-                safety_stats['safe'] += 1
-            
-            # Apply global augmentation only
-            aug_img = self.augment_image(image, rotation, tx, ty, scale)
-            
-            params = {
-                'augmentation_type': 'global',
-                'rotation': float(rotation),
-                'translation_x': int(tx),
-                'translation_y': int(ty),
-                'scale': float(scale),
-                'safety_adjusted': not is_safe
-            }
-            
-            augmented_images.append((aug_img, params))
-        
-        # Generate warp + global augmentations
-        if use_warping:
-            for i in range(num_warp_global):
-                # Step 1: Apply local warping
-                warped = apply_local_warp(
-                    image,
-                    num_control_points=9,
-                    max_displacement=15,
-                    safety_margin=15,
-                    random_seed=None  # Random each time
+                # Path 2: Diversity control disabled - generate augmentations directly without similarity checks
+                attempts = 1
+                diversity_stats['total_attempts'] += 1
+                
+                # Generate augmentation (use attempt=1 since no retries)
+                aug_img, params = self._generate_typed_augmentation(
+                    image_shrunk,
+                    aug_type,
+                    attempt=1
                 )
                 
-                # Step 2: Apply global augmentation on warped image
-                rotation = np.random.uniform(*self.rotation_range)
-                tx = np.random.randint(*self.translation_range)
-                ty = np.random.randint(*self.translation_range)
-                scale = np.random.uniform(*self.scale_range)
-                
-                # Check if safe (on warped image)
-                is_safe = self._is_safe_augmentation(warped, rotation, tx, ty, scale)
-                
-                if not is_safe:
-                    rotation = rotation * 0.5
-                    tx = int(tx * 0.5)
-                    ty = int(ty * 0.5)
-                    
-                    if not self._is_safe_augmentation(warped, rotation, tx, ty, scale):
-                        rotation = rotation * 0.5
-                        tx = int(tx * 0.5)
-                        ty = int(ty * 0.5)
-                        scale = 1.0 + (scale - 1.0) * 0.5
-                    
-                    safety_stats['conservative'] += 1
-                else:
-                    safety_stats['safe'] += 1
-                
-                # Apply global augmentation
-                aug_img = self.augment_image(warped, rotation, tx, ty, scale)
-                
-                params = {
-                    'augmentation_type': 'warp+global',
-                    'warp_control_points': 9,
-                    'warp_max_displacement': 15,
-                    'rotation': float(rotation),
-                    'translation_x': int(tx),
-                    'translation_y': int(ty),
-                    'scale': float(scale),
-                    'safety_adjusted': not is_safe
-                }
-                
-                augmented_images.append((aug_img, params))
-        else:
-            # If warping disabled, fill remaining with global augmentations
-            for i in range(num_warp_global):
-                rotation = np.random.uniform(*self.rotation_range)
-                tx = np.random.randint(*self.translation_range)
-                ty = np.random.randint(*self.translation_range)
-                scale = np.random.uniform(*self.scale_range)
-                
-                is_safe = self._is_safe_augmentation(image, rotation, tx, ty, scale)
-                
-                if not is_safe:
-                    rotation = rotation * 0.5
-                    tx = int(tx * 0.5)
-                    ty = int(ty * 0.5)
-                    
-                    if not self._is_safe_augmentation(image, rotation, tx, ty, scale):
-                        rotation = rotation * 0.5
-                        tx = int(tx * 0.5)
-                        ty = int(ty * 0.5)
-                        scale = 1.0 + (scale - 1.0) * 0.5
-                    
-                    safety_stats['conservative'] += 1
-                else:
-                    safety_stats['safe'] += 1
-                
-                aug_img = self.augment_image(image, rotation, tx, ty, scale)
-                
-                params = {
-                    'augmentation_type': 'global',
-                    'rotation': float(rotation),
-                    'translation_x': int(tx),
-                    'translation_y': int(ty),
-                    'scale': float(scale),
-                    'safety_adjusted': not is_safe
-                }
-                
-                augmented_images.append((aug_img, params))
+                # Accept immediately (no similarity checks)
+                augmented_images.append((aug_img, {
+                    **params,
+                    'similarity_to_original': None,
+                    'max_similarity_to_augmentations': None,
+                    'attempts': 1,
+                    'quality': 'no_filtering',
+                    'pre_shrink_applied': self.pre_shrink_enabled
+                }))
+                diversity_stats['accepted'] += 1
         
-        # Log safety statistics
-        if safety_stats['conservative'] > 0:
-            logger.debug(f"Content protection: {safety_stats['conservative']}/{num_augmentations} augmentations used conservative parameters")
+        # Calculate overall diversity metrics (only if diversity control was used)
+        if use_diversity_control:
+            avg_attempts = diversity_stats['total_attempts'] / num_augmentations if num_augmentations > 0 else 0
+            avg_sim_to_orig = np.mean(diversity_stats['similarity_to_original']) if diversity_stats['similarity_to_original'] else 0
+            avg_sim_between = np.mean(diversity_stats['max_similarity_between_augs']) if diversity_stats['max_similarity_between_augs'] else 0
+            
+            # Calculate diversity score (1.0 = completely different, 0.0 = identical)
+            diversity_score = 1.0 - avg_sim_to_orig
+            
+            # Log comprehensive statistics
+            logger.info(f"Augmentation diversity control:")
+            logger.info(f"  Accepted: {diversity_stats['accepted']}/{num_augmentations}")
+            logger.info(f"  Rejected (vs original): {diversity_stats['rejected_vs_original']}")
+            logger.info(f"  Rejected (vs other augs): {diversity_stats['rejected_vs_augmentations']}")
+            logger.info(f"  Forced accepts: {diversity_stats['forced_accepts']}")
+            logger.info(f"  Avg attempts per aug: {avg_attempts:.1f}")
+            logger.info(f"  Avg similarity to original: {avg_sim_to_orig:.3f}")
+            logger.info(f"  Avg max similarity between augs: {avg_sim_between:.3f}")
+            logger.info(f"  Diversity score: {diversity_score:.3f}")
+        else:
+            # Diversity control disabled - simplified logging
+            logger.info(f"Augmentation (diversity control disabled):")
+            logger.info(f"  Generated: {diversity_stats['accepted']}/{num_augmentations} augmentations")
+            avg_attempts = 1.0  # Always 1 attempt when disabled
+            avg_sim_to_orig = 0.0
+            avg_sim_between = 0.0
+            diversity_score = 0.0  # Not applicable
+        
+        # Add diversity summary to first augmentation's metadata
+        if augmented_images:
+            diversity_summary = {
+                'diversity_control_enabled': use_diversity_control,
+                'total_augmentations': num_augmentations,
+                'accepted': diversity_stats['accepted'],
+                'avg_attempts_per_aug': float(avg_attempts)
+            }
+            
+            if use_diversity_control:
+                diversity_summary.update({
+                    'rejected_vs_original': diversity_stats['rejected_vs_original'],
+                    'rejected_vs_augmentations': diversity_stats['rejected_vs_augmentations'],
+                    'forced_accepts': diversity_stats['forced_accepts'],
+                    'avg_similarity_to_original': float(avg_sim_to_orig),
+                    'avg_max_similarity_between_augs': float(avg_sim_between),
+                    'diversity_score': float(diversity_score)
+                })
+            
+            augmented_images[0][1]['diversity_summary'] = diversity_summary
         
         return augmented_images
 
@@ -879,4 +1263,3 @@ def get_augmentation_stats(data_dir: str) -> Dict:
             stats[split]['augmented'] = len([f for f in json_files if 'aug' in f.name])
     
     return stats
-

@@ -51,25 +51,65 @@ training:
 
 # Data augmentation configuration
 augmentation:
+  # Pre-shrink for margin creation (NEW)
+  pre_shrink:
+    enabled: true
+    factor: 0.95  # 5% shrink creates ~14px margins for translation
+  
   # Transformation ranges
-  rotation_range: [-3, 3]  # degrees
-  translation_range: [-10, 10]  # pixels
+  rotation_range: [-5, 5]  # degrees (increased from ±3° for diversity)
+  translation_range: [-3, 3]  # pixels (realistic with 14px margins)
   scale_range: [0.95, 1.05]  # scale factor
   
   # Number of augmentations per image
-  num_augmentations: 5  # 1 original + 5 augmented = 6 total
+  num_augmentations: 6  # Optimal for dataset size (1 original + 6 augmented = 7 total)
+  
+  # Diversity quality control (NEW)
+  diversity_control:
+    enabled: true
+    
+    # Similarity thresholds (SSIM: 1.0 = identical, 0.0 = completely different)
+    similarity_to_original_max: 0.95      # Reject if >95% similar to original
+    similarity_between_augs_max: 0.93     # Reject if >93% similar to other augs (more strict)
+    
+    # Retry behavior
+    max_attempts_per_augmentation: 10     # Max attempts to find diverse augmentation
+    progressive_aggressiveness: true      # Increase params on each retry
+    
+    # Metrics & reporting
+    metric: "ssim"                        # Structural Similarity Index
+    save_similarity_matrix: true          # Save NxN similarity matrix in metadata
+    log_diversity_stats: true             # Log acceptance/rejection statistics
+  
+  # Progressive aggressiveness multipliers (per retry attempt)
+  progressive_params:
+    rotation_multiplier_per_attempt: 0.15  # +15% per attempt
+    translation_multiplier_per_attempt: 0.20  # +20% per attempt
+    warping_displacement_increase: 3       # +3px per attempt
+    max_rotation: 8                        # Cap at ±8°
+    max_translation: 5                     # Cap at ±5px
+    max_warping_displacement: 25           # Cap at 25px
+  
+  # Augmentation type distribution
+  augmentation_mix:
+    rotation_translation_ratio: 0.50  # 50% - pure rotation + translation
+    warping_only_ratio: 0.33          # 33% - pure warping
+    warping_combined_ratio: 0.17      # 17% - warping + rotation + translation
   
   # Warping settings
-  use_warping: true
-  warping_displacement: 15  # pixels
-  warping_control_points: 9  # 3x3 grid
+  warping:
+    displacement_range: [15, 20]  # Variable displacement
+    control_points: 9             # 3x3 grid
+    safety_margin: 15             # Edge safety margin
   
   # Quality settings
   binarization_threshold: 175
   line_thickness: 2  # pixels (after normalization)
   
-  # Warping ratio (how many augmented images use warping)
-  warping_ratio: 0.4  # 40% of augmentations
+  # Exclude near-zero transforms (for diversity)
+  exclude_near_zero:
+    rotation_min_abs: 2.0  # Initial rotation must be ≥2° or ≤-2°
+    translation_min_abs: 1  # Initial translation must be ≥1px
 
 # Synthetic bad images configuration
 synthetic:

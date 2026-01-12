@@ -725,7 +725,7 @@
                         <option value="100">100 (Best for large datasets)</option>
                     </select>
                     <p style="margin-top: 8px; font-size: 0.85em; color: #666; font-weight: normal;">
-                        💡 <strong>With augmentation (6x data):</strong> Use 30-50 epochs minimum<br>
+                        💡 <strong>With augmentation (7× data):</strong> Use 30-50 epochs minimum<br>
                         💡 <strong>Without augmentation:</strong> Use 20-30 epochs (risk of overfitting if higher)
                     </p>
                 </div>
@@ -781,17 +781,22 @@
                     </label>
                 </div>
                 <div style="font-size: 0.9em; color: #666; margin-left: 30px;">
-                    Multiplies dataset size by 6x using realistic transformations (rotation, translation, scaling, and local warping).
-                    Significantly reduces overfitting and improves model generalization.
+                    Multiplies dataset size by 7× using enhanced diversity-controlled transformations. Includes pre-shrink for margins, 
+                    SSIM-based similarity filtering, and progressive aggressiveness. Guarantees every augmentation is unique and meaningful.
                 </div>
                 <div id="augmentationInfo" style="margin-top: 10px; margin-left: 30px; font-size: 0.85em; color: #667eea; display: none;">
-                    <strong>ℹ️ Augmentation Details (New Strategy):</strong>
+                    <strong>ℹ️ Enhanced Augmentation System (2026-01-12):</strong>
                     <ul style="margin: 5px 0 0 20px;">
-                        <li><strong>5 augmented versions per image:</strong></li>
-                        <li style="margin-left: 20px;">3× Global only: Rotation ±3°, Translation ±10px, Scaling 95-105%</li>
-                        <li style="margin-left: 20px;">2× Warp + Global: Local warping (9 points, ±15px) + global transforms</li>
-                        <li><strong>Local Warping:</strong> Simulates paper deformations (folds, uneven surface)</li>
-                        <li><strong>Line Quality:</strong> Consistent 2px lines guaranteed by post-processing</li>
+                        <li><strong>6 diverse augmented versions per image (7× total):</strong></li>
+                        <li style="margin-left: 20px;"><strong>Pre-shrink:</strong> 5% content shrink creates ~14px margins</li>
+                        <li style="margin-left: 20px;"><strong>50%</strong> Rotation (±5°) + Translation (±3px)</li>
+                        <li style="margin-left: 20px;"><strong>33%</strong> Warping only (15-20px displacement, 9 control points)</li>
+                        <li style="margin-left: 20px;"><strong>17%</strong> Warping + Light rotation/translation combined</li>
+                        <li><strong>Diversity Control (NEW):</strong> SSIM-based filtering ensures unique augmentations</li>
+                        <li style="margin-left: 20px;">• Each augmentation <95% similar to original</li>
+                        <li style="margin-left: 20px;">• All augmentations <93% similar to each other</li>
+                        <li style="margin-left: 20px;">• Progressive retry with increased parameters if too similar</li>
+                        <li><strong>Quality Guarantee:</strong> Consistent 2px lines, comprehensive diversity metrics</li>
                     </ul>
                 </div>
                 

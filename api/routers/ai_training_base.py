@@ -355,15 +355,11 @@ def run_training_job(config):
             
             try:
                 loader = TrainingDataLoader(db)
+                # Load augmentation config from training_config.yaml (uses new enhanced system)
                 aug_stats, output_dir = loader.prepare_augmented_training_data(
                     target_feature=config['target_feature'],
                     train_split=config['train_split'],
-                    augmentation_config={
-                        'rotation_range': (-3, 3),
-                        'translation_range': (-10, 10),
-                        'scale_range': (0.95, 1.05),
-                        'num_augmentations': 5
-                    },
+                    augmentation_config=None,  # Uses defaults from training_config.yaml
                     output_dir='/app/data/ai_training_data',
                     normalizer=normalizer,
                     add_synthetic_bad_images=config.get('add_synthetic_bad_images', False),

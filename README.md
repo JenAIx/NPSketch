@@ -292,49 +292,81 @@ curl -X POST http://localhost/api/ai-training/start-training \
 - Train/validation split statistics
 - Final performance metrics
 
-### Data Augmentation
+### Data Augmentation (Enhanced System - 2026-01-12)
 
-**Purpose:** Increase dataset size and reduce overfitting
+**Purpose:** Increase dataset size and reduce overfitting with guaranteed diversity
 
-**Augmentation Strategy:**
+**NEW Enhanced Augmentation Strategy:**
 
-From **1 original image** → **6 total images**:
-- **1× Original** (unmodified)
-- **3× Global augmentation only** (60%): Rotation, translation, scaling
-- **2× Warp + Global** (40%): Local warping + global transformation
+From **1 original image** → **7 total images** (1 + 6 augmented):
 
-**Augmentation Techniques:**
+**Step 0: Pre-Shrink (NEW)**
+- Shrink content by 5% (0.95 factor)
+- Center on white canvas
+- Creates ~14px margins on all sides
+- Enables proper translation and rotation
 
-| Technique | Range | Purpose |
-|-----------|-------|---------|
-| **Rotation** | ±1-3° | Simulates paper tilt / camera angle |
-| **Translation** | ±5-10px | Simulates position shifts |
-| **Scaling** | 95-105% | Simulates size variations |
-| **Local Warping** | ±15px @ 9 points | Simulates paper deformation (folds, uneven surface) |
+**Step 1: Diversity-Controlled Generation (NEW)**
+- Generate 6 augmented variations
+- Each augmentation checked for similarity to original (<95% similar)
+- Pairwise uniqueness check (all augmentations <93% similar to each other)
+- Progressive aggressiveness on retry (automatic parameter increase)
+- Comprehensive metrics tracking
+
+**Augmentation Mix:**
+- **50% Rotation + Translation** (3 augmentations): ±5° rotation, ±3px translation
+- **33% Warping Only** (2 augmentations): 15-20px displacement, 9 control points
+- **17% Warping + Combined** (1 augmentation): Warping + light rotation/translation
+
+**Enhanced Techniques:**
+
+| Technique | Range | Purpose | Notes |
+|-----------|-------|---------|-------|
+| **Pre-Shrink** | 5% shrink | Creates margins for transformations | NEW - Applied to all images |
+| **Rotation** | ±2-5° | Simulates paper tilt / camera angle | Increased from ±3°, excludes near-zero |
+| **Translation** | ±3px | Simulates position shifts | Now works properly with margins |
+| **Scaling** | 95-105% | Simulates size variations | Minimal use (only with rotation) |
+| **Local Warping** | 15-20px @ 9 points | Simulates paper deformation | Variable displacement |
+
+**Diversity Control Features (NEW):**
+
+| Feature | Threshold | Purpose |
+|---------|-----------|---------|
+| **SSIM to Original** | <0.95 | Ensures each augmentation is meaningfully different from source |
+| **SSIM Between Augs** | <0.93 | Ensures no redundant augmentations |
+| **Progressive Retry** | 10 attempts | Increases parameters if augmentation too similar |
+| **Quality Tracking** | Per-aug metrics | Logs similarity scores and diversity statistics |
 
 **Local Warping Details:**
-- Uses **Thin Plate Spline (TPS)** interpolation
+- Uses **Inverse Distance Weighting** (IDW) interpolation (vectorized, 100× faster than TPS)
 - 9 control points in 3×3 grid (at 25%, 50%, 75% horizontal & vertical)
-- Each point randomly displaced ±15 pixels
+- Each point randomly displaced 15-20 pixels (variable)
+- Edge-aware reduction (protects borders)
 - Smooth interpolation with border protection
-- Applied to 40% of augmentations, combined with global transforms
 
 **Pipeline (Every Augmented Image):**
-1. Apply transformation (global or warp+global)
-2. Re-binarize (threshold 175)
-3. Line normalization (skeleton + 2px dilation)
-4. Save
+1. Pre-shrink by 5% and center (creates margins)
+2. Generate augmentation with type-based strategy
+3. Check similarity to original → Reject if ≥0.95
+4. Check similarity to all other augmentations → Reject if ≥0.93
+5. Retry with increased parameters if rejected (up to 10 attempts)
+6. Re-binarize (threshold 175)
+7. Line normalization (skeleton + 2px dilation)
+8. Save with comprehensive metadata
 
 **Example Output:**
 - Original dataset: 20 images
-- With augmentation: 120 images (20 original + 100 augmented)
-- Effective multiplier: 6x
-- Line consistency: 0.97×-0.99× (excellent)
+- With augmentation: 140 images (20 original + 120 augmented)
+- Effective multiplier: 7×
+- Diversity guarantee: 100% (all augmentations unique)
+- Avg similarity to original: 0.75-0.85 (excellent diversity)
 
 **Quality Metrics:**
 - All images: Binary (only black/white, no grayscale)
 - Line thickness: Consistent 2px (guaranteed by pipeline)
 - No fragmentation: <10 components per image
+- Guaranteed diversity: SSIM-based filtering ensures no redundant variations
+- Comprehensive logging: Every augmentation includes similarity metrics
 
 ### Synthetic Bad Images (NEW)
 

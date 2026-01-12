@@ -384,14 +384,27 @@ class TrainingDataLoader:
         """
         from ai_training.data_augmentation import ImageAugmentor, AugmentedDatasetBuilder
         
-        # Default augmentation config
+        # Load augmentation config from training_config.yaml
+        from config import get_config
+        yaml_config = get_config()
+        aug_yaml = yaml_config.get('augmentation', {})
+        
+        # Default augmentation config (from YAML)
         default_config = {
-            'rotation_range': (-3.0, 3.0),
-            'translation_range': (-10, 10),
-            'scale_range': (0.95, 1.05),
-            'num_augmentations': 5
+            'rotation_range': tuple(aug_yaml.get('rotation_range', [-5, 5])),
+            'translation_range': tuple(aug_yaml.get('translation_range', [-3, 3])),
+            'scale_range': tuple(aug_yaml.get('scale_range', [0.95, 1.05])),
+            'num_augmentations': aug_yaml.get('num_augmentations', 6),
+            # Load all new enhanced config
+            'pre_shrink': aug_yaml.get('pre_shrink', {}),
+            'diversity_control': aug_yaml.get('diversity_control', {}),
+            'progressive_params': aug_yaml.get('progressive_params', {}),
+            'augmentation_mix': aug_yaml.get('augmentation_mix', {}),
+            'warping': aug_yaml.get('warping', {}),
+            'exclude_near_zero': aug_yaml.get('exclude_near_zero', {})
         }
         
+        # Allow override from augmentation_config parameter
         if augmentation_config:
             default_config.update(augmentation_config)
         
@@ -739,12 +752,38 @@ class TrainingDataLoader:
             normalizer.fit(y_array)
             logger.info(f"Fitted normalizer on {len(y_array)} samples")
         
-        # Create augmentor
+        # Create augmentor with enhanced diversity control
         augmentor = ImageAugmentor(
             rotation_range=tuple(default_config['rotation_range']),
             translation_range=tuple(default_config['translation_range']),
             scale_range=tuple(default_config['scale_range']),
-            num_augmentations=default_config['num_augmentations']
+            num_augmentations=default_config['num_augmentations'],
+            # NEW: Pre-shrink settings
+            pre_shrink_enabled=default_config.get('pre_shrink', {}).get('enabled', True),
+            pre_shrink_factor=default_config.get('pre_shrink', {}).get('factor', 0.95),
+            # NEW: Diversity control
+            diversity_control_enabled=default_config.get('diversity_control', {}).get('enabled', True),
+            similarity_to_original_max=default_config.get('diversity_control', {}).get('similarity_to_original_max', 0.95),
+            similarity_between_augs_max=default_config.get('diversity_control', {}).get('similarity_between_augs_max', 0.93),
+            max_attempts_per_augmentation=default_config.get('diversity_control', {}).get('max_attempts_per_augmentation', 10),
+            progressive_aggressiveness=default_config.get('diversity_control', {}).get('progressive_aggressiveness', True),
+            # NEW: Progressive parameters
+            rotation_multiplier_per_attempt=default_config.get('progressive_params', {}).get('rotation_multiplier_per_attempt', 0.15),
+            translation_multiplier_per_attempt=default_config.get('progressive_params', {}).get('translation_multiplier_per_attempt', 0.20),
+            warping_displacement_increase=default_config.get('progressive_params', {}).get('warping_displacement_increase', 3),
+            max_rotation=default_config.get('progressive_params', {}).get('max_rotation', 8.0),
+            max_translation=default_config.get('progressive_params', {}).get('max_translation', 5),
+            max_warping_displacement=default_config.get('progressive_params', {}).get('max_warping_displacement', 25),
+            # NEW: Augmentation mix
+            rotation_translation_ratio=default_config.get('augmentation_mix', {}).get('rotation_translation_ratio', 0.50),
+            warping_only_ratio=default_config.get('augmentation_mix', {}).get('warping_only_ratio', 0.33),
+            warping_combined_ratio=default_config.get('augmentation_mix', {}).get('warping_combined_ratio', 0.17),
+            # NEW: Warping settings
+            warping_displacement_min=default_config.get('warping', {}).get('displacement_range', [15, 20])[0],
+            warping_displacement_max=default_config.get('warping', {}).get('displacement_range', [15, 20])[1],
+            # NEW: Exclude near-zero
+            exclude_near_zero_rotation=default_config.get('exclude_near_zero', {}).get('rotation_min_abs', 2.0),
+            exclude_near_zero_translation=default_config.get('exclude_near_zero', {}).get('translation_min_abs', 1)
         )
         
         # Build augmented dataset
