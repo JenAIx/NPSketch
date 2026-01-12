@@ -23,6 +23,84 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+class EarlyStopping:
+    """Early stopping to stop training when validation loss stops improving."""
+    
+    def __init__(self, patience: int = 10, min_delta: float = 0.001, restore_best_weights: bool = True):
+        """
+        Initialize early stopping.
+        
+        Args:
+            patience: Number of epochs to wait for improvement
+            min_delta: Minimum change in monitored value to qualify as improvement
+            restore_best_weights: Whether to restore model weights from best epoch
+        """
+        self.patience = patience
+        self.min_delta = min_delta
+        self.restore_best_weights = restore_best_weights
+        self.counter = 0
+        self.best_loss = None
+        self.best_epoch = 0
+        self.best_model_state = None
+        self.early_stop = False
+        
+    def __call__(self, val_loss: float, model: nn.Module, epoch: int) -> bool:
+        """
+        Check if training should stop.
+        
+        Args:
+            val_loss: Current validation loss
+            model: Model to save if best
+            epoch: Current epoch number
+            
+        Returns:
+            True if training should stop, False otherwise
+        """
+        if self.best_loss is None:
+            # First epoch (epoch is 0-based, store as 1-based for consistency)
+            self.best_loss = val_loss
+            self.best_epoch = epoch + 1  # Store as 1-based for consistency with stopped_epoch
+            if self.restore_best_weights:
+                # Clone tensors to avoid in-place modifications during training
+                # Memory: ~47 MB for ResNet-18 (only stored when best improves, not every epoch)
+                self.best_model_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            return False
+        
+        # Check if loss improved
+        if val_loss < (self.best_loss - self.min_delta):
+            # Improvement (epoch is 0-based, store as 1-based for consistency)
+            self.best_loss = val_loss
+            self.best_epoch = epoch + 1  # Store as 1-based for consistency with stopped_epoch
+            self.counter = 0
+            if self.restore_best_weights:
+                # Clone tensors to avoid in-place modifications during training
+                # Memory: ~47 MB for ResNet-18 (only stored when best improves, not every epoch)
+                # Old best_model_state is automatically garbage collected
+                self.best_model_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            logger.debug(f"Early stopping: Validation loss improved to {val_loss:.6f}")
+            return False
+        else:
+            # No improvement
+            self.counter += 1
+            logger.debug(f"Early stopping: No improvement for {self.counter}/{self.patience} epochs")
+            
+            if self.counter >= self.patience:
+                self.early_stop = True
+                logger.info(f"Early stopping triggered after {self.counter} epochs without improvement")
+                logger.info(f"Best validation loss: {self.best_loss:.6f} at epoch {self.best_epoch} (1-based)")
+                return True
+            
+            return False
+    
+    def restore_best(self, model: nn.Module):
+        """Restore best model weights."""
+        if self.restore_best_weights and self.best_model_state is not None:
+            model.load_state_dict(self.best_model_state)
+            logger.info(f"Restored best model from epoch {self.best_epoch}")
+        else:
+            logger.warning("No best model state available to restore")
+
+
 class CNNTrainer:
     """CNN Trainer for drawing assessment using PyTorch."""
     
@@ -37,7 +115,11 @@ class CNNTrainer:
         class_weights: list = None,
         use_lr_scheduling: bool = True,
         use_differential_lr: bool = True,
-        backbone_lr_multiplier: float = 0.1
+        backbone_lr_multiplier: float = 0.1,
+        dropout: float = 0.5,
+        weight_decay: float = 0.0001,
+        early_stopping_patience: int = 15,
+        early_stopping_min_delta: float = 0.001
     ):
         """
         Initialize CNN trainer.
@@ -53,6 +135,10 @@ class CNNTrainer:
             use_lr_scheduling: Enable ReduceLROnPlateau scheduling (default: True)
             use_differential_lr: Use different LRs for backbone vs head (default: True)
             backbone_lr_multiplier: Backbone LR multiplier (default: 0.1 = 10x smaller)
+            dropout: Dropout rate (default: 0.5)
+            weight_decay: L2 regularization strength (default: 0.0001)
+            early_stopping_patience: Early stopping patience (0 = disabled, default: 15)
+            early_stopping_min_delta: Minimum delta for early stopping (default: 0.001)
         """
         self.num_outputs = num_outputs
         self.learning_rate = learning_rate
@@ -62,6 +148,9 @@ class CNNTrainer:
         self.use_lr_scheduling = use_lr_scheduling
         self.use_differential_lr = use_differential_lr
         self.backbone_lr_multiplier = backbone_lr_multiplier
+        self.dropout = dropout
+        self.weight_decay = weight_decay
+        self.early_stopping_patience = early_stopping_patience
         
         # Auto-determine use_sigmoid if not specified
         if use_sigmoid is None:
@@ -86,12 +175,19 @@ class CNNTrainer:
         
         logger.info(f"Using device: {self.device}")
         
-        # Initialize model
-        self.model = DrawingClassifier(num_outputs=num_outputs, pretrained=True, use_sigmoid=use_sigmoid)
+        # Initialize model with dropout
+        self.model = DrawingClassifier(
+            num_outputs=num_outputs, 
+            pretrained=True, 
+            use_sigmoid=use_sigmoid,
+            dropout=dropout
+        )
         self.model.to(self.device)
         
         if use_sigmoid:
             logger.info(f"Using Sigmoid output activation (output range: [0, 1])")
+        
+        logger.info(f"Dropout rate: {dropout}")
         
         # Optimizer with optional differential learning rates
         if use_differential_lr:
@@ -109,8 +205,8 @@ class CNNTrainer:
             head_lr = learning_rate
             
             self.optimizer = optim.Adam([
-                {'params': backbone_params, 'lr': backbone_lr},
-                {'params': head_params, 'lr': head_lr}
+                {'params': backbone_params, 'lr': backbone_lr, 'weight_decay': weight_decay},
+                {'params': head_params, 'lr': head_lr, 'weight_decay': weight_decay}
             ])
             
             logger.info(f"Differential Learning Rates enabled:")
@@ -118,8 +214,11 @@ class CNNTrainer:
             logger.info(f"  Head LR: {head_lr:.6f} ({len(head_params)} param groups)")
         else:
             # Standard: All parameters with same LR
-            self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+            self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate, weight_decay=weight_decay)
             logger.info(f"Standard Learning Rate: {learning_rate:.6f} (all parameters)")
+        
+        if weight_decay > 0:
+            logger.info(f"Weight decay (L2 regularization): {weight_decay}")
         
         if training_mode == "classification":
             # Use class weights if provided
@@ -154,6 +253,19 @@ class CNNTrainer:
             logger.info(f"  Patience: 5 epochs")
             logger.info(f"  Min LR: 1e-6")
         
+        # Early stopping
+        self.early_stopping = None
+        if early_stopping_patience > 0:
+            self.early_stopping = EarlyStopping(
+                patience=early_stopping_patience,
+                min_delta=early_stopping_min_delta,
+                restore_best_weights=True
+            )
+            logger.info(f"Early Stopping enabled:")
+            logger.info(f"  Patience: {early_stopping_patience} epochs")
+            logger.info(f"  Min delta: {early_stopping_min_delta}")
+            logger.info(f"  Restore best weights: True")
+        
         # Training history
         self.history = {
             'train_loss': [],
@@ -165,6 +277,21 @@ class CNNTrainer:
         # Model directory
         self.model_dir = Path("/app/data/models")
         self.model_dir.mkdir(exist_ok=True)
+    
+    def get_primary_learning_rate(self) -> float:
+        """
+        Get the primary learning rate (Head LR if differential LR is enabled, otherwise the main LR).
+        This is the learning rate that should be tracked and reported in metadata.
+        
+        Returns:
+            Primary learning rate (Head LR for differential LR, or main LR otherwise)
+        """
+        if self.use_differential_lr and len(self.optimizer.param_groups) > 1:
+            # param_groups[1] is the head (primary LR)
+            return self.optimizer.param_groups[1]['lr']
+        else:
+            # Single param group or no differential LR
+            return self.optimizer.param_groups[0]['lr']
     
     def train_epoch(
         self,
@@ -213,18 +340,18 @@ class CNNTrainer:
         
         # Learning rate scheduling (if enabled and validation loss available)
         if self.scheduler is not None and val_loss is not None:
-            old_lr = self.optimizer.param_groups[0]['lr']
+            old_lr = self.get_primary_learning_rate()
             self.scheduler.step(val_loss)
-            new_lr = self.optimizer.param_groups[0]['lr']
+            new_lr = self.get_primary_learning_rate()
             
-            # Log LR changes
+            # Log LR changes (track primary LR, which is the Head LR for differential LR)
             if new_lr != old_lr:
                 logger.info(f"Learning Rate reduced: {old_lr:.6f} → {new_lr:.6f}")
         
         metrics = {
             'train_loss': np.mean(train_losses),
             'val_loss': val_loss,
-            'learning_rate': self.optimizer.param_groups[0]['lr']
+            'learning_rate': self.get_primary_learning_rate()  # Track primary LR (Head LR for differential LR)
         }
         
         return metrics
@@ -482,11 +609,36 @@ class CNNTrainer:
         return str(filepath)
     
     def load_model(self, filepath: str):
-        """Load model weights."""
+        """
+        Load model weights.
+        
+        Handles backward compatibility: Old models (without differential LR) have 1 param_group,
+        new models (with differential LR) have 2 param_groups. If mismatch occurs, optimizer
+        state is skipped (only needed for training, not for evaluation).
+        """
         checkpoint = torch.load(filepath, map_location=self.device)
         
         self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
+        # Try to load optimizer state, but handle backward compatibility
+        if 'optimizer_state_dict' in checkpoint:
+            saved_param_groups = len(checkpoint['optimizer_state_dict']['param_groups'])
+            current_param_groups = len(self.optimizer.param_groups)
+            
+            if saved_param_groups == current_param_groups:
+                # Compatible: Load optimizer state
+                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                logger.info(f"Model and optimizer loaded: {filepath}")
+            else:
+                # Incompatible: Skip optimizer state (only needed for training, not evaluation)
+                logger.warning(
+                    f"Optimizer state mismatch: Saved model has {saved_param_groups} param_group(s), "
+                    f"current optimizer has {current_param_groups}. Skipping optimizer state. "
+                    f"This is normal for old models (pre-differential LR). Model weights loaded successfully."
+                )
+        else:
+            logger.warning("No optimizer state found in checkpoint. Model weights loaded successfully.")
+        
         self.history = checkpoint.get('history', self.history)
         
         logger.info(f"Model loaded: {filepath}")

@@ -28,6 +28,10 @@ class TrainingConfig(BaseModel):
     use_lr_scheduling: bool = Field(True, description="Enable learning rate scheduling (ReduceLROnPlateau)")
     use_differential_lr: bool = Field(True, description="Use different learning rates for backbone vs head")
     backbone_lr_multiplier: float = Field(0.1, gt=0, le=1.0, description="Backbone LR multiplier (0.1 = 10x smaller)")
+    dropout: float = Field(0.5, ge=0.0, le=1.0, description="Dropout rate for regularization")
+    weight_decay: float = Field(0.0001, ge=0.0, le=0.01, description="L2 regularization strength (weight decay)")
+    early_stopping_patience: int = Field(15, ge=0, le=100, description="Early stopping patience (0 = disabled)")
+    early_stopping_min_delta: float = Field(0.001, ge=0.0, le=1.0, description="Early stopping minimum delta")
     
     @field_validator('synthetic_n_samples')
     @classmethod

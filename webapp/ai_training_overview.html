@@ -314,6 +314,8 @@
             const classWeights = metadata.class_weights || {};
             const lrScheduling = metadata.lr_scheduling || {};
             const differentialLr = metadata.differential_lr || {};
+            const regularization = metadata.regularization || {};
+            const earlyStopping = metadata.early_stopping || {};
             const modelInfo = metadata.model || {};
             const trainingHistory = metadata.training_history || {};
             
@@ -595,6 +597,40 @@
                             ` : `
                                 <span style="color: #6c757d;">N/A (Regression)</span>
                             `}
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">🛡️ Regularization</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
+                            ${regularization.dropout !== undefined || regularization.weight_decay !== undefined ? `
+                                <span style="font-size: 0.85em; color: #666;">
+                                    Dropout: <strong>${regularization.dropout !== undefined ? regularization.dropout.toFixed(2) : '0.50'}</strong>
+                                    <br>Weight Decay: <strong>${regularization.weight_decay !== undefined ? regularization.weight_decay.toFixed(4) : '0.0001'}</strong>
+                                </span>
+                            ` : `
+                                <span style="color: #6c757d;">Default (Dropout: 0.5)</span>
+                            `}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">⏱️ Early Stopping</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
+                            <span style="color: ${earlyStopping.enabled ? '#28a745' : '#6c757d'};">
+                                ${earlyStopping.enabled ? '✅ Enabled' : '❌ Disabled'}
+                            </span>
+                            ${earlyStopping.enabled ? `
+                                <br><span style="font-size: 0.85em; color: #666;">
+                                    Patience: <strong>${earlyStopping.patience || 'N/A'}</strong> epochs
+                                    ${earlyStopping.triggered ? `
+                                        <br><span style="color: #ffc107;">⚠️ Triggered at epoch ${earlyStopping.stopped_epoch}</span>
+                                        <br><span style="color: #28a745;">✓ Best: Epoch ${earlyStopping.best_epoch} (loss: ${earlyStopping.best_val_loss?.toFixed(4)})</span>
+                                    ` : ''}
+                                </span>
+                            ` : ''}
                         </div>
                     </div>
                 </div>

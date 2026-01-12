@@ -360,6 +360,22 @@ docker logs npsketch-api
   - Stored in metadata (`differential_lr.backbone_lr`, `differential_lr.head_lr`)
 - **Configuration**: Set in `training_config.yaml` or via TrainingConfig Pydantic model
 
+### Regularization & Early Stopping
+- **Dropout**: Configurable dropout rate (default: 0.5)
+  - Applied in model head between hidden layers
+  - Range: 0.0 (no dropout) to 1.0 (all dropped)
+  - Set in `training_config.yaml` (`training.regularization.dropout`)
+- **Weight Decay**: L2 regularization (default: 0.0001)
+  - Applied to all model parameters in optimizer
+  - Reduces overfitting by penalizing large weights
+  - Set in `training_config.yaml` (`training.regularization.weight_decay`)
+- **Early Stopping**: Automatic training termination (default: enabled, patience=15)
+  - Monitors validation loss, stops if no improvement for N epochs
+  - Automatically restores best model from training
+  - Logs: `Early stopping triggered at epoch X` / `Best: Epoch Y (loss: Z)`
+  - Stored in metadata (`early_stopping.triggered`, `early_stopping.best_epoch`)
+  - Disable by setting `patience: 0` in config
+
 ### Import Methods
 - **MAT/OCS:** Web interface (`/api/extract-training-data`)
 - **Oxford:** Command-line scripts (`oxford_extraction/oxford_normalizer.py` + `oxford_extraction/oxford_db_populator.py`)
@@ -453,7 +469,10 @@ try:
         num_epochs=50,
         use_lr_scheduling=True,      # Enable LR scheduling
         use_differential_lr=True,    # Enable differential LR
-        backbone_lr_multiplier=0.1  # Backbone LR = LR × 0.1
+        backbone_lr_multiplier=0.1,  # Backbone LR = LR × 0.1
+        dropout=0.5,                 # Dropout rate
+        weight_decay=0.0001,         # L2 regularization
+        early_stopping_patience=15   # Early stopping patience
     )
     # Type-safe access: config.batch_size → guaranteed int
 except ValidationError as e:
@@ -495,5 +514,5 @@ logger.debug("Debugging only")
 **Last Updated:** 2026-01-07 
 **Container Name:** `npsketch-api` 
 **Working Directory:** `/app` 
-**Version:** 1.1.4
+**Version:** 1.1.5
 

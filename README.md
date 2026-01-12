@@ -455,7 +455,15 @@ print(f"Val: {stats['val']['total']} images")
   - Formula: `weight = total_samples / (num_classes * class_count)`
   - Applied automatically when class imbalance detected
   - Stored in model metadata for reproducibility
-- **Regularization**: Dropout (0.5)
+- **Regularization**: 
+  - Dropout: Configurable (default: 0.5)
+  - Weight Decay (L2): Configurable (default: 0.0001)
+  - Applied to all model parameters
+- **Early Stopping**: Automatic training termination when validation loss stops improving
+  - Patience: 15 epochs (configurable)
+  - Min Delta: 0.001
+  - Automatically restores best model
+  - Can be disabled (patience = 0)
 - **Output Activation**:
   - Regression: Sigmoid (ensures output in [0, 1] for normalized targets)
   - Classification: None (CrossEntropyLoss handles softmax internally)

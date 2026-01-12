@@ -750,27 +750,36 @@ def create_augmented_dataloaders(
         num_classes = split_info.get('num_classes', 0)
         
         if train_counts and num_classes > 0:
-            total_samples = len(train_dataset)
+            # Use original (non-augmented) sample count from metadata for consistency
+            # train_counts contains original class counts, so we need original total_samples
+            original_total_samples = train_dist.get('count', 0)
+            
+            if original_total_samples == 0:
+                # Fallback: try to calculate from class counts
+                original_total_samples = sum(train_counts.values())
+            
             class_weights = []
             
             logger.info("="*60)
             logger.info("CLASS DISTRIBUTION ANALYSIS (Augmented Data)")
             logger.info("="*60)
-            logger.info(f"Total train samples: {total_samples}")
+            logger.info(f"Original train samples (non-augmented): {original_total_samples}")
+            logger.info(f"Augmented train samples: {len(train_dataset)}")
             
             for cls_id in range(num_classes):
                 # Try both string and int keys
                 count = train_counts.get(str(cls_id), train_counts.get(cls_id, 0))
                 if count > 0:
-                    weight = total_samples / (num_classes * count)
-                    pct = (count / total_samples) * 100 if total_samples > 0 else 0
-                    logger.info(f"  Class {cls_id}: {count} samples ({pct:.1f}%)")
+                    # Use original total_samples and original class counts for consistency
+                    weight = original_total_samples / (num_classes * count)
+                    pct = (count / original_total_samples) * 100 if original_total_samples > 0 else 0
+                    logger.info(f"  Class {cls_id}: {count} original samples ({pct:.1f}% of original)")
                 else:
                     weight = 1.0
                     logger.info(f"  Class {cls_id}: 0 samples (WARNING!)")
                 class_weights.append(weight)
             
-            logger.info("\nCalculated class weights (inverse frequency):")
+            logger.info("\nCalculated class weights (inverse frequency, based on original distribution):")
             for cls_id, weight in enumerate(class_weights):
                 logger.info(f"  Class {cls_id}: weight = {weight:.4f}")
             logger.info("="*60)

@@ -19,7 +19,7 @@ class DrawingClassifier(nn.Module):
     Based on ResNet-18 with custom output head for multi-target prediction.
     """
     
-    def __init__(self, num_outputs: int = 1, pretrained: bool = True, use_sigmoid: bool = False):
+    def __init__(self, num_outputs: int = 1, pretrained: bool = True, use_sigmoid: bool = False, dropout: float = 0.5):
         """
         Initialize the model.
         
@@ -27,9 +27,11 @@ class DrawingClassifier(nn.Module):
             num_outputs: Number of output neurons (features to predict)
             pretrained: Use ImageNet pre-trained weights
             use_sigmoid: Use Sigmoid activation at output (for regression with normalized targets)
+            dropout: Dropout rate (default: 0.5)
         """
         super(DrawingClassifier, self).__init__()
         self.use_sigmoid = use_sigmoid
+        self.dropout = dropout
         
         # Load pre-trained ResNet-18 (using modern API)
         if pretrained:
@@ -64,7 +66,7 @@ class DrawingClassifier(nn.Module):
             self.backbone.fc = nn.Sequential(
                 nn.Linear(num_features, 256),
                 nn.ReLU(),
-                nn.Dropout(0.5),
+                nn.Dropout(dropout),
                 nn.Linear(256, num_outputs),
                 nn.Sigmoid()  # Ensures output in [0, 1]
             )
@@ -73,7 +75,7 @@ class DrawingClassifier(nn.Module):
             self.backbone.fc = nn.Sequential(
                 nn.Linear(num_features, 256),
                 nn.ReLU(),
-                nn.Dropout(0.5),
+                nn.Dropout(dropout),
                 nn.Linear(256, num_outputs)
             )
     
@@ -133,6 +135,14 @@ def get_model_summary(model: DrawingClassifier) -> Dict:
                     "type": "ReLU"
                 })
     
+    # Get dropout value from model
+    dropout_value = None
+    if isinstance(model.backbone.fc, nn.Sequential):
+        for layer in model.backbone.fc:
+            if isinstance(layer, nn.Dropout):
+                dropout_value = layer.p
+                break
+    
     return {
         "name": "DrawingClassifier",
         "architecture": "ResNet-18",
@@ -140,6 +150,8 @@ def get_model_summary(model: DrawingClassifier) -> Dict:
         "input_size": "568×274×1",
         "input_channels": 1,
         "output_neurons": output_size,
+        "dropout": dropout_value,  # Actual dropout rate used in model
+        "use_sigmoid": model.use_sigmoid,
         "total_parameters": total_params,
         "trainable_parameters": trainable_params,
         "frozen_parameters": total_params - trainable_params,

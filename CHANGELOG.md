@@ -206,8 +206,12 @@ All notable changes to NPSketch will be documented in this file.
 - [x] Weighted loss function for imbalanced classification (✅ Implemented in v1.1.3)
 - [x] Learning rate scheduling (✅ Implemented in v1.1.4)
 - [x] Differential learning rates (✅ Implemented in v1.1.4)
+- [x] Configurable dropout (✅ Implemented in v1.1.5)
+- [x] Weight decay / L2 regularization (✅ Implemented in v1.1.5)
+- [x] Early stopping (✅ Implemented in v1.1.5)
 - [ ] Weighted loss function for imbalanced regression
 - [ ] Backbone freezing strategy (gradual unfreezing)
+- [ ] Gradient clipping
 - [ ] Caching for line extraction (faster synthetic generation)
 - [ ] Adaptive synthetic count based on data imbalance
 - [ ] Synthetic image validation with trained models
@@ -379,7 +383,87 @@ Epoch 20: Learning Rate reduced: 0.001000 → 0.000500
 
 ---
 
-**Current Version:** 1.1.4  
+## [1.1.5] - 2026-01-07
+
+### Added - Regularization & Early Stopping
+
+**Problem:** Training could overfit without flexible regularization controls and lacked automatic stopping mechanism
+
+**Solution:** Configurable dropout, weight decay (L2 regularization), and automatic early stopping with best model restoration
+
+#### Features
+- **Configurable Dropout**: Dropout rate now configurable (0.0-1.0, default: 0.5)
+- **Weight Decay**: L2 regularization via Adam optimizer (default: 0.0001)
+- **Early Stopping**: Automatic training termination when validation loss stops improving
+  - Patience: 15 epochs (configurable)
+  - Min Delta: 0.001 (configurable)
+  - Automatic best model restoration
+  - Can be disabled by setting patience to 0
+
+#### Changes
+- `model.py`: Added `dropout` parameter to `DrawingClassifier.__init__()`
+- `trainer.py`: 
+  - Added `EarlyStopping` class
+  - Added `dropout`, `weight_decay`, `early_stopping_patience` parameters to `CNNTrainer.__init__()`
+  - Integrated weight decay into Adam optimizer
+  - Integrated early stopping into training loop
+- `training_config.yaml`: Added `regularization` and `early_stopping` configuration sections
+- `config/models.py`: Extended `TrainingConfig` with dropout, weight_decay, early_stopping parameters
+- `ai_training_base.py`: Pass regularization and early stopping config to trainer, store in metadata
+- `ai_training_overview.html`: Display regularization and early stopping information
+
+#### Early Stopping Details
+- **Monitor**: Validation loss
+- **Mode**: Minimize
+- **Patience**: 15 epochs (wait 15 epochs without improvement)
+- **Min Delta**: 0.001 (minimum improvement to count)
+- **Restore Best**: Automatically restores model from best epoch
+- **Logging**: Logs when triggered and which epoch was best
+
+#### Regularization Details
+- **Dropout**: Applied in model head (between hidden layers)
+  - Range: 0.0 (no dropout) to 1.0 (all dropped)
+  - Default: 0.5
+  - Configurable per training run
+- **Weight Decay**: L2 regularization penalty
+  - Applied to all model parameters
+  - Default: 0.0001 (AdamW-like behavior)
+  - Range: 0.0 (no regularization) to 0.01
+
+#### Example Output
+```
+Dropout rate: 0.5
+Weight decay (L2 regularization): 0.0001
+
+Early Stopping enabled:
+  Patience: 15 epochs
+  Min delta: 0.001
+  Restore best weights: True
+
+[Training...]
+Epoch 35: Early stopping triggered after 15 epochs without improvement
+Best validation loss: 0.1234 at epoch 20
+Restored best model from epoch 20
+```
+
+#### Benefits
+- **Reduced Overfitting**: Weight decay prevents model from memorizing training data
+- **Flexible Regularization**: Dropout can be tuned per task (classification vs regression)
+- **Faster Training**: Early stopping prevents wasted epochs
+- **Better Models**: Automatically uses best model instead of last epoch
+- **Resource Efficient**: Saves time and compute by stopping early
+
+#### Technical Details
+- Weight decay applies to both backbone and head parameter groups
+- Early stopping checks validation loss after each epoch
+- Best model state is stored in memory during training
+- Metadata includes early stopping status (triggered, stopped_epoch, best_epoch)
+- Backward compatible: Early stopping disabled by default (patience=0)
+- Can be enabled/disabled via config without code changes
+
+---
+
+**Current Version:** 1.1.5  
 **Last Updated:** 2026-01-07  
 **Status:** Production Ready
 

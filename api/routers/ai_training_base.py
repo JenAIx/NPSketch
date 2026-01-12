@@ -192,6 +192,10 @@ async def start_training(config_dict: dict = Body(...), db: Session = Depends(ge
         use_lr_scheduling = training_config.use_lr_scheduling
         use_differential_lr = training_config.use_differential_lr
         backbone_lr_multiplier = training_config.backbone_lr_multiplier
+        dropout = training_config.dropout
+        weight_decay = training_config.weight_decay
+        early_stopping_patience = training_config.early_stopping_patience
+        early_stopping_min_delta = training_config.early_stopping_min_delta
         
         # Validation is now handled by Pydantic, but keep for backwards compatibility
         if num_epochs < 1 or num_epochs > 1000:
@@ -223,6 +227,10 @@ async def start_training(config_dict: dict = Body(...), db: Session = Depends(ge
             'use_lr_scheduling': use_lr_scheduling,
             'use_differential_lr': use_differential_lr,
             'backbone_lr_multiplier': backbone_lr_multiplier,
+            'dropout': dropout,
+            'weight_decay': weight_decay,
+            'early_stopping_patience': early_stopping_patience,
+            'early_stopping_min_delta': early_stopping_min_delta,
             'images_data': images_data,
             'db_session': db
         }
@@ -427,10 +435,16 @@ def run_training_job(config):
             class_weights=class_weights,
             use_lr_scheduling=config.get('use_lr_scheduling', True),
             use_differential_lr=config.get('use_differential_lr', True),
-            backbone_lr_multiplier=config.get('backbone_lr_multiplier', 0.1)
+            backbone_lr_multiplier=config.get('backbone_lr_multiplier', 0.1),
+            dropout=config.get('dropout', 0.5),
+            weight_decay=config.get('weight_decay', 0.0001),
+            early_stopping_patience=config.get('early_stopping_patience', 15),
+            early_stopping_min_delta=config.get('early_stopping_min_delta', 0.001)
         )
         
         epoch_times = []  # Track time per epoch for estimation
+        early_stopped = False
+        stopped_epoch = None
         
         for epoch in range(config['num_epochs']):
             # Check for cancellation request
@@ -453,6 +467,18 @@ def run_training_job(config):
             trainer.history['train_loss'].append(metrics['train_loss'])
             if metrics['val_loss'] is not None:
                 trainer.history['val_loss'].append(metrics['val_loss'])
+            # Store learning rate to track LR scheduling changes
+            trainer.history['learning_rate'].append(metrics.get('learning_rate', config['learning_rate']))
+            
+            # Check early stopping
+            if trainer.early_stopping is not None and metrics['val_loss'] is not None:
+                if trainer.early_stopping(metrics['val_loss'], trainer.model, epoch):
+                    early_stopped = True
+                    stopped_epoch = epoch + 1
+                    logger.info(f"Early stopping triggered at epoch {stopped_epoch}")
+                    # Restore best weights
+                    trainer.early_stopping.restore_best(trainer.model)
+                    break
             
             # Calculate duration and estimated remaining time
             current_time = time.time()
@@ -492,7 +518,11 @@ def run_training_job(config):
                 'use_normalization': config.get('use_normalization', True),
                 'use_lr_scheduling': config.get('use_lr_scheduling', True),
                 'use_differential_lr': config.get('use_differential_lr', True),
-                'backbone_lr_multiplier': config.get('backbone_lr_multiplier', 0.1)
+                'backbone_lr_multiplier': config.get('backbone_lr_multiplier', 0.1),
+                'dropout': config.get('dropout', 0.5),
+                'weight_decay': config.get('weight_decay', 0.0001),
+                'early_stopping_patience': config.get('early_stopping_patience', 15),
+                'early_stopping_min_delta': config.get('early_stopping_min_delta', 0.001)
             },
             'normalization': normalizer.get_config() if normalizer else {'enabled': False},
             'augmentation': stats.get('augmentation', {'enabled': False}),
@@ -507,13 +537,37 @@ def run_training_job(config):
                 'factor': 0.5,
                 'patience': 5,
                 'min_lr': 1e-6,
-                'final_lr': trainer.history.get('learning_rate', [config['learning_rate']])[-1] if trainer.history.get('learning_rate') else config['learning_rate']
+                'final_lr': trainer.history['learning_rate'][-1] if trainer.history.get('learning_rate') else config['learning_rate']
             },
             'differential_lr': {
                 'enabled': config.get('use_differential_lr', True),
                 'backbone_multiplier': config.get('backbone_lr_multiplier', 0.1),
-                'backbone_lr': config['learning_rate'] * config.get('backbone_lr_multiplier', 0.1) if config.get('use_differential_lr', True) else config['learning_rate'],
-                'head_lr': config['learning_rate']
+                # Get final LRs from optimizer (after LR scheduling) if differential LR is enabled
+                # Otherwise, both backbone_lr and head_lr should be the same (primary LR)
+                'backbone_lr': (
+                    trainer.optimizer.param_groups[0]['lr'] 
+                    if config.get('use_differential_lr', True) and len(trainer.optimizer.param_groups) > 1 
+                    else (trainer.history['learning_rate'][-1] if trainer.history.get('learning_rate') else config['learning_rate'])
+                ),
+                'head_lr': (
+                    trainer.optimizer.param_groups[1]['lr'] 
+                    if config.get('use_differential_lr', True) and len(trainer.optimizer.param_groups) > 1 
+                    else (trainer.history['learning_rate'][-1] if trainer.history.get('learning_rate') else config['learning_rate'])
+                )
+            },
+            'regularization': {
+                'dropout': config.get('dropout', 0.5),
+                'weight_decay': config.get('weight_decay', 0.0001)
+            },
+            'early_stopping': {
+                'enabled': config.get('early_stopping_patience', 15) > 0,
+                'patience': config.get('early_stopping_patience', 15),
+                'min_delta': config.get('early_stopping_min_delta', 0.001),
+                'triggered': early_stopped,
+                'stopped_epoch': stopped_epoch,
+                'best_epoch': trainer.early_stopping.best_epoch if trainer.early_stopping else None,
+                'best_val_loss': trainer.early_stopping.best_loss if trainer.early_stopping else None,
+                'total_epochs_trained': stopped_epoch if early_stopped else config['num_epochs']
             },
             'dataset': {
                 'total_samples': stats['total_samples'],
