@@ -1110,8 +1110,27 @@
             const imagesHtml = `
                 <div class="modal-images-row">
                     <div class="modal-image-section">
-                        <h3>${sourceLabel}</h3>
-                        <img src="/api/training-data-image/${img.id}/original?v=${cacheBuster}" alt="Original">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <h3 style="margin: 0;">${sourceLabel}</h3>
+                            <button id="cropBtn" class="btn btn-small" onclick="startCropMode(${img.id})" style="background: #17a2b8; padding: 6px 12px;">
+                                ✂️ Crop
+                            </button>
+                        </div>
+                        <div id="cropContainer" style="position: relative; display: inline-block;">
+                            <img id="originalImg" src="/api/training-data-image/${img.id}/original?v=${cacheBuster}" alt="Original" style="max-width: 100%;">
+                            <canvas id="cropCanvas" style="position: absolute; top: 0; left: 0; display: none; cursor: crosshair;"></canvas>
+                        </div>
+                        <div id="cropControls" style="display: none; margin-top: 10px; padding: 10px; background: #e3f2fd; border-radius: 6px;">
+                            <p style="margin: 0 0 10px 0; color: #1565c0; font-weight: 600;">📍 Click two points to define crop area</p>
+                            <div style="display: flex; gap: 10px;">
+                                <button class="btn btn-small" onclick="applyCrop(${img.id})" style="background: #28a745;" id="applyCropBtn" disabled>
+                                    ✓ Apply Crop & Re-Optimize
+                                </button>
+                                <button class="btn btn-small btn-secondary" onclick="cancelCrop()">
+                                    ✕ Cancel
+                                </button>
+                            </div>
+                        </div>
                         <p style="color: #999; font-size: 0.85em; margin-top: 5px; text-align: center;">
                             ${isMAT ? 'Unoptimized, original thickness' : 'With red pixels and grid'}
                         </p>
@@ -1125,7 +1144,7 @@
                     
                     <div class="modal-image-section">
                         <h3>✨ Optimized (CNN-Ready)</h3>
-                        <img src="/api/training-data-image/${img.id}/processed?v=${cacheBuster}" 
+                        <img id="processedImg" src="/api/training-data-image/${img.id}/processed?v=${cacheBuster}" 
                              alt="Processed" 
                              style="border: 2px solid #28a745;">
                         <p style="color: #28a745; font-size: 0.85em; margin-top: 5px; text-align: center;">
@@ -1364,7 +1383,234 @@
         }
         
         function closeModal() {
+            cancelCrop();  // Clean up crop mode if active
             document.getElementById('previewModal').classList.remove('show');
+        }
+        
+        // Crop functionality
+        let cropState = {
+            active: false,
+            imageId: null,
+            point1: null,
+            point2: null,
+            naturalWidth: 0,
+            naturalHeight: 0
+        };
+        
+        function startCropMode(imageId) {
+            const img = document.getElementById('originalImg');
+            const canvas = document.getElementById('cropCanvas');
+            const controls = document.getElementById('cropControls');
+            const cropBtn = document.getElementById('cropBtn');
+            
+            // Wait for image to load
+            if (!img.complete) {
+                img.onload = () => startCropMode(imageId);
+                return;
+            }
+            
+            // Store natural dimensions for coordinate conversion
+            cropState.naturalWidth = img.naturalWidth;
+            cropState.naturalHeight = img.naturalHeight;
+            cropState.imageId = imageId;
+            cropState.active = true;
+            cropState.point1 = null;
+            cropState.point2 = null;
+            
+            // Setup canvas
+            canvas.width = img.offsetWidth;
+            canvas.height = img.offsetHeight;
+            canvas.style.display = 'block';
+            canvas.style.width = img.offsetWidth + 'px';
+            canvas.style.height = img.offsetHeight + 'px';
+            
+            // Show controls
+            controls.style.display = 'block';
+            cropBtn.style.display = 'none';
+            document.getElementById('applyCropBtn').disabled = true;
+            
+            // Add click listener
+            canvas.onclick = handleCropClick;
+            canvas.onmousemove = handleCropMouseMove;
+        }
+        
+        function handleCropClick(e) {
+            if (!cropState.active) return;
+            
+            const canvas = document.getElementById('cropCanvas');
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            if (!cropState.point1) {
+                cropState.point1 = { x, y };
+                drawCropOverlay();
+            } else if (!cropState.point2) {
+                cropState.point2 = { x, y };
+                drawCropOverlay();
+                document.getElementById('applyCropBtn').disabled = false;
+            } else {
+                // Reset and start new selection
+                cropState.point1 = { x, y };
+                cropState.point2 = null;
+                document.getElementById('applyCropBtn').disabled = true;
+                drawCropOverlay();
+            }
+        }
+        
+        function handleCropMouseMove(e) {
+            if (!cropState.active || !cropState.point1 || cropState.point2) return;
+            
+            const canvas = document.getElementById('cropCanvas');
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            drawCropOverlay({ x, y });
+        }
+        
+        function drawCropOverlay(tempPoint2 = null) {
+            const canvas = document.getElementById('cropCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw semi-transparent overlay
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            if (cropState.point1) {
+                const p2 = cropState.point2 || tempPoint2;
+                
+                // Draw first point
+                ctx.fillStyle = '#ff5722';
+                ctx.beginPath();
+                ctx.arc(cropState.point1.x, cropState.point1.y, 6, 0, Math.PI * 2);
+                ctx.fill();
+                
+                if (p2) {
+                    // Draw rectangle
+                    const x1 = Math.min(cropState.point1.x, p2.x);
+                    const y1 = Math.min(cropState.point1.y, p2.y);
+                    const x2 = Math.max(cropState.point1.x, p2.x);
+                    const y2 = Math.max(cropState.point1.y, p2.y);
+                    const width = x2 - x1;
+                    const height = y2 - y1;
+                    
+                    // Clear rectangle area (show original image)
+                    ctx.clearRect(x1, y1, width, height);
+                    
+                    // Draw rectangle border
+                    ctx.strokeStyle = '#ff5722';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([5, 5]);
+                    ctx.strokeRect(x1, y1, width, height);
+                    ctx.setLineDash([]);
+                    
+                    // Draw second point
+                    ctx.fillStyle = '#ff5722';
+                    ctx.beginPath();
+                    ctx.arc(p2.x, p2.y, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Show dimensions
+                    const scaleX = cropState.naturalWidth / canvas.width;
+                    const scaleY = cropState.naturalHeight / canvas.height;
+                    const realWidth = Math.round(width * scaleX);
+                    const realHeight = Math.round(height * scaleY);
+                    
+                    ctx.fillStyle = '#ff5722';
+                    ctx.font = 'bold 14px sans-serif';
+                    ctx.fillText(`${realWidth} × ${realHeight} px`, x1 + 5, y1 - 8);
+                }
+            }
+        }
+        
+        function cancelCrop() {
+            cropState.active = false;
+            cropState.point1 = null;
+            cropState.point2 = null;
+            
+            const canvas = document.getElementById('cropCanvas');
+            const controls = document.getElementById('cropControls');
+            const cropBtn = document.getElementById('cropBtn');
+            
+            if (canvas) {
+                canvas.style.display = 'none';
+                canvas.onclick = null;
+                canvas.onmousemove = null;
+            }
+            if (controls) controls.style.display = 'none';
+            if (cropBtn) cropBtn.style.display = 'inline-block';
+        }
+        
+        async function applyCrop(imageId) {
+            if (!cropState.point1 || !cropState.point2) return;
+            
+            const canvas = document.getElementById('cropCanvas');
+            const scaleX = cropState.naturalWidth / canvas.width;
+            const scaleY = cropState.naturalHeight / canvas.height;
+            
+            // Calculate crop coordinates in original image pixels
+            const x1 = Math.round(Math.min(cropState.point1.x, cropState.point2.x) * scaleX);
+            const y1 = Math.round(Math.min(cropState.point1.y, cropState.point2.y) * scaleY);
+            const x2 = Math.round(Math.max(cropState.point1.x, cropState.point2.x) * scaleX);
+            const y2 = Math.round(Math.max(cropState.point1.y, cropState.point2.y) * scaleY);
+            
+            const applyBtn = document.getElementById('applyCropBtn');
+            applyBtn.disabled = true;
+            applyBtn.textContent = '⏳ Processing...';
+            
+            try {
+                const response = await fetch(`/api/training-data-image/${imageId}/crop-and-reprocess`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ x1, y1, x2, y2 })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Crop failed');
+                }
+                
+                const result = await response.json();
+                
+                // Show loading state on processed image
+                const processedImg = document.getElementById('processedImg');
+                processedImg.style.opacity = '0.3';
+                processedImg.style.border = '3px solid #ffc107';
+                
+                // Force reload processed image with cache buster
+                const newSrc = `/api/training-data-image/${imageId}/processed?v=${Date.now()}`;
+                
+                // Create new image to preload
+                const preloadImg = new Image();
+                preloadImg.onload = () => {
+                    processedImg.src = newSrc;
+                    processedImg.style.opacity = '1';
+                    processedImg.style.border = '3px solid #28a745';
+                    
+                    // Flash animation to highlight update
+                    processedImg.style.transition = 'box-shadow 0.3s';
+                    processedImg.style.boxShadow = '0 0 20px #28a745';
+                    setTimeout(() => {
+                        processedImg.style.boxShadow = 'none';
+                    }, 1000);
+                };
+                preloadImg.src = newSrc;
+                
+                cancelCrop();
+                showAlert('success', `✓ Image cropped and re-optimized! (${result.crop.x1},${result.crop.y1}) to (${result.crop.x2},${result.crop.y2})`);
+                
+                // Reload data to update table
+                await loadData();
+                
+            } catch (error) {
+                showAlert('error', `Crop failed: ${error.message}`);
+                applyBtn.disabled = false;
+                applyBtn.textContent = '✓ Apply Crop & Re-Optimize';
+            }
         }
         
         function updatePagination() {

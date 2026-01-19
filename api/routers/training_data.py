@@ -1065,6 +1065,149 @@ async def update_ground_truth(
     }
 
 
+@router.post("/training-data-image/{image_id}/crop-and-reprocess")
+async def crop_and_reprocess_image(
+    image_id: int,
+    data: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    Crop the original image and re-run the optimization pipeline.
+    
+    Args:
+        image_id: Image ID
+        data: Dictionary with crop coordinates {x1, y1, x2, y2} (pixels in original image)
+        
+    Returns:
+        Success status and new processed image dimensions
+    """
+    from ocs_extraction.ocs_extractor import normalize_line_thickness as ocs_normalize
+    
+    img = db.query(TrainingDataImage).filter(TrainingDataImage.id == image_id).first()
+    if not img:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    if not img.original_file_data:
+        raise HTTPException(status_code=400, detail="No original image data available")
+    
+    # Get crop coordinates
+    x1 = int(data.get('x1', 0))
+    y1 = int(data.get('y1', 0))
+    x2 = int(data.get('x2', 0))
+    y2 = int(data.get('y2', 0))
+    
+    if x1 >= x2 or y1 >= y2:
+        raise HTTPException(status_code=400, detail="Invalid crop coordinates")
+    
+    try:
+        # Load original image
+        original_img = Image.open(io.BytesIO(img.original_file_data))
+        if original_img.mode == 'RGBA':
+            background = Image.new('RGB', original_img.size, (255, 255, 255))
+            background.paste(original_img, mask=original_img.split()[3])
+            original_img = background
+        elif original_img.mode != 'RGB':
+            original_img = original_img.convert('RGB')
+        
+        # Crop to specified region
+        cropped = original_img.crop((x1, y1, x2, y2))
+        cropped_array = np.array(cropped)
+        
+        # Check for red pixels
+        r = cropped_array[:, :, 0]
+        g = cropped_array[:, :, 1]
+        b = cropped_array[:, :, 2]
+        
+        red_threshold = {'r_min': 150, 'g_max': 100, 'b_max': 100}
+        red_mask = (r >= red_threshold['r_min']) & \
+                   (g <= red_threshold['g_max']) & \
+                   (b <= red_threshold['b_max'])
+        
+        has_red = np.any(red_mask)
+        
+        if has_red:
+            # Extract only red pixels → render as black on white
+            height, width = red_mask.shape
+            content_mask = red_mask
+            processed_array = np.ones((height, width, 3), dtype=np.uint8) * 255
+            processed_array[red_mask] = [0, 0, 0]
+        else:
+            # Use grayscale content (black/dark pixels)
+            gray = cv2.cvtColor(cropped_array, cv2.COLOR_RGB2GRAY)
+            # Threshold: pixels darker than 180 become black (lines)
+            _, binary = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
+            content_mask = binary < 128  # Where the lines are
+            processed_array = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
+        
+        # Auto-crop to content bounding box with padding (like new images)
+        padding = 5
+        if np.any(content_mask):
+            rows = np.any(content_mask, axis=1)
+            cols = np.any(content_mask, axis=0)
+            min_y, max_y = np.where(rows)[0][[0, -1]]
+            min_x, max_x = np.where(cols)[0][[0, -1]]
+            
+            # Add padding
+            h, w = content_mask.shape
+            min_x = max(0, min_x - padding)
+            max_x = min(w - 1, max_x + padding)
+            min_y = max(0, min_y - padding)
+            max_y = min(h - 1, max_y + padding)
+            
+            # Crop to bounding box
+            processed_array = processed_array[min_y:max_y+1, min_x:max_x+1]
+        
+        # Resize to standard canvas size (568x274) - stretch to fill
+        canvas_size = (568, 274)
+        processed_img = Image.fromarray(processed_array, mode='RGB')
+        processed_img = processed_img.resize(canvas_size, Image.Resampling.LANCZOS)
+        
+        # Binarize after resize to ensure clean black/white
+        processed_array = np.array(processed_img)
+        gray = cv2.cvtColor(processed_array, cv2.COLOR_RGB2GRAY)
+        _, binary_clean = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+        processed_array = cv2.cvtColor(binary_clean, cv2.COLOR_GRAY2RGB)
+        
+        # Normalize line thickness to exactly 2px
+        normalized = ocs_normalize(processed_array, target_thickness=2, threshold=200)
+        processed_img = Image.fromarray(normalized, mode='RGB')
+        
+        # Save to bytes
+        buffer = io.BytesIO()
+        processed_img.save(buffer, format='PNG')
+        processed_bytes = buffer.getvalue()
+        
+        # Update database
+        img.processed_image_data = processed_bytes
+        
+        # Update metadata
+        metadata = json.loads(img.extraction_metadata) if img.extraction_metadata else {}
+        metadata['width'] = canvas_size[0]
+        metadata['height'] = canvas_size[1]
+        metadata['crop_applied'] = {
+            'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2,
+            'timestamp': datetime.now().isoformat()
+        }
+        img.extraction_metadata = json.dumps(metadata)
+        
+        db.commit()
+        
+        logger.info(f"Crop and reprocess successful for image {image_id}: crop=({x1},{y1})-({x2},{y2})")
+        
+        return {
+            "success": True,
+            "image_id": img.id,
+            "width": canvas_size[0],
+            "height": canvas_size[1],
+            "red_pixels_extracted": bool(has_red),  # Convert numpy.bool_ to Python bool
+            "crop": {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
+        }
+        
+    except Exception as e:
+        logger.error(f"Error cropping image {image_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
+
+
 @router.get("/training-data-features-template")
 async def download_features_template(db: Session = Depends(get_db)):
     """
