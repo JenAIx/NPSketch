@@ -687,6 +687,7 @@ async def get_training_data_images(
     source_format: str = None,
     search: str = None,
     only_missing: bool = False,
+    quality_check_failed: bool = False,
     ids: str = None,
     db: Session = Depends(get_db)
 ):
@@ -701,6 +702,7 @@ async def get_training_data_images(
         source_format: Filter by source format
         search: Search term (filters ID, patient_id, task_type, source_format, filename)
         only_missing: If true, only return images without features
+        quality_check_failed: If true, only return images that failed quality check
         ids: Comma-separated list of image IDs to filter by (e.g., "122,123,456")
         db: Database session
     
@@ -751,6 +753,10 @@ async def get_training_data_images(
             )
         )
     
+    # Quality check failed filter
+    if quality_check_failed:
+        query = query.filter(TrainingDataImage.quality_check_status == "invalid")
+    
     query = query.order_by(TrainingDataImage.uploaded_at.desc())
     
     total = query.count()
@@ -774,7 +780,9 @@ async def get_training_data_images(
             "session_id": img.session_id,
             "has_features": has_features,
             "ground_truth_correct": img.ground_truth_correct,
-            "ground_truth_extra": img.ground_truth_extra
+            "ground_truth_extra": img.ground_truth_extra,
+            "quality_check_status": img.quality_check_status,
+            "quality_check_date": img.quality_check_date.isoformat() if img.quality_check_date else None
         })
     
     return {
@@ -785,47 +793,163 @@ async def get_training_data_images(
     }
 
 
-@router.get("/training-data-image-quality-check")
-async def get_training_data_image_quality_check(
-    source: str = None,
-    limit: int = None,
-    db: Session = Depends(get_db)
-):
+# Global state for quality check background job
+quality_check_job = {
+    "running": False,
+    "progress": 0,
+    "total": 0,
+    "checked": 0,
+    "invalid": 0,
+    "valid": 0,
+    "started_at": None,
+    "finished_at": None,
+    "error": None,
+}
+
+
+def _run_quality_check_background(recheck_invalid_only: bool = False):
+    """Background task to run quality check and update DB."""
+    import threading
+    from database import SessionLocal
+    from image_quality_check.contour_quality import analyze_image, preprocess_original_image
+    
+    global quality_check_job
+    
+    quality_check_job["running"] = True
+    quality_check_job["started_at"] = datetime.now().isoformat()
+    quality_check_job["finished_at"] = None
+    quality_check_job["error"] = None
+    quality_check_job["checked"] = 0
+    quality_check_job["invalid"] = 0
+    quality_check_job["valid"] = 0
+    
+    # Quality check parameters
+    red_threshold = {"r_min": 150, "g_max": 100, "b_max": 100}
+    
+    try:
+        db = SessionLocal()
+        
+        # Get entries to check
+        query = db.query(TrainingDataImage)
+        if recheck_invalid_only:
+            # Only check entries that are NULL or invalid
+            from sqlalchemy import or_
+            query = query.filter(
+                or_(
+                    TrainingDataImage.quality_check_status.is_(None),
+                    TrainingDataImage.quality_check_status == "invalid"
+                )
+            )
+        
+        entries = query.all()
+        quality_check_job["total"] = len(entries)
+        
+        logger.info(f"Quality check background job started: {len(entries)} entries to check")
+        
+        for i, entry in enumerate(entries):
+            try:
+                # Use original image data
+                image_bytes = entry.original_file_data
+                if not image_bytes:
+                    image_bytes = entry.processed_image_data
+                
+                if not image_bytes:
+                    continue
+                
+                # Analyze image with all parameters
+                result = analyze_image(
+                    image_bytes=image_bytes,
+                    use_original=True,
+                    red_threshold=red_threshold,
+                    min_component_area=100,
+                    min_component_ratio=0.01,
+                    min_gap_px=80,
+                    merge_kernel=5,
+                    merge_iterations=2,
+                    peak_threshold_ratio=0.1,
+                    min_peak_separation=9999,  # Disable projection-based check
+                    outside_margin_ratio=0.05,
+                    outside_ink_ratio=0.08,
+                    min_contour_area=1,
+                    contour_only=False,
+                    require_gap_and_outside=True,
+                    min_component_height_ratio=0.1,
+                    require_contours=True,
+                    min_contour_count=2,
+                )
+                
+                # Update entry
+                is_flagged = result.get("flagged", False)
+                entry.quality_check_status = "invalid" if is_flagged else "valid"
+                entry.quality_check_date = datetime.now()
+                
+                if is_flagged:
+                    quality_check_job["invalid"] += 1
+                else:
+                    quality_check_job["valid"] += 1
+                
+                quality_check_job["checked"] = i + 1
+                quality_check_job["progress"] = int((i + 1) / len(entries) * 100)
+                
+                # Commit in batches so DB is updated while running
+                if (i + 1) % 50 == 0:
+                    db.commit()
+                
+            except Exception as e:
+                logger.warning(f"Error checking image {entry.id}: {e}")
+                continue
+        
+        db.commit()
+        db.close()
+        
+        quality_check_job["finished_at"] = datetime.now().isoformat()
+        logger.info(f"Quality check complete: {quality_check_job['invalid']} invalid, {quality_check_job['valid']} valid")
+        
+    except Exception as e:
+        logger.error(f"Quality check background job error: {e}", exc_info=True)
+        quality_check_job["error"] = str(e)
+    finally:
+        quality_check_job["running"] = False
+
+
+@router.post("/training-data-image-quality-check/start")
+async def start_quality_check(recheck_invalid_only: bool = True):
     """
-    Run image quality check across training data images and return flagged IDs.
+    Start background quality check job.
     
     Args:
-        source: Filter by source_format (e.g., "TELEFRED", "OCS", "MAT"). Default: all sources.
-        limit: Max number of images to check. Default: no limit.
+        recheck_invalid_only: If true, only check entries with status=NULL or status="invalid"
     """
-    logger.info(f"Quality check started: source={source}, limit={limit}")
+    import threading
     
-    params = {
-        "min_gap_px": 80,
-        "min_peak_separation": 9999,  # disable projection-based check
-        "outside_ink_ratio": 0.08,
-        "min_component_height_ratio": 0.1,
-        "require_gap_and_outside": True,
-        "require_contours": True,
-        "min_contour_area": 1,
-        "min_contour_count": 2,
-    }
-
-    flagged = run_quality_check(
-        db,
-        source=source,
-        limit=limit,
-        use_original=True,
-        params=params,
+    global quality_check_job
+    
+    if quality_check_job["running"]:
+        return {
+            "success": False,
+            "message": "Quality check already running",
+            "status": quality_check_job,
+        }
+    
+    # Start background thread
+    thread = threading.Thread(
+        target=_run_quality_check_background,
+        args=(recheck_invalid_only,),
+        daemon=True
     )
+    thread.start()
     
-    logger.info(f"Quality check complete: {len(flagged)} flagged images")
-
     return {
-        "total": len(flagged),
-        "ids": [item["id"] for item in flagged],
-        "items": flagged,
+        "success": True,
+        "message": "Quality check started",
+        "recheck_invalid_only": recheck_invalid_only,
     }
+
+
+@router.get("/training-data-image-quality-check/status")
+async def get_quality_check_status():
+    """Get current status of quality check background job."""
+    return quality_check_job
 
 
 @router.get("/training-data-image/{image_id}/original")
@@ -972,6 +1096,38 @@ async def delete_training_data_image(image_id: int, db: Session = Depends(get_db
     db.commit()
     
     return {"success": True}
+
+
+@router.post("/training-data-image/{image_id}/quality-status")
+async def update_quality_status(image_id: int, data: dict, db: Session = Depends(get_db)):
+    """
+    Manually update the quality check status of an image.
+    
+    Args:
+        image_id: Image ID
+        data: Dictionary with 'status' ("valid" or "invalid")
+    """
+    img = db.query(TrainingDataImage).filter(TrainingDataImage.id == image_id).first()
+    if not img:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    status = data.get('status')
+    if status not in ('valid', 'invalid'):
+        raise HTTPException(status_code=400, detail="Status must be 'valid' or 'invalid'")
+    
+    img.quality_check_status = status
+    img.quality_check_date = datetime.now()
+    
+    db.commit()
+    
+    logger.info(f"Quality status for image {image_id} manually set to '{status}'")
+    
+    return {
+        "success": True,
+        "image_id": img.id,
+        "quality_check_status": img.quality_check_status,
+        "quality_check_date": img.quality_check_date.isoformat()
+    }
 
 
 @router.get("/training-data-image/{image_id}/features")

@@ -244,6 +244,10 @@ class TrainingDataImage(Base):
     # Clinical features for CNN training (nullable - only if available)
     features_data = Column(String, nullable=True)  # JSON: {Total_Score: 31, MMSE: 28, ...}
     
+    # Quality check status (for identifying problematic images)
+    quality_check_status = Column(String, nullable=True, index=True)  # "valid", "invalid", or NULL
+    quality_check_date = Column(DateTime, nullable=True)  # When the quality check was performed
+    
     # Metadata
     session_id = Column(String, index=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
@@ -258,6 +262,36 @@ def init_database():
     Should be called at application startup.
     """
     Base.metadata.create_all(bind=engine)
+    
+    # Run migrations for new columns (SQLite doesn't support IF NOT EXISTS for columns)
+    _run_migrations()
+
+
+def _run_migrations():
+    """
+    Add new columns to existing tables if they don't exist.
+    """
+    from sqlalchemy import text
+    
+    migrations = [
+        # Quality check columns for training_data_images
+        ("training_data_images", "quality_check_status", "VARCHAR"),
+        ("training_data_images", "quality_check_date", "DATETIME"),
+    ]
+    
+    with engine.connect() as conn:
+        for table, column, col_type in migrations:
+            try:
+                # Check if column exists
+                result = conn.execute(text(f"SELECT {column} FROM {table} LIMIT 1"))
+            except Exception:
+                # Column doesn't exist, add it
+                try:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
+                    conn.commit()
+                    print(f"✓ Added column {column} to {table}")
+                except Exception as e:
+                    print(f"Warning: Could not add column {column} to {table}: {e}")
 
 
 def get_db():
