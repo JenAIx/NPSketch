@@ -158,6 +158,30 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [1.1.7] - 2026-01-19
+
+### Added - Training Data Quality Check Workflow
+
+#### Backend
+- Background quality check job with progress tracking
+- New DB fields on `training_data_images`: `quality_check_status` and `quality_check_date`
+- New endpoints:
+  - `POST /api/training-data-image-quality-check/start` (async background)
+  - `GET /api/training-data-image-quality-check/status` (progress)
+  - `POST /api/training-data-image/{id}/quality-status` (manual override)
+- Server-side filter: `quality_check_failed=true` on `/api/training-data-images`
+
+#### Frontend
+- “Run Quality Check” button starts background job with progress bar
+- “Quality Failed” checkbox to filter invalid images
+- Modal shows quality status (valid/invalid/not checked)
+- Manual “Mark as Valid” action updates DB and UI immediately
+
+#### Crop & Reprocess
+- Interactive crop UI on original image preview
+- Re-optimization pipeline matches new-image processing:
+  auto-crop, resize to 568×274, binarize, line thickness normalization (2px)
+
 ## [1.0.0] - 2025-11-12
 
 ### Initial Release

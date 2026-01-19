@@ -343,6 +343,16 @@ docker logs npsketch-api
   - **Progressive retry**: Increases parameters if augmentation too similar
   - **Pipeline**: Pre-shrink → Transform → Similarity check → Retry if needed → Binarize (175) → Line normalize (2px)
 
+### Quality Check Workflow
+- **Purpose**: Flag problematic training images (double drawings, ink outside main figure)
+- **DB Fields**: `quality_check_status` ("valid"/"invalid"/NULL), `quality_check_date`
+- **Background Job**:
+  - Start: `POST /api/training-data-image-quality-check/start`
+  - Status: `GET /api/training-data-image-quality-check/status`
+  - Recheck default: only NULL/invalid entries
+- **Filter**: `/api/training-data-images?quality_check_failed=true`
+- **Manual Override**: `POST /api/training-data-image/{id}/quality-status` with `{status: "valid"|"invalid"}`
+
 ### Classification Training
 - **Class Weights**: Automatically calculated for imbalanced datasets
   - Formula: `weight = total_samples / (num_classes * class_count)`

@@ -27,6 +27,7 @@ NPSketch is a computer vision and machine learning application that automaticall
 - **Data Augmentation**: Realistic image transformations (rotation, translation, scaling, local warping)
 - **Synthetic Bad Images**: Generate low-quality images to address data imbalance (NEW)
 - **Training Data Management**: Upload, label, and manage training datasets
+- **Quality Check Workflow**: Background checks with invalid-image filtering
 - **Performance Metrics**: 
   - Regression: R², RMSE, MAE
   - Classification: Accuracy, F1-Score, Confusion Matrix
@@ -796,6 +797,9 @@ All three extractors produce identical characteristics:
 | `/api/training-data-evaluations` | GET | List training images |
 | `/api/training-data-image/{id}/evaluate` | POST | Run line detection |
 | `/api/training-data-image/{id}/ground-truth` | POST | Save ground truth |
+| `/api/training-data-image-quality-check/start` | POST | Start background quality check |
+| `/api/training-data-image-quality-check/status` | GET | Quality check progress |
+| `/api/training-data-image/{id}/quality-status` | POST | Manually set quality status |
 
 **Note:** Oxford dataset uses command-line scripts (`oxford_extraction/oxford_normalizer.py` + `oxford_extraction/oxford_db_populator.py`) instead of web interface.
 
@@ -945,6 +949,8 @@ LineComparator(
 - image_hash: str (SHA256 of ORIGINAL file for consistent duplicate checking)
 - ground_truth_correct, ground_truth_extra: int (optional)
 - features_data: str (JSON with nested Custom_Class structure)
+- quality_check_status: str (valid/invalid/NULL)
+- quality_check_date: datetime
 ```
 
 **Example features_data:**
