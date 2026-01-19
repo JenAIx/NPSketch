@@ -18,15 +18,55 @@ from pathlib import Path
 
 from .model import DrawingClassifier
 from .dataset import create_dataloaders, create_augmented_dataloaders
+from .warmup_scheduler import WarmupScheduler
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
+class WarmupScheduler:
+    """Learning rate warmup scheduler with linear warmup."""
+    
+    def __init__(self, optimizer, warmup_epochs: int, base_lr: float, warmup_start_lr: float = 0.0):
+        """
+        Initialize warmup scheduler.
+        
+        Args:
+            optimizer: PyTorch optimizer
+            warmup_epochs: Number of epochs for warmup
+            base_lr: Target learning rate after warmup
+            warmup_start_lr: Starting learning rate (default: 0.0)
+        """
+        self.optimizer = optimizer
+        self.warmup_epochs = warmup_epochs
+        self.base_lr = base_lr
+        self.warmup_start_lr = warmup_start_lr
+        self.current_epoch = 0
+    
+    def step(self, epoch: int):
+        """Update learning rate based on current epoch."""
+        self.current_epoch = epoch
+        if epoch < self.warmup_epochs:
+            # Linear warmup: gradually increase from warmup_start_lr to base_lr
+            lr = self.warmup_start_lr + (self.base_lr - self.warmup_start_lr) * (epoch + 1) / self.warmup_epochs
+            for param_group in self.optimizer.param_groups:
+                # For differential LR, scale by the original multiplier
+                if 'initial_lr' in param_group:
+                    param_group['lr'] = lr * (param_group['initial_lr'] / self.base_lr)
+                else:
+                    param_group['lr'] = lr
+            return lr
+        return self.base_lr
+    
+    def is_warming_up(self, epoch: int) -> bool:
+        """Check if still in warmup phase."""
+        return epoch < self.warmup_epochs
+
+
 class EarlyStopping:
     """Early stopping to stop training when validation loss stops improving."""
     
-    def __init__(self, patience: int = 10, min_delta: float = 0.001, restore_best_weights: bool = True):
+    def __init__(self, patience: int = 10, min_delta: float = 0.001, restore_best_weights: bool = True, min_epochs: int = 3):
         """
         Initialize early stopping.
         
@@ -34,10 +74,12 @@ class EarlyStopping:
             patience: Number of epochs to wait for improvement
             min_delta: Minimum change in monitored value to qualify as improvement
             restore_best_weights: Whether to restore model weights from best epoch
+            min_epochs: Minimum epochs before early stopping can trigger (default: 3)
         """
         self.patience = patience
         self.min_delta = min_delta
         self.restore_best_weights = restore_best_weights
+        self.min_epochs = min_epochs
         self.counter = 0
         self.best_loss = None
         self.best_epoch = 0
@@ -51,46 +93,41 @@ class EarlyStopping:
         Args:
             val_loss: Current validation loss
             model: Model to save if best
-            epoch: Current epoch number
+            epoch: Current epoch number (0-based)
             
         Returns:
             True if training should stop, False otherwise
         """
-        if self.best_loss is None:
-            # First epoch (epoch is 0-based, store as 1-based for consistency)
+        # Always track best loss and model state
+        if self.best_loss is None or val_loss < (self.best_loss - self.min_delta):
+            # First epoch or improvement found
             self.best_loss = val_loss
-            self.best_epoch = epoch + 1  # Store as 1-based for consistency with stopped_epoch
-            if self.restore_best_weights:
-                # Clone tensors to avoid in-place modifications during training
-                # Memory: ~47 MB for ResNet-18 (only stored when best improves, not every epoch)
-                self.best_model_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
-            return False
-        
-        # Check if loss improved
-        if val_loss < (self.best_loss - self.min_delta):
-            # Improvement (epoch is 0-based, store as 1-based for consistency)
-            self.best_loss = val_loss
-            self.best_epoch = epoch + 1  # Store as 1-based for consistency with stopped_epoch
+            self.best_epoch = epoch + 1  # Store as 1-based for consistency
             self.counter = 0
             if self.restore_best_weights:
                 # Clone tensors to avoid in-place modifications during training
                 # Memory: ~47 MB for ResNet-18 (only stored when best improves, not every epoch)
-                # Old best_model_state is automatically garbage collected
                 self.best_model_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
-            logger.debug(f"Early stopping: Validation loss improved to {val_loss:.6f}")
+            if epoch > 0:  # Don't log on first epoch
+                logger.debug(f"Early stopping: Validation loss improved to {val_loss:.6f}")
             return False
-        else:
-            # No improvement
-            self.counter += 1
-            logger.debug(f"Early stopping: No improvement for {self.counter}/{self.patience} epochs")
-            
-            if self.counter >= self.patience:
-                self.early_stop = True
-                logger.info(f"Early stopping triggered after {self.counter} epochs without improvement")
-                logger.info(f"Best validation loss: {self.best_loss:.6f} at epoch {self.best_epoch} (1-based)")
-                return True
-            
+        
+        # No improvement - but don't trigger early stopping before min_epochs
+        if epoch < self.min_epochs:
+            logger.debug(f"Early stopping: Epoch {epoch+1} < min_epochs ({self.min_epochs}), continuing training")
             return False
+        
+        # No improvement and past min_epochs
+        self.counter += 1
+        logger.debug(f"Early stopping: No improvement for {self.counter}/{self.patience} epochs")
+        
+        if self.counter >= self.patience:
+            self.early_stop = True
+            logger.info(f"Early stopping triggered after {self.counter} epochs without improvement")
+            logger.info(f"Best validation loss: {self.best_loss:.6f} at epoch {self.best_epoch} (1-based)")
+            return True
+        
+        return False
     
     def restore_best(self, model: nn.Module):
         """Restore best model weights."""
@@ -119,7 +156,13 @@ class CNNTrainer:
         dropout: float = 0.5,
         weight_decay: float = 0.0001,
         early_stopping_patience: int = 15,
-        early_stopping_min_delta: float = 0.001
+        early_stopping_min_delta: float = 0.001,
+        early_stopping_min_epochs: int = 3,
+        lr_scheduling_patience: int = 5,
+        lr_scheduling_threshold: float = 0.001,
+        label_smoothing: float = 0.0,
+        warmup_enabled: bool = False,
+        warmup_epochs: int = 3
     ):
         """
         Initialize CNN trainer.
@@ -139,6 +182,12 @@ class CNNTrainer:
             weight_decay: L2 regularization strength (default: 0.0001)
             early_stopping_patience: Early stopping patience (0 = disabled, default: 15)
             early_stopping_min_delta: Minimum delta for early stopping (default: 0.001)
+            early_stopping_min_epochs: Minimum epochs before early stopping can trigger (default: 3)
+            lr_scheduling_patience: LR scheduler patience (default: 5)
+            lr_scheduling_threshold: LR scheduler threshold (default: 0.001)
+            label_smoothing: Label smoothing for classification (default: 0.0)
+            warmup_enabled: Enable learning rate warmup (default: False)
+            warmup_epochs: Number of warmup epochs (default: 3)
         """
         self.num_outputs = num_outputs
         self.learning_rate = learning_rate
@@ -151,6 +200,11 @@ class CNNTrainer:
         self.dropout = dropout
         self.weight_decay = weight_decay
         self.early_stopping_patience = early_stopping_patience
+        self.lr_scheduling_patience = lr_scheduling_patience
+        self.lr_scheduling_threshold = lr_scheduling_threshold
+        self.label_smoothing = label_smoothing
+        self.warmup_enabled = warmup_enabled
+        self.warmup_epochs = warmup_epochs
         
         # Auto-determine use_sigmoid if not specified
         if use_sigmoid is None:
@@ -224,13 +278,20 @@ class CNNTrainer:
             # Use class weights if provided
             if class_weights is not None:
                 weights_tensor = torch.tensor(class_weights, dtype=torch.float32).to(self.device)
-                self.criterion = nn.CrossEntropyLoss(weight=weights_tensor)
+                self.criterion = nn.CrossEntropyLoss(
+                    weight=weights_tensor,
+                    label_smoothing=label_smoothing
+                )
                 logger.info(f"Loss function: CrossEntropyLoss with class weights (classification, {num_outputs} classes)")
                 logger.info(f"  Class weights: {[f'{w:.4f}' for w in class_weights]}")
+                if label_smoothing > 0:
+                    logger.info(f"  Label smoothing: {label_smoothing}")
             else:
-                self.criterion = nn.CrossEntropyLoss()
+                self.criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
                 logger.info(f"Loss function: CrossEntropyLoss without weights (classification, {num_outputs} classes)")
                 logger.warning("  No class weights provided - classes will be equally weighted")
+                if label_smoothing > 0:
+                    logger.info(f"  Label smoothing: {label_smoothing}")
         else:
             self.criterion = nn.MSELoss()
             logger.info(f"Loss function: MSELoss (regression)")
@@ -242,16 +303,30 @@ class CNNTrainer:
                 self.optimizer,
                 mode='min',           # Minimize validation loss
                 factor=0.5,           # Reduce LR by 50%
-                patience=5,            # Wait 5 epochs without improvement
+                patience=lr_scheduling_patience,  # Task-specific patience
                 verbose=False,         # We'll log manually
                 min_lr=1e-6,          # Minimum LR
-                threshold=0.001       # Minimum change to count as improvement
+                threshold=lr_scheduling_threshold  # Task-specific threshold
             )
             logger.info(f"Learning Rate Scheduling enabled:")
             logger.info(f"  Strategy: ReduceLROnPlateau")
             logger.info(f"  Factor: 0.5 (halve LR)")
-            logger.info(f"  Patience: 5 epochs")
+            logger.info(f"  Patience: {lr_scheduling_patience} epochs")
+            logger.info(f"  Threshold: {lr_scheduling_threshold}")
             logger.info(f"  Min LR: 1e-6")
+        
+        # Warmup scheduler (for classification)
+        self.warmup_scheduler = None
+        if warmup_enabled and warmup_epochs > 0:
+            self.warmup_scheduler = WarmupScheduler(
+                self.optimizer,
+                warmup_epochs=warmup_epochs,
+                base_lr=learning_rate,
+                warmup_start_lr=0.0
+            )
+            logger.info(f"Learning Rate Warmup enabled:")
+            logger.info(f"  Warmup epochs: {warmup_epochs}")
+            logger.info(f"  Start LR: 0.0 → Target LR: {learning_rate}")
         
         # Early stopping
         self.early_stopping = None
@@ -259,11 +334,13 @@ class CNNTrainer:
             self.early_stopping = EarlyStopping(
                 patience=early_stopping_patience,
                 min_delta=early_stopping_min_delta,
-                restore_best_weights=True
+                restore_best_weights=True,
+                min_epochs=early_stopping_min_epochs
             )
             logger.info(f"Early Stopping enabled:")
             logger.info(f"  Patience: {early_stopping_patience} epochs")
             logger.info(f"  Min delta: {early_stopping_min_delta}")
+            logger.info(f"  Min epochs: {early_stopping_min_epochs}")
             logger.info(f"  Restore best weights: True")
         
         # Training history
@@ -297,7 +374,8 @@ class CNNTrainer:
         self,
         train_loader: DataLoader,
         val_loader: Optional[DataLoader] = None,
-        callback: Optional[Callable] = None
+        callback: Optional[Callable] = None,
+        epoch: int = 0
     ) -> Dict:
         """
         Train for one epoch.
@@ -306,10 +384,16 @@ class CNNTrainer:
             train_loader: Training data loader
             val_loader: Validation data loader (optional)
             callback: Optional callback function(epoch, batch, loss)
+            epoch: Current epoch number (for warmup scheduler)
         
         Returns:
             Metrics dict with train_loss, val_loss
         """
+        # Apply warmup if enabled and in warmup phase
+        if self.warmup_scheduler and self.warmup_scheduler.is_warming_up(epoch):
+            warmup_lr = self.warmup_scheduler.step(epoch)
+            logger.info(f"Warmup epoch {epoch+1}/{self.warmup_epochs}: LR = {warmup_lr:.6f}")
+        
         self.model.train()
         train_losses = []
         
@@ -338,15 +422,17 @@ class CNNTrainer:
         if val_loader:
             val_loss = self.evaluate(val_loader)
         
-        # Learning rate scheduling (if enabled and validation loss available)
+        # Learning rate scheduling (only after warmup is complete)
         if self.scheduler is not None and val_loss is not None:
-            old_lr = self.get_primary_learning_rate()
-            self.scheduler.step(val_loss)
-            new_lr = self.get_primary_learning_rate()
-            
-            # Log LR changes (track primary LR, which is the Head LR for differential LR)
-            if new_lr != old_lr:
-                logger.info(f"Learning Rate reduced: {old_lr:.6f} → {new_lr:.6f}")
+            # Skip LR scheduling during warmup phase
+            if not (self.warmup_scheduler and self.warmup_scheduler.is_warming_up(epoch)):
+                old_lr = self.get_primary_learning_rate()
+                self.scheduler.step(val_loss)
+                new_lr = self.get_primary_learning_rate()
+                
+                # Log LR changes (track primary LR, which is the Head LR for differential LR)
+                if new_lr != old_lr:
+                    logger.info(f"Learning Rate reduced: {old_lr:.6f} → {new_lr:.6f}")
         
         metrics = {
             'train_loss': np.mean(train_losses),

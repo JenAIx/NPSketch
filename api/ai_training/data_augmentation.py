@@ -2,17 +2,20 @@
 Data Augmentation Library for Training Data
 
 Creates augmented versions of training images to increase dataset size
-and improve model generalization.
+and improve model generalization with guaranteed diversity.
 
-Augmentations:
-- Rotation: ±1-3 degrees (simulates paper tilt)
-- Translation: ±5-10 pixels (simulates position shifts)
-- Scaling: 95-105% (simulates size variations)
+Enhanced Augmentation System (2026-01-12):
+- Pre-shrink: 5% content shrink creates margins for transformations
+- Rotation: ±2-5 degrees (excludes near-zero, progressive aggressiveness)
+- Translation: ±3 pixels (excludes near-zero, proper magnitude increase)
+- Local Warping: 15-20px displacement with IDW interpolation
+- Diversity Control: SSIM-based filtering ensures unique augmentations
+- Progressive Retry: Automatic parameter increase if too similar
 
 All augmentations preserve:
-- Black background
-- Line quality (no interpolation artifacts)
-- Aspect ratio
+- Binary images (black lines on white background)
+- Line quality (2px normalized thickness)
+- Aspect ratio (568×274)
 - Image dimensions
 """
 
@@ -538,14 +541,44 @@ class ImageAugmentor:
             tx = np.clip(tx, -self.max_translation, self.max_translation)
             ty = np.clip(ty, -self.max_translation, self.max_translation)
             
-            # Apply augmentation
-            aug_img = self.augment_image(image, rotation, tx, ty, scale=1.0)
+            # Safety check with fallback: Reduce rotation/translation if unsafe
+            rotation_safe, tx_safe, ty_safe = rotation, tx, ty
+            scale_safe = 1.0
+            safety_check_applied = False
+            
+            # Try original parameters, then 50%, then 25%
+            for reduction_factor in [1.0, 0.5, 0.25]:
+                if reduction_factor < 1.0:
+                    rotation_safe = rotation * reduction_factor
+                    tx_safe = int(tx * reduction_factor)
+                    ty_safe = int(ty * reduction_factor)
+                    safety_check_applied = True
+                
+                if self._is_safe_augmentation(image, rotation_safe, tx_safe, ty_safe, scale_safe):
+                    if safety_check_applied:
+                        logger.debug(f"Safety fallback: rotation {rotation:.2f}°→{rotation_safe:.2f}°, "
+                                   f"translation ({tx},{ty})→({tx_safe},{ty_safe})")
+                    break
+            else:
+                # If all reductions fail, use minimal safe parameters
+                rotation_safe = 0.0
+                tx_safe = 0
+                ty_safe = 0
+                logger.warning(f"Extreme fallback: using minimal parameters (rotation=0°, translation=0px)")
+                safety_check_applied = True
+            
+            # Apply augmentation with safe parameters
+            aug_img = self.augment_image(image, rotation_safe, tx_safe, ty_safe, scale=scale_safe)
             
             params.update({
-                'rotation': float(rotation),
-                'translation_x': int(tx),
-                'translation_y': int(ty),
-                'scale': 1.0
+                'rotation': float(rotation_safe),
+                'rotation_requested': float(rotation),
+                'translation_x': int(tx_safe),
+                'translation_x_requested': int(tx),
+                'translation_y': int(ty_safe),
+                'translation_y_requested': int(ty),
+                'scale': 1.0,
+                'safety_check_applied': safety_check_applied
             })
         
         elif aug_type == 'warping_only':
@@ -626,22 +659,53 @@ class ImageAugmentor:
             tx = np.clip(tx, -self.max_translation, self.max_translation)
             ty = np.clip(ty, -self.max_translation, self.max_translation)
             
-            aug_img = self.augment_image(warped, rotation, tx, ty, scale=1.0)
+            # Safety check with fallback: Reduce rotation/translation if unsafe
+            rotation_safe, tx_safe, ty_safe = rotation, tx, ty
+            scale_safe = 1.0
+            safety_check_applied = False
+            
+            # Try original parameters, then 50%, then 25%
+            for reduction_factor in [1.0, 0.5, 0.25]:
+                if reduction_factor < 1.0:
+                    rotation_safe = rotation * reduction_factor
+                    tx_safe = int(tx * reduction_factor)
+                    ty_safe = int(ty * reduction_factor)
+                    safety_check_applied = True
+                
+                if self._is_safe_augmentation(warped, rotation_safe, tx_safe, ty_safe, scale_safe):
+                    if safety_check_applied:
+                        logger.debug(f"Safety fallback (warp+combined): rotation {rotation:.2f}°→{rotation_safe:.2f}°, "
+                                   f"translation ({tx},{ty})→({tx_safe},{ty_safe})")
+                    break
+            else:
+                # If all reductions fail, use minimal safe parameters
+                rotation_safe = 0.0
+                tx_safe = 0
+                ty_safe = 0
+                logger.warning(f"Extreme fallback (warp+combined): using minimal parameters")
+                safety_check_applied = True
+            
+            # Apply augmentation with safe parameters
+            aug_img = self.augment_image(warped, rotation_safe, tx_safe, ty_safe, scale=scale_safe)
             
             params.update({
                 'warping_displacement': int(displacement),
                 'warping_control_points': 9,
-                'rotation': float(rotation),
-                'translation_x': int(tx),
-                'translation_y': int(ty),
-                'scale': 1.0
+                'rotation': float(rotation_safe),
+                'rotation_requested': float(rotation),
+                'translation_x': int(tx_safe),
+                'translation_x_requested': int(tx),
+                'translation_y': int(ty_safe),
+                'translation_y_requested': int(ty),
+                'scale': 1.0,
+                'safety_check_applied': safety_check_applied
             })
         
         return aug_img, params
     
     def _get_content_bounds(self, image: np.ndarray) -> Tuple[int, int, int, int]:
         """
-        Get bounding box of actual content (non-black pixels).
+        Get bounding box of actual content (non-white pixels).
         
         Args:
             image: Input image (grayscale or RGB)
@@ -649,13 +713,15 @@ class ImageAugmentor:
         Returns:
             (min_row, max_row, min_col, max_col) or None if no content
         """
-        # Threshold to detect non-background pixels
+        # Use higher threshold to avoid interpolation artifacts from cv2.resize()
+        # After pre-shrink, resize creates gray pixels (anti-aliasing) at edges
+        # Threshold of 200 filters these out, detecting only actual content
         if len(image.shape) == 3:
-            # RGB: check if any channel > 10
-            content_mask = np.any(image > 10, axis=2)
+            # RGB: check if any channel < 200 (detect non-white content)
+            content_mask = np.any(image < 200, axis=2)
         else:
-            # Grayscale: check if > 10
-            content_mask = image > 10
+            # Grayscale: check if < 200 (detect non-white content)
+            content_mask = image < 200
         
         rows, cols = np.where(content_mask)
         
@@ -713,7 +779,10 @@ class ImageAugmentor:
         # Rotation can cause corners to extend further
         max_dimension = max(content_height, content_width)
         rotation_rad = abs(rotation) * np.pi / 180
-        rotation_margin_loss = int(max_dimension * np.sin(rotation_rad) * 0.5)
+        # Use more realistic rotation loss calculation for small angles
+        # For small rotations (< 5°), corner displacement is minimal
+        diagonal = np.sqrt(content_height**2 + content_width**2)
+        rotation_margin_loss = int(diagonal * np.sin(rotation_rad) * 0.2)  # Further reduced for small angles
         
         # Translation directly reduces margins
         translation_margin_loss_x = abs(tx)
@@ -722,16 +791,27 @@ class ImageAugmentor:
         # Scaling up reduces effective margins
         scale_margin_loss = int(max(content_height, content_width) * (scale - 1.0) * 0.5) if scale > 1 else 0
         
-        # Total margin requirements
-        required_margin = self.safety_margin + rotation_margin_loss + scale_margin_loss
+        # Total margin requirements (minimal safety buffer for pre-shrunk images)
+        # Pre-shrink already creates margins, safety margin can be minimal
+        effective_safety_margin = 0  # No additional buffer needed with pre-shrink
+        required_margin = effective_safety_margin + rotation_margin_loss + scale_margin_loss
         
-        # Check if margins are sufficient
+        # Check if margins are sufficient (check direction-specific margins)
         safe_top = margin_top >= required_margin + translation_margin_loss_y if ty < 0 else margin_top >= required_margin
         safe_bottom = margin_bottom >= required_margin + translation_margin_loss_y if ty > 0 else margin_bottom >= required_margin
         safe_left = margin_left >= required_margin + translation_margin_loss_x if tx < 0 else margin_left >= required_margin
         safe_right = margin_right >= required_margin + translation_margin_loss_x if tx > 0 else margin_right >= required_margin
         
-        return safe_top and safe_bottom and safe_left and safe_right
+        is_safe = safe_top and safe_bottom and safe_left and safe_right
+        
+        # Debug logging for failed checks (only log once per image to avoid spam)
+        if not is_safe and not hasattr(self, '_logged_safety_failure'):
+            self._logged_safety_failure = True
+            logger.debug(f"Safety check: rotation={rotation:.1f}°, tx={tx}, ty={ty}, "
+                        f"margins=[{margin_top},{margin_bottom},{margin_left},{margin_right}], "
+                        f"required={required_margin}, rot_loss={rotation_margin_loss}")
+        
+        return is_safe
     
     def augment_batch(
         self,
@@ -869,21 +949,32 @@ class ImageAugmentor:
                     accepted = True
                 
                 if not accepted:
-                    # Max attempts reached - use best attempt
+                    # Max attempts reached - check if best attempt is acceptable
                     if best_aug:
                         aug_img, params, aug_gray, sim = best_aug
-                        logger.warning(f"Aug {aug_idx} ({aug_type}): Max attempts reached, "
-                                      f"using best (sim_orig={sim:.3f})")
-                        augmented_images.append((aug_img, {
-                            **params,
-                            'similarity_to_original': float(sim),
-                            'max_similarity_to_augmentations': 0.0,
-                            'attempts': attempts,
-                            'quality': 'forced_accept',
-                            'pre_shrink_applied': self.pre_shrink_enabled
-                        }))
-                        augmented_grays.append(aug_gray)
-                        diversity_stats['forced_accepts'] += 1
+                        
+                        # CRITICAL: Discard if still too similar to original (safety conflict)
+                        # This happens when safety fallback creates near-duplicates (e.g., 0° rotation)
+                        # Better to have fewer augmentations than force-accept near-duplicates
+                        if sim >= self.similarity_to_original_max:
+                            logger.warning(f"Aug {aug_idx} ({aug_type}): Max attempts reached, "
+                                          f"best similarity={sim:.3f} still exceeds threshold ({self.similarity_to_original_max:.3f})")
+                            logger.warning(f"  → DISCARDING (likely due to safety fallback creating near-duplicate)")
+                            diversity_stats['discarded_too_similar'] = diversity_stats.get('discarded_too_similar', 0) + 1
+                        else:
+                            # Best attempt is acceptable (below threshold)
+                            logger.warning(f"Aug {aug_idx} ({aug_type}): Max attempts reached, "
+                                          f"using best (sim_orig={sim:.3f})")
+                            augmented_images.append((aug_img, {
+                                **params,
+                                'similarity_to_original': float(sim),
+                                'max_similarity_to_augmentations': 0.0,
+                                'attempts': attempts,
+                                'quality': 'forced_accept',
+                                'pre_shrink_applied': self.pre_shrink_enabled
+                            }))
+                            augmented_grays.append(aug_gray)
+                            diversity_stats['forced_accepts'] += 1
                     else:
                         logger.error(f"Aug {aug_idx}: Failed to generate any augmentation")
             else:
@@ -1133,10 +1224,35 @@ class AugmentedDatasetBuilder:
                 img_id = img_data.get('id', idx)
                 patient_id = img_data.get('patient_id', f'unknown_{idx}')
                 
-                # Save original image
+                # Save original image (with pre-shrink for consistency)
                 if self.include_original:
+                    # Apply pre-shrink to original for consistency with augmented images
+                    # This ensures all images in training dataset have same margins
+                    original_to_save = self.augmentor._apply_pre_shrink(img_array)
+                    
+                    # Apply same post-processing as augmented images
+                    # Re-binarize
+                    if len(original_to_save.shape) == 3:
+                        gray = cv2.cvtColor(original_to_save, cv2.COLOR_RGB2GRAY)
+                        _, binary = cv2.threshold(gray, 175, 255, cv2.THRESH_BINARY)
+                        original_to_save = binary
+                    else:
+                        _, original_to_save = cv2.threshold(original_to_save, 175, 255, cv2.THRESH_BINARY)
+                    
+                    # Re-normalize line thickness
+                    from line_normalizer import normalize_line_thickness
+                    if len(original_to_save.shape) == 2:
+                        original_to_save_rgb = cv2.cvtColor(original_to_save, cv2.COLOR_GRAY2RGB)
+                    else:
+                        original_to_save_rgb = original_to_save
+                    original_to_save = normalize_line_thickness(original_to_save_rgb, target_thickness=2.0)
+                    
+                    # Convert back to grayscale for saving
+                    if len(original_to_save.shape) == 3:
+                        original_to_save = cv2.cvtColor(original_to_save, cv2.COLOR_RGB2GRAY)
+                    
                     original_path = output_dir / f"{patient_id}_id{img_id}_original.png"
-                    cv2.imwrite(str(original_path), img_array)
+                    cv2.imwrite(str(original_path), original_to_save)
                     
                     # Save label (with normalized value if normalizer is used)
                     label_path = output_dir / f"{patient_id}_id{img_id}_original.json"
@@ -1147,7 +1263,8 @@ class AugmentedDatasetBuilder:
                             'target_feature': target_feature,
                             'target_value': target_value_normalized,
                             'target_value_original': target_value,  # Keep original for reference
-                            'augmentation': None
+                            'augmentation': None,
+                            'pre_shrink_applied': self.augmentor.pre_shrink_enabled
                         }, f)
                     
                     stats['original'] += 1

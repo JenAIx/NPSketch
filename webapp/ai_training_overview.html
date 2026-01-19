@@ -541,6 +541,8 @@
                             ${lrScheduling.enabled ? `
                                 <br><span style="font-size: 0.85em; color: #666;">
                                     Strategy: <strong>${lrScheduling.strategy || 'ReduceLROnPlateau'}</strong>
+                                    <br>Patience: <strong>${lrScheduling.patience || 5}</strong> epochs
+                                    <br>Threshold: <strong>${lrScheduling.threshold !== undefined ? lrScheduling.threshold.toFixed(4) : '0.0010'}</strong>
                                     <br>Final LR: <strong>${lrScheduling.final_lr?.toFixed(6) || 'N/A'}</strong>
                                 </span>
                             ` : ''}
@@ -609,6 +611,9 @@
                                 <span style="font-size: 0.85em; color: #666;">
                                     Dropout: <strong>${regularization.dropout !== undefined ? regularization.dropout.toFixed(2) : '0.50'}</strong>
                                     <br>Weight Decay: <strong>${regularization.weight_decay !== undefined ? regularization.weight_decay.toFixed(4) : '0.0001'}</strong>
+                                    ${regularization.label_smoothing !== undefined && regularization.label_smoothing > 0 ? `
+                                        <br>Label Smoothing: <strong>${regularization.label_smoothing.toFixed(2)}</strong>
+                                    ` : ''}
                                 </span>
                             ` : `
                                 <span style="color: #6c757d;">Default (Dropout: 0.5)</span>
@@ -625,6 +630,8 @@
                             ${earlyStopping.enabled ? `
                                 <br><span style="font-size: 0.85em; color: #666;">
                                     Patience: <strong>${earlyStopping.patience || 'N/A'}</strong> epochs
+                                    <br>Min Delta: <strong>${earlyStopping.min_delta !== undefined ? earlyStopping.min_delta.toFixed(4) : '0.0010'}</strong>
+                                    <br>Min Epochs: <strong>${earlyStopping.min_epochs || 3}</strong>
                                     ${earlyStopping.triggered ? `
                                         <br><span style="color: #ffc107;">⚠️ Triggered at epoch ${earlyStopping.stopped_epoch}</span>
                                         <br><span style="color: #28a745;">✓ Best: Epoch ${earlyStopping.best_epoch} (loss: ${earlyStopping.best_val_loss?.toFixed(4)})</span>
@@ -633,6 +640,18 @@
                             ` : ''}
                         </div>
                     </div>
+                    
+                    ${metadata.warmup && metadata.warmup.enabled ? `
+                    <div>
+                        <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">🔥 LR Warmup</div>
+                        <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; color: #333;">
+                            <span style="color: #28a745;">✅ Enabled</span>
+                            <br><span style="font-size: 0.85em; color: #666;">
+                                Warmup Epochs: <strong>${metadata.warmup.epochs || 3}</strong>
+                            </span>
+                        </div>
+                    </div>
+                    ` : ''}
                 </div>
                 
                 <div style="background: white; padding: 10px; border-radius: 4px; font-size: 0.9em; margin-bottom: 15px; color: #333;">

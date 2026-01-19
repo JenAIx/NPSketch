@@ -32,6 +32,7 @@ from PIL import Image
 import csv
 
 from database import get_db, TrainingDataImage, ReferenceImage
+from image_quality_check.contour_quality import run_quality_check
 from line_normalizer import normalize_line_thickness
 from services import EvaluationService
 from image_processing import LineDetector
@@ -684,6 +685,9 @@ async def get_training_data_images(
     patient_id: str = None,
     task_type: str = None,
     source_format: str = None,
+    search: str = None,
+    only_missing: bool = False,
+    ids: str = None,
     db: Session = Depends(get_db)
 ):
     """
@@ -695,12 +699,26 @@ async def get_training_data_images(
         patient_id: Filter by patient ID
         task_type: Filter by task type
         source_format: Filter by source format
+        search: Search term (filters ID, patient_id, task_type, source_format, filename)
+        only_missing: If true, only return images without features
+        ids: Comma-separated list of image IDs to filter by (e.g., "122,123,456")
         db: Database session
     
     Returns:
         List of training data images with metadata
     """
+    from sqlalchemy import or_, cast, String
+    
     query = db.query(TrainingDataImage)
+    
+    # Filter by specific IDs (takes priority)
+    if ids and ids.strip():
+        try:
+            id_list = [int(id.strip()) for id in ids.split(',') if id.strip()]
+            if id_list:
+                query = query.filter(TrainingDataImage.id.in_(id_list))
+        except ValueError:
+            pass  # Invalid IDs, ignore filter
     
     if patient_id:
         query = query.filter(TrainingDataImage.patient_id == patient_id)
@@ -708,6 +726,30 @@ async def get_training_data_images(
         query = query.filter(TrainingDataImage.task_type == task_type)
     if source_format:
         query = query.filter(TrainingDataImage.source_format == source_format)
+    
+    # Search filter - match across multiple fields
+    if search and search.strip():
+        search_term = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                cast(TrainingDataImage.id, String).ilike(search_term),
+                TrainingDataImage.patient_id.ilike(search_term),
+                TrainingDataImage.task_type.ilike(search_term),
+                TrainingDataImage.source_format.ilike(search_term),
+                TrainingDataImage.original_filename.ilike(search_term),
+            )
+        )
+    
+    # Only missing features filter
+    if only_missing:
+        query = query.filter(
+            or_(
+                TrainingDataImage.features_data.is_(None),
+                TrainingDataImage.features_data == '{}',
+                TrainingDataImage.features_data == 'null',
+                TrainingDataImage.features_data == '',
+            )
+        )
     
     query = query.order_by(TrainingDataImage.uploaded_at.desc())
     
@@ -740,6 +782,49 @@ async def get_training_data_images(
         "offset": offset,
         "limit": limit,
         "images": results
+    }
+
+
+@router.get("/training-data-image-quality-check")
+async def get_training_data_image_quality_check(
+    source: str = None,
+    limit: int = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Run image quality check across training data images and return flagged IDs.
+    
+    Args:
+        source: Filter by source_format (e.g., "TELEFRED", "OCS", "MAT"). Default: all sources.
+        limit: Max number of images to check. Default: no limit.
+    """
+    logger.info(f"Quality check started: source={source}, limit={limit}")
+    
+    params = {
+        "min_gap_px": 80,
+        "min_peak_separation": 9999,  # disable projection-based check
+        "outside_ink_ratio": 0.08,
+        "min_component_height_ratio": 0.1,
+        "require_gap_and_outside": True,
+        "require_contours": True,
+        "min_contour_area": 1,
+        "min_contour_count": 2,
+    }
+
+    flagged = run_quality_check(
+        db,
+        source=source,
+        limit=limit,
+        use_original=True,
+        params=params,
+    )
+    
+    logger.info(f"Quality check complete: {len(flagged)} flagged images")
+
+    return {
+        "total": len(flagged),
+        "ids": [item["id"] for item in flagged],
+        "items": flagged,
     }
 
 

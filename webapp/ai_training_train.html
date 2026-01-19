@@ -731,8 +731,22 @@
                 </div>
                 
                 <div class="form-group">
-                    <label>Learning Rate</label>
+                    <label>
+                        Learning Rate 
+                        <span id="learningRateRecommended" style="font-size: 0.85em; color: #28a745; font-weight: normal;"></span>
+                    </label>
                     <input type="number" id="learningRate" value="0.001" step="0.0001" min="0.0001" max="0.1">
+                    <div style="font-size: 0.85em; color: #666; margin-top: 5px; line-height: 1.4;">
+                        <strong>ℹ️ Task-Specific Defaults:</strong>
+                        <ul style="margin: 5px 0 0 20px;">
+                            <li><strong>Regression:</strong> 0.001 (suitable for continuous values like Total_Score)</li>
+                            <li><strong>Classification:</strong> 0.0005 (lower rate prevents overfitting in class prediction)</li>
+                        </ul>
+                        <div style="margin-top: 5px; padding: 8px; background: #fff3cd; border-left: 3px solid #ffc107; border-radius: 3px;">
+                            💡 <strong>Tip:</strong> Leave as recommended unless you have a specific reason to change it. 
+                            Values you enter here will <strong>override</strong> the task-specific defaults.
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="form-group">
@@ -1009,6 +1023,20 @@
                 card.classList.remove('selected');
             });
             event.target.closest('.feature-card').classList.add('selected');
+            
+            // Update learning rate based on task type
+            const learningRateInput = document.getElementById('learningRate');
+            const learningRateRecommended = document.getElementById('learningRateRecommended');
+            
+            if (isClassification) {
+                learningRateInput.value = '0.0005';
+                learningRateRecommended.textContent = '(✅ Recommended for Classification)';
+                learningRateRecommended.style.color = '#28a745';
+            } else {
+                learningRateInput.value = '0.001';
+                learningRateRecommended.textContent = '(✅ Recommended for Regression)';
+                learningRateRecommended.style.color = '#667eea';
+            }
             
             // Load and show model info
             if (isClassification) {

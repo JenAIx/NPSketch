@@ -472,6 +472,35 @@
             background: #d4edda;
             color: #155724;
         }
+
+        .tooltip-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+
+        .tooltip-wrapper::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%) translateY(4px);
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s ease, transform 0.15s ease;
+            z-index: 10;
+        }
+
+        .tooltip-wrapper:hover::after,
+        .tooltip-wrapper:focus-within::after {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
     </style>
 </head>
 <body>
@@ -505,15 +534,21 @@
         
         <!-- Bulk Features Section -->
         <div class="section">
-            <h2>📊 Bulk Feature Management</h2>
+            <h2>📊 Image and Bulk Feature Management</h2>
             <p style="color: #666; margin-bottom: 15px;">Download template, fill in features, and upload to update multiple entries at once.</p>
             <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                <a href="/ai_training_data_upload.html" class="btn btn-small" style="white-space: nowrap;">➕ Add New Data</a>
                 <a href="/api/training-data-features-template" class="btn btn-small" download>
                     📥 Download CSV Template
                 </a>
                 <button class="btn btn-small" onclick="document.getElementById('csvFileInput').click()" style="background: #28a745;">
                     📤 Upload Feature Table
                 </button>
+                <div class="tooltip-wrapper" data-tooltip="Run automatic quality check and show only flagged images">
+                    <button class="btn btn-small" id="qualityCheckBtn" onclick="runQualityCheck()" style="background: #ff9800;">
+                        🧪 Image Quality Check
+                    </button>
+                </div>
                 <input type="file" id="csvFileInput" accept=".csv" style="display: none;" onchange="uploadFeatureCSV()">
             </div>
             <div id="csvUploadResult" style="margin-top: 15px;"></div>
@@ -523,11 +558,19 @@
         <div class="section">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; gap: 20px; flex-wrap: wrap;">
                 <h2 style="margin: 0;">Training Data Images</h2>
-                <div style="display: flex; gap: 10px; flex: 1; max-width: 700px; align-items: center;">
-                    <div id="resultCount" style="background: #667eea; color: white; padding: 8px 16px; border-radius: 20px; font-weight: 600; font-size: 0.9em; white-space: nowrap;">
-                        0 items
-                    </div>
-                    <label style="display: flex; align-items: center; gap: 6px; background: #fff3cd; padding: 6px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; font-size: 0.9em;">
+                <div id="filterControls" style="display: flex; gap: 10px; flex: 1; max-width: 700px; align-items: center;">
+                    <label id="loadLimitLabel" style="display: flex; align-items: center; gap: 6px; background: #e7e3ff; padding: 6px 10px; border-radius: 6px; font-size: 0.9em; white-space: nowrap;">
+                        <span style="color: #5a3d99; font-weight: 600;">Load</span>
+                        <select id="loadLimitSelect" onchange="changeLoadLimit(this.value)" style="padding: 4px 8px; border: 1px solid #dee2e6; border-radius: 4px; cursor: pointer;">
+                            <option value="10" selected>10</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="1000">1000</option>
+                            <option value="5000">5000</option>
+                            <option value="10000">10000</option>
+                        </select>
+                    </label>
+                    <label id="filterMissingLabel" style="display: flex; align-items: center; gap: 6px; background: #fff3cd; padding: 6px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; font-size: 0.9em;">
                         <input type="checkbox" id="filterMissing" onchange="searchData()" style="cursor: pointer;">
                         <span style="color: #856404; font-weight: 600;">Only Missing</span>
                     </label>
@@ -536,9 +579,11 @@
                            placeholder="🔍 Search ID, Patient, Task, Source, Date..." 
                            style="flex: 1; padding: 10px; border: 2px solid #dee2e6; border-radius: 6px; font-size: 0.95em;"
                            oninput="searchData()">
-                    <button class="btn btn-secondary btn-small" onclick="clearSearch()" style="white-space: nowrap;">Clear</button>
+                    <button id="clearBtn" class="btn btn-secondary btn-small" onclick="clearSearch()" style="white-space: nowrap;">Clear</button>
                 </div>
-                <a href="/ai_training_data_upload.html" class="btn btn-small" style="white-space: nowrap;">➕ Add New Data</a>
+                <div id="qualityFilterBanner" style="display: none; background: #ff9800; color: white; padding: 10px 15px; border-radius: 6px; margin-top: 10px; font-weight: 600;">
+                    ⚠️ Quality Filter Active: Showing <span id="qualityFilterCount">0</span> flagged image(s). Click "Clear" to reset.
+                </div>
             </div>
             
             <div class="data-table">
@@ -623,24 +668,48 @@
         let searchTerm = '';
         let sortColumn = 'id';
         let sortDirection = 'desc';  // 'asc' or 'desc'
+        let qualityFilterIds = null;
+        let loadLimit = 10;
+        let searchDebounceTimer = null;
         
         async function loadData() {
             try {
-                // Load all data for client-side search and filtering (limit to 1000)
-                let url = `/api/training-data-images?limit=1000&offset=0`;
+                // Build URL with server-side filters
+                const params = new URLSearchParams();
+                params.set('offset', '0');
                 
-                const response = await fetch(url);
+                // If quality filter is active, pass the IDs to API (server-side filter)
+                if (qualityFilterIds && qualityFilterIds.size > 0) {
+                    const idsArray = Array.from(qualityFilterIds);
+                    params.set('ids', idsArray.join(','));
+                    params.set('limit', String(idsArray.length));  // Load all flagged images
+                } else {
+                    params.set('limit', String(loadLimit));
+                }
+                
+                // Add search filter (server-side)
+                if (searchTerm && searchTerm.trim()) {
+                    params.set('search', searchTerm.trim());
+                }
+                
+                // Add "only missing" filter (server-side)
+                const onlyMissing = document.getElementById('filterMissing').checked;
+                if (onlyMissing) {
+                    params.set('only_missing', 'true');
+                }
+                
+                const response = await fetch(`/api/training-data-images?${params.toString()}`);
                 const data = await response.json();
                 
-                allData = data.images;  // Store all data for search
-                existingData = filterBySearch(allData);
+                allData = data.images;
+                existingData = data.images;  // No client-side filtering needed
                 
                 // Apply current sort
                 sortData();
                 
                 totalPages = Math.ceil(existingData.length / pageSize);
                 
-                await updateStatistics();
+                updateStatistics();
                 updateResultCount();
                 updateSortIcons();
                 renderDataTable(getPaginatedData());
@@ -653,58 +722,32 @@
         
         async function updateStatistics() {
             try {
-                const response = await fetch('/api/training-data-images?limit=10000');
+                // Get total counts (no filters)
+                const response = await fetch('/api/training-data-images?limit=1');
                 const data = await response.json();
-                
-                const matCount = data.images.filter(img => img.source_format === 'MAT').length;
-                const ocsCount = data.images.filter(img => img.source_format === 'OCS').length;
-                const patients = new Set(data.images.map(img => img.patient_id)).size;
-                
                 document.getElementById('totalImages').textContent = data.total;
-                document.getElementById('matCount').textContent = matCount;
-                document.getElementById('ocsCount').textContent = ocsCount;
+                
+                // Get counts by source (use separate queries for accuracy)
+                const matResponse = await fetch('/api/training-data-images?limit=1&source_format=MAT');
+                const matData = await matResponse.json();
+                document.getElementById('matCount').textContent = matData.total;
+                
+                const ocsResponse = await fetch('/api/training-data-images?limit=1&source_format=OCS');
+                const ocsData = await ocsResponse.json();
+                document.getElementById('ocsCount').textContent = ocsData.total;
+                
+                // Patient count - need to fetch all patient IDs
+                const patientResponse = await fetch('/api/training-data-images?limit=10000');
+                const patientData = await patientResponse.json();
+                const patients = new Set(patientData.images.map(img => img.patient_id)).size;
                 document.getElementById('patientCount').textContent = patients;
             } catch (error) {
                 console.error('Error loading statistics:', error);
             }
         }
         
-        function filterBySearch(images) {
-            let filtered = images;
-            
-            // Filter by "Only Missing" checkbox
-            const onlyMissing = document.getElementById('filterMissing').checked;
-            if (onlyMissing) {
-                filtered = filtered.filter(img => !img.has_features);
-            }
-            
-            // Filter by search term
-            if (searchTerm && searchTerm.trim() !== '') {
-                const term = searchTerm.toLowerCase();
-                
-                filtered = filtered.filter(img => {
-                    // Search across: ID, Patient, Task, Source, Original filename, Date
-                    const id = img.id.toString();
-                    const patient = img.patient_id.toLowerCase();
-                    const task = img.task_type.toLowerCase();
-                    const source = img.source_format.toLowerCase();
-                    const filename = img.original_filename.toLowerCase();
-                    const date = new Date(img.uploaded_at).toLocaleDateString().toLowerCase();
-                    
-                    return id.includes(term) ||
-                           patient.includes(term) ||
-                           task.includes(term) ||
-                           source.includes(term) ||
-                           filename.includes(term) ||
-                           date.includes(term);
-                });
-            }
-            
-            return filtered;
-        }
-        
         function getFilteredData() {
-            return existingData;  // existingData already contains the filtered results
+            return existingData;
         }
         
         function getPaginatedData() {
@@ -714,32 +757,151 @@
         }
         
         function updateResultCount() {
-            const count = existingData.length;
             const countElement = document.getElementById('resultCount');
+            if (!countElement) {
+                return;
+            }
+            const count = existingData.length;
             countElement.textContent = `${count} ${count === 1 ? 'item' : 'items'}`;
             
             // Change color if filtered
-            if (searchTerm && searchTerm.trim() !== '') {
-                countElement.style.background = '#28a745';  // Green when searching
+            const onlyMissing = document.getElementById('filterMissing').checked;
+            if (qualityFilterIds && qualityFilterIds.size > 0) {
+                countElement.style.background = '#ff9800';  // Orange for quality filter
+            } else if (searchTerm && searchTerm.trim() !== '' || onlyMissing) {
+                countElement.style.background = '#28a745';  // Green when filtering
             } else {
                 countElement.style.background = '#667eea';  // Default blue
             }
         }
         
         function searchData() {
-            searchTerm = document.getElementById('searchInput').value;
-            currentPage = 0;  // Reset to first page on search
-            existingData = filterBySearch(allData);
-            totalPages = Math.ceil(existingData.length / pageSize);
-            updateResultCount();
-            renderDataTable(getPaginatedData());
-            updatePagination();
+            // Debounce search to avoid too many API calls
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => {
+                searchTerm = document.getElementById('searchInput').value;
+                currentPage = 0;
+                loadData();
+            }, 300);
+        }
+
+        function changeLoadLimit(value) {
+            loadLimit = parseInt(value) || 100;
+            currentPage = 0;
+            loadData();
         }
         
         function clearSearch() {
             document.getElementById('searchInput').value = '';
             document.getElementById('filterMissing').checked = false;
-            searchData();
+            qualityFilterIds = null;
+            searchTerm = '';
+            currentPage = 0;
+            setQualityFilterUI(false);
+            loadData();
+        }
+        
+        function setQualityFilterUI(active, count = 0) {
+            const banner = document.getElementById('qualityFilterBanner');
+            const clearBtn = document.getElementById('clearBtn');
+            const searchInput = document.getElementById('searchInput');
+            const filterMissing = document.getElementById('filterMissing');
+            const loadLimitSelect = document.getElementById('loadLimitSelect');
+            const loadLimitLabel = document.getElementById('loadLimitLabel');
+            const filterMissingLabel = document.getElementById('filterMissingLabel');
+            
+            if (active) {
+                // Show banner with count
+                banner.style.display = 'block';
+                document.getElementById('qualityFilterCount').textContent = count;
+                
+                // Make Clear button red and prominent
+                clearBtn.style.background = '#dc3545';
+                clearBtn.style.color = 'white';
+                clearBtn.style.fontWeight = 'bold';
+                clearBtn.textContent = '✕ Clear Filter';
+                
+                // Disable other controls
+                searchInput.disabled = true;
+                searchInput.style.opacity = '0.5';
+                filterMissing.disabled = true;
+                filterMissingLabel.style.opacity = '0.5';
+                loadLimitSelect.disabled = true;
+                loadLimitLabel.style.opacity = '0.5';
+            } else {
+                // Hide banner
+                banner.style.display = 'none';
+                
+                // Reset Clear button
+                clearBtn.style.background = '#6c757d';
+                clearBtn.style.color = 'white';
+                clearBtn.style.fontWeight = 'normal';
+                clearBtn.textContent = 'Clear';
+                
+                // Enable other controls
+                searchInput.disabled = false;
+                searchInput.style.opacity = '1';
+                filterMissing.disabled = false;
+                filterMissingLabel.style.opacity = '1';
+                loadLimitSelect.disabled = false;
+                loadLimitLabel.style.opacity = '1';
+            }
+        }
+
+        let qualityCheckRunning = false;
+        
+        async function runQualityCheck() {
+            // Prevent multiple simultaneous quality checks
+            if (qualityCheckRunning) {
+                console.log('Quality check already running, skipping...');
+                return;
+            }
+            
+            const btn = document.getElementById('qualityCheckBtn');
+            btn.disabled = true;
+            qualityCheckRunning = true;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '⏳ Running... (this may take a while)';
+            
+            // Build URL with optional parameters (no limit -> check all images)
+            let url = '/api/training-data-image-quality-check';
+            
+            // Check if searching for a specific source
+            const searchVal = document.getElementById('searchInput').value.toLowerCase();
+            if (searchVal.includes('telefred')) {
+                url += '&source=TELEFRED';
+            } else if (searchVal.includes('ocs')) {
+                url += '&source=OCS';
+            } else if (searchVal.includes('mat')) {
+                url += '&source=MAT';
+            } else if (searchVal.includes('oxford')) {
+                url += '&source=OXFORD';
+            }
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    throw new Error(errData.detail || 'Quality check failed');
+                }
+                const data = await response.json();
+                qualityFilterIds = new Set(data.ids || []);
+                currentPage = 0;
+                
+                // Activate quality filter UI
+                setQualityFilterUI(true, data.total);
+                
+                // Reload data with quality filter IDs (server-side filtering)
+                await loadData();
+                
+                showAlert('success', `Quality check complete: ${data.total} flagged image(s) found`);
+            } catch (error) {
+                showAlert('error', `Quality check error: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+                qualityCheckRunning = false;
+            }
         }
         
         function sortData() {

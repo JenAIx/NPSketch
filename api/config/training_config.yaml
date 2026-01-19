@@ -4,11 +4,10 @@
 
 # Training defaults
 training:
-  # Default training parameters
+  # Default training parameters (used for both regression and classification)
   defaults:
     train_split: 0.8
     num_epochs: 50
-    learning_rate: 0.001
     batch_size: 8
     use_augmentation: true
     use_normalization: true
@@ -24,37 +23,61 @@ training:
     batch_size_min: 1
     batch_size_max: 128
   
-  # Learning rate scheduling
-  lr_scheduling:
-    enabled: true
-    strategy: "reduce_on_plateau"  # ReduceLROnPlateau
-    factor: 0.5                    # Reduce by 50%
-    patience: 5                     # Wait 5 epochs
-    min_lr: 0.000001               # Minimum LR (1e-6)
-    threshold: 0.001               # Min change to count as improvement
+  # Regression-specific settings
+  regression:
+    learning_rate: 0.001          # Recommended LR for regression tasks
+    recommended_lr: 0.001         # For UI display
+    lr_scheduling:
+      enabled: true
+      strategy: "reduce_on_plateau"
+      factor: 0.5
+      patience: 5
+      min_lr: 0.000001
+      threshold: 0.001
+    regularization:
+      dropout: 0.5
+      weight_decay: 0.0001
+    early_stopping:
+      enabled: true
+      patience: 15
+      min_delta: 0.001
+      min_epochs: 2
   
-  # Differential learning rates
+  # Classification-specific settings
+  classification:
+    learning_rate: 0.0005          # Recommended LR for classification tasks
+    recommended_lr: 0.0005         # For UI display
+    lr_scheduling:
+      enabled: true
+      strategy: "reduce_on_plateau"
+      factor: 0.5
+      patience: 3                  # More aggressive (vs 5 for regression)
+      min_lr: 0.000001
+      threshold: 0.01              # Larger threshold for classification loss scale
+    regularization:
+      dropout: 0.6                 # Higher dropout for classification
+      weight_decay: 0.0005         # Stronger L2 regularization
+      label_smoothing: 0.1         # Reduce overconfidence
+    early_stopping:
+      enabled: true
+      patience: 10                 # Shorter patience (vs 15 for regression)
+      min_delta: 0.01              # Larger delta for classification loss scale
+      min_epochs: 3                # Don't stop before 3 epochs
+    warmup:
+      enabled: true
+      epochs: 3                    # 3 epochs of linear warmup
+  
+  # Differential learning rates (shared by both)
   differential_lr:
     enabled: true
     backbone_multiplier: 0.1       # Backbone LR = LR * 0.1
-  
-  # Regularization
-  regularization:
-    dropout: 0.5                   # Dropout rate (0.0 - 1.0)
-    weight_decay: 0.0001           # L2 regularization (1e-4, AdamW-like)
-  
-  # Early stopping
-  early_stopping:
-    enabled: true
-    patience: 15                   # Wait 15 epochs without improvement
-    min_delta: 0.001               # Minimum improvement threshold
 
 # Data augmentation configuration
 augmentation:
   # Pre-shrink for margin creation (NEW)
   pre_shrink:
     enabled: true
-    factor: 0.95  # 5% shrink creates ~14px margins for translation
+    factor: 0.90  # 10% shrink creates ~28px margins for rotation protection
   
   # Transformation ranges
   rotation_range: [-5, 5]  # degrees (increased from ±3° for diversity)

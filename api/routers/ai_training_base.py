@@ -34,6 +34,74 @@ training_state = {
 }
 
 
+def get_task_specific_config(training_mode: str, config_dict: dict) -> dict:
+    """
+    Get task-specific configuration (classification vs regression).
+    
+    Args:
+        training_mode: 'classification' or 'regression'
+        config_dict: User-provided config that may override defaults
+    
+    Returns:
+        Merged config with task-specific defaults
+    """
+    yaml_config = get_config()
+    
+    # Get task-specific settings from YAML
+    task_config = yaml_config.get(f'training.{training_mode}', {})
+    
+    # Merge task-specific settings with user config (user config takes precedence)
+    # Helper: Use default if key not in dict OR if value is None
+    def get_value(key, default):
+        value = config_dict.get(key)
+        if value is None:
+            return default
+        return value
+    
+    merged = {}
+    
+    # Learning rate
+    merged['learning_rate'] = get_value('learning_rate', task_config.get('learning_rate', 0.001))
+    
+    # LR scheduling
+    lr_sched = task_config.get('lr_scheduling', {})
+    merged['use_lr_scheduling'] = get_value('use_lr_scheduling', lr_sched.get('enabled', True))
+    merged['lr_scheduling_patience'] = get_value('lr_scheduling_patience', lr_sched.get('patience', 5))
+    merged['lr_scheduling_threshold'] = get_value('lr_scheduling_threshold', lr_sched.get('threshold', 0.001))
+    
+    # Regularization
+    reg = task_config.get('regularization', {})
+    merged['dropout'] = get_value('dropout', reg.get('dropout', 0.5))
+    merged['weight_decay'] = get_value('weight_decay', reg.get('weight_decay', 0.0001))
+    merged['label_smoothing'] = get_value('label_smoothing', reg.get('label_smoothing', 0.0))  # Only for classification
+    
+    # Early stopping
+    es = task_config.get('early_stopping', {})
+    merged['early_stopping_patience'] = get_value('early_stopping_patience', es.get('patience', 15))
+    merged['early_stopping_min_delta'] = get_value('early_stopping_min_delta', es.get('min_delta', 0.001))
+    merged['early_stopping_min_epochs'] = get_value('early_stopping_min_epochs', es.get('min_epochs', 3))
+    
+    # Warmup (classification only)
+    warmup = task_config.get('warmup', {})
+    merged['warmup_enabled'] = get_value('warmup_enabled', warmup.get('enabled', False))
+    merged['warmup_epochs'] = get_value('warmup_epochs', warmup.get('epochs', 3))
+    
+    # Differential LR (shared)
+    diff_lr = yaml_config.get('training.differential_lr', {})
+    merged['use_differential_lr'] = get_value('use_differential_lr', diff_lr.get('enabled', True))
+    merged['backbone_lr_multiplier'] = get_value('backbone_lr_multiplier', diff_lr.get('backbone_multiplier', 0.1))
+    
+    logger.info(f"Task-specific config ({training_mode}):")
+    logger.info(f"  Learning rate: {merged['learning_rate']}")
+    logger.info(f"  Dropout: {merged['dropout']}, Weight decay: {merged['weight_decay']}")
+    logger.info(f"  Early stopping: patience={merged['early_stopping_patience']}, min_delta={merged['early_stopping_min_delta']}, min_epochs={merged['early_stopping_min_epochs']}")
+    if training_mode == "classification":
+        logger.info(f"  Label smoothing: {merged['label_smoothing']}")
+        logger.info(f"  Warmup: enabled={merged['warmup_enabled']}, epochs={merged['warmup_epochs']}")
+    
+    return merged
+
+
 @router.get("/dataset-info")
 async def get_dataset_info(db: Session = Depends(get_db)):
     """Get information about available training data."""
@@ -423,6 +491,11 @@ def run_training_job(config):
             else:
                 logger.warning("No class weights available - using unweighted loss")
         
+        # Load task-specific configuration (classification vs regression)
+        task_config = get_task_specific_config(training_mode, config)
+        # Merge task-specific config into main config (task config takes precedence for defaults)
+        config.update(task_config)
+        
         trainer = CNNTrainer(
             num_outputs=num_outputs,
             learning_rate=config['learning_rate'],
@@ -435,7 +508,13 @@ def run_training_job(config):
             dropout=config.get('dropout', 0.5),
             weight_decay=config.get('weight_decay', 0.0001),
             early_stopping_patience=config.get('early_stopping_patience', 15),
-            early_stopping_min_delta=config.get('early_stopping_min_delta', 0.001)
+            early_stopping_min_delta=config.get('early_stopping_min_delta', 0.001),
+            early_stopping_min_epochs=config.get('early_stopping_min_epochs', 3),
+            lr_scheduling_patience=config.get('lr_scheduling_patience', 5),
+            lr_scheduling_threshold=config.get('lr_scheduling_threshold', 0.001),
+            label_smoothing=config.get('label_smoothing', 0.0),
+            warmup_enabled=config.get('warmup_enabled', False),
+            warmup_epochs=config.get('warmup_epochs', 3)
         )
         
         epoch_times = []  # Track time per epoch for estimation
@@ -456,7 +535,7 @@ def run_training_job(config):
             training_state['progress']['epoch'] = epoch + 1
             training_state['progress']['message'] = f"Training epoch {epoch+1}/{config['num_epochs']}..."
             
-            metrics = trainer.train_epoch(train_loader, val_loader)
+            metrics = trainer.train_epoch(train_loader, val_loader, epoch=epoch)
             
             # Update training history
             trainer.history['epoch'].append(epoch)
@@ -518,7 +597,13 @@ def run_training_job(config):
                 'dropout': config.get('dropout', 0.5),
                 'weight_decay': config.get('weight_decay', 0.0001),
                 'early_stopping_patience': config.get('early_stopping_patience', 15),
-                'early_stopping_min_delta': config.get('early_stopping_min_delta', 0.001)
+                'early_stopping_min_delta': config.get('early_stopping_min_delta', 0.001),
+                'early_stopping_min_epochs': config.get('early_stopping_min_epochs', 3),
+                'lr_scheduling_patience': config.get('lr_scheduling_patience', 5),
+                'lr_scheduling_threshold': config.get('lr_scheduling_threshold', 0.001),
+                'label_smoothing': config.get('label_smoothing', 0.0),
+                'warmup_enabled': config.get('warmup_enabled', False),
+                'warmup_epochs': config.get('warmup_epochs', 3)
             },
             'normalization': normalizer.get_config() if normalizer else {'enabled': False},
             'augmentation': stats.get('augmentation', {'enabled': False}),
@@ -531,9 +616,14 @@ def run_training_job(config):
                 'enabled': config.get('use_lr_scheduling', True),
                 'strategy': 'ReduceLROnPlateau',
                 'factor': 0.5,
-                'patience': 5,
+                'patience': config.get('lr_scheduling_patience', 5),
+                'threshold': config.get('lr_scheduling_threshold', 0.001),
                 'min_lr': 1e-6,
                 'final_lr': trainer.history['learning_rate'][-1] if trainer.history.get('learning_rate') else config['learning_rate']
+            },
+            'warmup': {
+                'enabled': config.get('warmup_enabled', False),
+                'epochs': config.get('warmup_epochs', 3)
             },
             'differential_lr': {
                 'enabled': config.get('use_differential_lr', True),
@@ -553,12 +643,14 @@ def run_training_job(config):
             },
             'regularization': {
                 'dropout': config.get('dropout', 0.5),
-                'weight_decay': config.get('weight_decay', 0.0001)
+                'weight_decay': config.get('weight_decay', 0.0001),
+                'label_smoothing': config.get('label_smoothing', 0.0)
             },
             'early_stopping': {
                 'enabled': config.get('early_stopping_patience', 15) > 0,
                 'patience': config.get('early_stopping_patience', 15),
                 'min_delta': config.get('early_stopping_min_delta', 0.001),
+                'min_epochs': config.get('early_stopping_min_epochs', 3),
                 'triggered': early_stopped,
                 'stopped_epoch': stopped_epoch,
                 'best_epoch': trainer.early_stopping.best_epoch if trainer.early_stopping else None,
