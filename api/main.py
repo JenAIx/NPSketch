@@ -15,6 +15,7 @@ Version: 1.0
 from fastapi import FastAPI, Depends
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
+import os
 
 from database import init_database, get_db, ReferenceImage
 from models import HealthResponse
@@ -40,8 +41,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Mount static files for visualizations
-app.mount("/api/visualizations", StaticFiles(directory="/app/data/visualizations"), name="visualizations")
+# Mount static files for visualizations (ensure directory exists)
+VIS_DIR = "/app/data/visualizations"
+os.makedirs(VIS_DIR, exist_ok=True)
+app.mount("/api/visualizations", StaticFiles(directory=VIS_DIR), name="visualizations")
 
 # Include routers
 app.include_router(admin_router)
