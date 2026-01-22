@@ -396,6 +396,25 @@ docker logs npsketch-api
   - Stored in metadata (`early_stopping.triggered`, `early_stopping.best_epoch`)
   - Disable by setting `patience: 0` in config
 
+### Synthetic Score-Based Images (v1.2.0)
+- **Purpose**: Generate training images across score ranges 0-40 to balance dataset
+- **Distribution**: 40% score 0, 15% each for ranges 1-10, 11-20, 21-30, 31-40
+- **Feature selection**: Uses 21 reference features with preferred frame lines
+- **Scoring**: Presence (0/1) + Position (0/1) + Accuracy (0/1) per feature = 0-63 max
+- **Options in UI**: 100 (Standard), 500 (Recommended), 1000 (Large), 5000 (Maximum)
+- **Pipeline**: Synthetic images added before split, receive same augmentation as real data
+- **Standalone generation**:
+  ```bash
+  docker exec -e PYTHONPATH=/app npsketch-api python3 \
+    /app/ai_training/synthetic_score_based.py \
+    --scores 0,10,20,30,40 --samples-per-score 10
+  ```
+- **Key parameters**:
+  - Position tolerance: 25px
+  - Patient tremor: 0.4-1.0 (consistent per image)
+  - Padding: 15px pre-shrink
+  - Long line curvature: Reduced by 0.6× for lines >150px
+
 ### Import Methods
 - **MAT/OCS:** Web interface (`/api/extract-training-data`)
 - **Oxford:** Command-line scripts (`oxford_extraction/oxford_normalizer.py` + `oxford_extraction/oxford_db_populator.py`)
@@ -465,7 +484,7 @@ from config import get_config
 config = get_config()
 batch_size = config.get("training.defaults.batch_size")  # 8
 rotation_range = config.get("augmentation.rotation_range")  # [-3, 3]
-synthetic_n_samples = config.get("synthetic.defaults.n_samples")  # 50
+synthetic_n_samples = config.get("synthetic.defaults.n_samples")  # 100
 ```
 
 **Environment Overrides:**
@@ -531,8 +550,8 @@ logger.debug("Debugging only")
 
 ---
 
-**Last Updated:** 2026-01-20 
+**Last Updated:** 2026-01-22 
 **Container Name:** `npsketch-api` 
 **Working Directory:** `/app` 
-**Version:** 1.1.8
+**Version:** 1.2.0
 

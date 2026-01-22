@@ -829,14 +829,14 @@
                     <div id="syntheticBadInfo" style="margin-top: 10px; margin-left: 28px; font-size: 0.8em; color: #667eea; display: none;">
                         <strong>ℹ️ Synthetic Generation Details:</strong>
                         <ul style="margin: 5px 0 0 20px;">
-                            <li><strong>Source:</strong> Lines extracted from real images with score < 20</li>
-                            <li><strong>Strategies:</strong> Mix of real bad lines, reference modifications, random lines</li>
-                            <li><strong>Modifications:</strong> Curves (Bezier), tremor (hand shake), shortened lines</li>
-                            <li><strong>Target:</strong> Score 0 (regression) or Class 0 (classification)</li>
-                            <li><strong>Default:</strong> 50 synthetic images across 5 complexity levels</li>
+                            <li><strong>Strategy:</strong> Score-based feature selection from reference image</li>
+                            <li><strong>Distribution:</strong> 40% score 0, 15% each for ranges 1-10, 11-20, 21-30, 31-40</li>
+                            <li><strong>Features:</strong> Realistic feature drawing with position, accuracy, tremor variations</li>
+                            <li><strong>Target:</strong> Actual calculated score (regression) or mapped class (classification)</li>
+                            <li><strong>Default:</strong> 100 synthetic images across score ranges 0-40</li>
                         </ul>
                         <div style="margin-top: 8px; padding: 8px; background: #fff3cd; border-radius: 4px; border-left: 3px solid #ffc107;">
-                            <strong>⚠️ Note:</strong> Only use if you have very few low-score/low-class examples (< 5% of dataset)
+                            <strong>⚠️ Note:</strong> Use to balance low-score data. Synthetic images also receive data augmentation
                         </div>
                     </div>
                     
@@ -844,10 +844,10 @@
                     <div id="syntheticBadCount" style="margin-top: 10px; margin-left: 28px; display: none;">
                         <label style="font-size: 0.85em; font-weight: 600; color: #333;">Number of Synthetic Images:</label>
                         <select id="syntheticBadSamples" style="margin-left: 10px; padding: 4px 8px; border-radius: 4px; border: 1px solid #ced4da;">
-                            <option value="25">25 (Minimal)</option>
-                            <option value="50" selected>50 (Recommended)</option>
-                            <option value="100">100 (More diversity)</option>
-                            <option value="150">150 (Maximum)</option>
+                            <option value="100" selected>100 (Standard)</option>
+                            <option value="500">500 (Recommended)</option>
+                            <option value="1000">1000 (Large)</option>
+                            <option value="5000">5000 (Maximum)</option>
                         </select>
                     </div>
                 </div>

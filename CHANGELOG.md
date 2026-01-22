@@ -4,9 +4,45 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [1.2.0] - 2026-01-22
+
+### Changed - Score-Based Synthetic Images
+
+**Breaking Change:** Replaced complexity-based synthetic generation with score-based feature selection.
+
+#### New Implementation
+- **Score-based generator**: `api/ai_training/synthetic_score_based.py`
+- **Feature selection**: Uses reference image features (21 lines)
+- **Score distribution**: 40% score 0, 15% each for 1-10, 11-20, 21-30, 31-40
+- **Integer scoring**: Presence (0/1) + Position (0/1) + Accuracy (0/1) per feature
+
+#### Key Features
+- **Preferred features**: Frame lines weighted higher (3, 31, 20, 19, 18, 5)
+- **Proximity bias**: Subsequent features prefer nearby features
+- **Patient-level tremor**: Consistent tremor per image (0.4-1.0)
+- **Position tolerance**: 25px for correct position
+- **Reduced curvature**: Long lines (>150px) have less curvature
+
+#### UI Changes
+- Updated synthetic options: 100, 500, 1000, 5000 images
+- Updated description: Score-based distribution info
+- Default: 100 images (Standard)
+
+#### Pipeline Integration
+- Synthetic images added BEFORE train/val split
+- Full augmentation applied to synthetic images
+- Same preprocessing: pre-shrink, binarization, line normalization
+
+#### Files Changed
+- `api/ai_training/synthetic_score_based.py` - New score-based generator
+- `api/ai_training/data_loader.py` - Integration with new generator
+- `webapp/ai_training_train.html` - Updated UI options
+
+---
+
 ## [1.1.0] - 2025-12-29
 
-### Added - Synthetic Bad Images Feature
+### Added - Synthetic Bad Images Feature (DEPRECATED - replaced by score-based in v1.2.0)
 
 **Problem:** Data imbalance causing regression-to-the-mean (only 1.3% scores < 20)
 
@@ -683,7 +719,7 @@ Restored best model from epoch 20
 
 ---
 
-**Current Version:** 1.1.8  
-**Last Updated:** 2026-01-20  
+**Current Version:** 1.2.0  
+**Last Updated:** 2026-01-22  
 **Status:** Production Ready
 

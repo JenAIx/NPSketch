@@ -369,9 +369,9 @@ From **1 original image** → **7 total images** (1 + 6 augmented):
 - Guaranteed diversity: SSIM-based filtering ensures no redundant variations
 - Comprehensive logging: Every augmentation includes similarity metrics
 
-### Synthetic Bad Images (NEW)
+### Synthetic Score-Based Images (v1.2.0)
 
-**Purpose:** Address data imbalance for low scores/classes
+**Purpose:** Address data imbalance for low scores/classes with realistic, score-targeted images.
 
 **Problem Addressed:**
 - Only 1.3% of training data has scores < 20
@@ -379,33 +379,38 @@ From **1 original image** → **7 total images** (1 + 6 augmented):
 - Random/chaotic drawings get predicted as medium scores
 
 **Solution:**
-Generate realistic bad-quality images by:
-1. Extracting lines from real bad images (score < 20)
-2. Combining with reference lines and random lines
-3. Applying realistic modifications (curves, tremor, distortions)
+Generate score-based synthetic images using the reference image features:
+1. Select features from reference image based on target score
+2. Apply realistic modifications (position offset, tremor, curvature)
+3. Generate images across a range of scores (0-40)
+
+**Score Distribution:**
+
+| Score Range | Percentage | Strategy |
+|-------------|------------|----------|
+| 0 | 40% | Random lines only, away from features |
+| 1-10 | 15% | 2-5 features, poor position/accuracy |
+| 11-20 | 15% | 5-8 features, moderate quality |
+| 21-30 | 15% | 8-12 features, mixed quality |
+| 31-40 | 15% | 12-15 features, decent quality |
+
+**Feature Selection:**
+- **Preferred features**: Frame lines weighted higher (lines 3, 31, 20, 19, 18, 5)
+- **Secondary features**: Internal lines (4, 2)
+- **Proximity bias**: Subsequent features prefer nearby features
+- **Random extra lines**: 1-10 lines avoiding feature zones
+
+**Scoring Per Feature (0-3 points):**
+- **Presence (0/1)**: Is the feature drawn?
+- **Position (0/1)**: Is it within 25px of correct location?
+- **Accuracy (0/1)**: Is tremor/curvature/shortening acceptable?
 
 **Key Features:**
-- **Realistic**: Uses 105 lines from 12 real bad drawings
-- **Not Chaotic**: Based on real data, not completely random
-- **Flexible**: 5 complexity levels (0.0 - 1.0)
-- **Adaptive**: Works for regression AND classification
-
-**Complexity Levels:**
-
-| Level | Real Bad | Reference | Random | Modifications |
-|-------|----------|-----------|--------|---------------|
-| 0 (Simple) | 80% | 20% | 0% | None |
-| 2 (Medium) | 50% | 30% | 20% | Moderate |
-| 4 (Complex) | 30% | 30% | 40% | Strong |
-
-**Modifications:**
-- **Curves**: Bezier curves (10-40% curvature)
-- **Tremor**: Hand shake simulation (1-3.5px)
-- **Shortened**: 60-90% of original length
-
-**Labels:**
-- **Regression**: Score 0.0
-- **Classification**: Class 0 (lowest class)
+- **Realistic**: Based on actual reference features (21 features)
+- **Patient-level tremor**: Each image has consistent tremor rate
+- **Proper padding**: 15px pre-shrink maintains margins
+- **Augmented**: Synthetic images receive same augmentation as real data
+- **Integer scores**: Clean 0-3 scoring per feature
 
 **Usage:**
 
@@ -414,51 +419,30 @@ Generate realistic bad-quality images by:
 stats, output_dir = loader.prepare_augmented_training_data(
     target_feature='Total_Score',
     train_split=0.8,
-    augmentation_config={'num_augmentations': 5},
-    add_synthetic_bad_images=True,  # ← NEW
-    synthetic_n_samples=50          # ← NEW
+    add_synthetic_bad_images=True,  # Enable synthetic images
+    synthetic_n_samples=500         # 100, 500, 1000, 5000
 )
 ```
 
-**Recommended Settings:**
-- Use if < 5% of data has low scores
-- 50 synthetic images (default)
-- Combine with regular augmentation
+**UI Options:**
+- 100 (Standard)
+- 500 (Recommended)
+- 1000 (Large)
+- 5000 (Maximum)
 
-**Configuration:**
-All settings are centralized in `api/config/training_config.yaml`:
-```yaml
-synthetic:
-  defaults:
-    n_samples: 50
-    complexity_levels: 5
-    score_threshold: 20.0
+**Standalone Generation:**
+```bash
+docker exec -e PYTHONPATH=/app npsketch-api python3 \
+  /app/ai_training/synthetic_score_based.py \
+  --scores 0,10,20,30,40 \
+  --samples-per-score 10
 ```
 
-**API Usage:**
-
-```python
-from ai_training.data_loader import TrainingDataLoader
-from database import SessionLocal
-
-db = SessionLocal()
-loader = TrainingDataLoader(db)
-
-# Prepare augmented dataset with synthetic bad images
-stats, output_dir = loader.prepare_augmented_training_data(
-    target_feature='Total_Score',
-    train_split=0.8,
-    augmentation_config={
-        'num_augmentations': 5
-    },
-    output_dir='/app/data/ai_training_data',
-    add_synthetic_bad_images=True,
-    synthetic_n_samples=50
-)
-
-print(f"Train: {stats['train']['total']} images")
-print(f"Val: {stats['val']['total']} images")
-```
+**Pipeline Integration:**
+- Synthetic images added BEFORE train/val split
+- Stratified splitting includes synthetic images
+- Augmentation applied to ALL images (including synthetic)
+- Same preprocessing: pre-shrink, binarization, line normalization
 
 ### Model Architecture
 
@@ -1198,7 +1182,7 @@ MIT License - feel free to use and modify for your projects.
 
 **Stefan Brodoehl**  
 Date: October-December 2025, January 2026  
-Version: 1.1.2
+Version: 1.2.0
 
 ---
 

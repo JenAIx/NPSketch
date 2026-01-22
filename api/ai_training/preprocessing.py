@@ -226,7 +226,7 @@ def preprocess_image_for_model(
     image: np.ndarray,
     apply_resize: bool = True,
     apply_binarization: bool = True,
-    apply_line_normalization: bool = True,
+    apply_line_normalization_flag: bool = True,
     pre_shrink_enabled: bool = False,
     pre_shrink_factor: float = 0.90,
     return_tensor: bool = True
@@ -262,7 +262,7 @@ def preprocess_image_for_model(
         image = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
     
     # Step 3: Line thickness normalization
-    if apply_line_normalization:
+    if apply_line_normalization_flag:
         image = apply_line_normalization(image, target_thickness=LINE_THICKNESS)
     
     # Step 4: Pre-shrink (if enabled)
@@ -376,7 +376,7 @@ def preprocess_pil_image_for_prediction(
         image,
         apply_resize=True,
         apply_binarization=True,
-        apply_line_normalization=True,
+        apply_line_normalization_flag=True,
         pre_shrink_enabled=pre_shrink_enabled,
         pre_shrink_factor=factor,
         return_tensor=True

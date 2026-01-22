@@ -32,6 +32,6 @@ COPY . .
 # Expose port
 EXPOSE 8000
 
-# Run the application
+# Run the application, disable hot reload for production & model training in progress
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
-
+# CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

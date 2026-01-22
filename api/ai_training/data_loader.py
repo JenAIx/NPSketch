@@ -473,87 +473,99 @@ class TrainingDataLoader:
             'enabled': False,
             'n_samples': 0,
             'n_generated': 0,
-            'complexity_levels': 0,
-            'score_threshold': 20.0
+            'score_distribution': {},
+            'strategy': 'score_based'
         }
         
-        # Add synthetic bad images if requested
+        # Add synthetic score-based images if requested
         if add_synthetic_bad_images:
             # Track original length for potential rollback
             original_images_count = len(images_data)
             n_added_successfully = 0
-            n_before_rollback = 0  # Track count before rollback for finally block
-            n_generated = 0  # Track actual count of generated images (regardless of add success)
+            n_before_rollback = 0
+            n_generated = 0
             
             try:
-                from ai_training.synthetic_bad_images import generate_synthetic_bad_images
+                from ai_training.synthetic_score_based import generate_synthetic_score_images_for_training
                 
-                # Generate synthetic images
-                synthetic_images = generate_synthetic_bad_images(
+                logger.info("="*60)
+                logger.info("GENERATING SCORE-BASED SYNTHETIC IMAGES")
+                logger.info("="*60)
+                logger.info(f"Requested: {synthetic_n_samples} images")
+                logger.info("Distribution: 40% score 0, 15% each for 1-10, 11-20, 21-30, 31-40")
+                
+                # Generate synthetic images using score-based generator
+                synthetic_images = generate_synthetic_score_images_for_training(
                     db=self.db,
                     n_samples=synthetic_n_samples,
-                    complexity_levels=5,
-                    score_threshold=20.0,
-                    image_size=(568, 274),
-                    random_seed=random_seed
+                    random_seed=random_seed,
+                    image_size=(568, 274)
                 )
                 
-                # Track actual generation count (regardless of whether they're successfully added)
                 n_generated = len(synthetic_images)
                 
-                # Determine target structure ONCE (before loop)
+                # For classification: get boundaries from a real image
+                boundaries = []
+                class_name = "Class_0"
                 if is_classification_mode:
-                    # For classification: Get Custom_Class structure from a real image
                     if num_classes_str is None:
                         raise ValueError(f"num_classes_str is None for classification mode")
                     
-                    sample_features = None
                     for img_data in images_data[:5]:
                         try:
                             feats = json.loads(img_data.get('features_data', '{}'))
                             if "Custom_Class" in feats and num_classes_str in feats.get("Custom_Class", {}):
                                 sample_features = feats["Custom_Class"][num_classes_str]
+                                if 'boundaries' in sample_features:
+                                    boundaries = sample_features['boundaries']
+                                    class_name = f"Class_0 [{boundaries[0]}-{boundaries[1]}]" if len(boundaries) > 1 else "Class_0"
                                 break
                         except:
                             continue
-                    
-                    # Build boundaries
-                    if sample_features and 'boundaries' in sample_features:
-                        boundaries = sample_features['boundaries']
-                        class_name = f"Class_0 [{boundaries[0]}-{boundaries[1]}]" if len(boundaries) > 1 else "Class_0"
-                    else:
-                        boundaries = []
-                        class_name = "Class_0"
-                    
-                    logger.info(f"Target: Class 0 (bad quality), Name: {class_name}")
-                else:
-                    # For regression
-                    logger.info(f"Target: Score 0.0 (bad quality)")
                 
-                # Add to images_data with error handling per image
+                # Track score distribution for metadata
+                score_distribution = {}
+                
+                # Add to images_data
                 for idx, synth in enumerate(synthetic_images):
                     try:
+                        actual_score = synth['target_score']
+                        batch_score = synth['batch_score']
+                        
+                        # Track distribution
+                        score_distribution[actual_score] = score_distribution.get(actual_score, 0) + 1
+                        
                         # Create features_data based on mode
                         if is_classification_mode:
                             if num_classes_str is None:
                                 raise ValueError(f"num_classes_str is None for classification mode")
                             
+                            # Determine class label based on actual score and boundaries
+                            # For now, use class 0 for low scores
+                            class_label = 0
+                            if boundaries and len(boundaries) > 1:
+                                for i in range(len(boundaries) - 1):
+                                    if boundaries[i] <= actual_score < boundaries[i + 1]:
+                                        class_label = i
+                                        break
+                            
                             features_dict = {
                                 "Custom_Class": {
                                     num_classes_str: {
-                                        "label": 0,
-                                        "name_custom": "Synthetic Bad",
-                                        "name_generic": class_name,
+                                        "label": class_label,
+                                        "name_custom": f"Synthetic_Score_{actual_score}",
+                                        "name_generic": f"Class_{class_label}",
                                         "boundaries": boundaries
                                     }
                                 }
                             }
                         else:
-                            features_dict = {target_feature: 0.0}
+                            # Regression: use actual score
+                            features_dict = {target_feature: float(actual_score)}
                         
                         images_data.append({
-                            'id': f'synthetic_bad_{idx}',
-                            'patient_id': f'SYNTHETIC_BAD_L{synth["complexity_level"]}',
+                            'id': f'synthetic_score_{idx}',
+                            'patient_id': f'SYNTH_S{actual_score}_B{batch_score}',
                             'processed_image_data': synth['image_data'],
                             'features_data': json.dumps(features_dict)
                         })
@@ -562,65 +574,50 @@ class TrainingDataLoader:
                         
                     except Exception as img_error:
                         logger.warning(f"Failed to add synthetic image {idx}: {img_error}")
-                        # Continue with next image
                         continue
                 
-                # Update synthetic info based on ACTUAL success count
+                # Update synthetic info
                 if n_added_successfully > 0:
                     synthetic_info = {
                         'enabled': True,
                         'n_samples': synthetic_n_samples,
-                        'n_generated': len(synthetic_images),
+                        'n_generated': n_generated,
                         'n_added': n_added_successfully,
-                        'complexity_levels': 5,
-                        'score_threshold': 20.0
+                        'score_distribution': score_distribution,
+                        'strategy': 'score_based'
                     }
                     
-                    logger.info(f"Added {n_added_successfully}/{len(synthetic_images)} synthetic bad images")
+                    logger.info(f"Added {n_added_successfully}/{n_generated} synthetic images")
+                    logger.info(f"Score distribution: {sorted(score_distribution.items())}")
                     logger.info(f"Total images: {len(images_data)} (original + synthetic)")
                 else:
                     logger.warning("No synthetic images were added successfully")
+                
+                logger.info("="*60)
             
             except Exception as e:
-                # Rollback: Remove any partially added synthetic images
-                # Store count before resetting for finally block
                 n_before_rollback = n_added_successfully
                 if n_added_successfully > 0:
                     logger.warning(f"Rolling back {n_added_successfully} partially added synthetic images...")
                     images_data = images_data[:original_images_count]
                     n_added_successfully = 0
                 
-                import traceback
                 logger.error(f"Could not generate synthetic images: {e}", exc_info=True)
                 logger.info("Continuing without synthetic images...")
             
             finally:
-                # Always update synthetic_info to reflect actual state
-                # Use n_added_successfully if > 0 (successful path), otherwise check if we had partial success
                 if n_added_successfully > 0:
-                    # If n_added_successfully > 0, synthetic_info['enabled'] was already set to True at line 520
-                    # The previous condition 'if not synthetic_info.get('enabled')' was dead code because:
-                    # - If n_added_successfully > 0 here, line 520 must have executed (setting enabled = True)
-                    # - If an exception occurred before line 520, n_added_successfully would be reset to 0 in except block
-                    # Just ensure n_generated is up to date (in case it differs from len(synthetic_images))
                     synthetic_info['n_generated'] = n_generated
                 elif n_before_rollback > 0:
-                    # Exception occurred but we had partial success before rollback
-                    # Ensure synthetic_info reflects that synthetic images were attempted but rolled back
-                    if synthetic_info.get('enabled'):
-                        synthetic_info['partial'] = True
-                        synthetic_info['n_added'] = 0  # All were rolled back
-                    else:
-                        # Update synthetic_info to reflect generation attempt (even if rolled back)
-                        synthetic_info = {
-                            'enabled': True,
-                            'n_samples': synthetic_n_samples,
-                            'n_generated': n_generated,  # Use actual generation count
-                            'n_added': 0,  # All were rolled back
-                            'complexity_levels': 5,
-                            'score_threshold': 20.0,
-                            'partial': True  # Flag to indicate rollback occurred
-                        }
+                    synthetic_info = {
+                        'enabled': True,
+                        'n_samples': synthetic_n_samples,
+                        'n_generated': n_generated,
+                        'n_added': 0,
+                        'score_distribution': {},
+                        'strategy': 'score_based',
+                        'partial': True
+                    }
         
         # Create train/val split
         y_values = []
