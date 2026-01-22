@@ -486,6 +486,11 @@ async def predict_single_image(
     """
     Predict score/class for a single uploaded image using a trained model.
     
+    PREPROCESSING ALIGNMENT (2026-01-20):
+    - Uses shared preprocessing module to match training pipeline
+    - Applies pre-shrink if model was trained with augmentation that used pre-shrink
+    - Reads pre-shrink config from model metadata
+    
     Returns:
         - For regression: predicted score
         - For classification: predicted class and probabilities with custom names
@@ -498,6 +503,10 @@ async def predict_single_image(
     
     from ai_training.trainer import CNNTrainer
     from ai_training.model import DrawingClassifier
+    from ai_training.preprocessing import (
+        preprocess_bytes_for_prediction,
+        get_preprocessing_config_from_metadata
+    )
     
     try:
         model_path = Path("/app/data/models") / model_filename
@@ -512,6 +521,7 @@ async def predict_single_image(
         class_names = {}
         class_boundaries = []
         target_feature = "Total_Score"
+        metadata = {}  # Store full metadata for preprocessing config
         
         if metadata_path.exists():
             with open(metadata_path, 'r') as f:
@@ -546,33 +556,23 @@ async def predict_single_image(
                     except:
                         continue
         
-        # Load and preprocess image
+        # Load and preprocess image using shared preprocessing pipeline
+        # This ensures consistency with training: resize, binarize, line normalize, pre-shrink
         image_bytes = await file.read()
-        pil_img = Image.open(io.BytesIO(image_bytes))
         
-        # Convert to RGB first (needed for line normalization)
-        if pil_img.mode != 'RGB':
-            if pil_img.mode == 'RGBA':
-                background = Image.new('RGB', pil_img.size, (255, 255, 255))
-                background.paste(pil_img, mask=pil_img.split()[3])
-                pil_img = background
-            else:
-                pil_img = pil_img.convert('RGB')
+        # Get preprocessing config from model metadata
+        preproc_config = get_preprocessing_config_from_metadata(metadata)
+        logger.info(f"Prediction preprocessing: pre_shrink_enabled={preproc_config['pre_shrink_enabled']}, "
+                   f"factor={preproc_config['pre_shrink_factor']}")
         
-        # Resize to expected dimensions (568x274)
-        pil_img = pil_img.resize((568, 274), Image.Resampling.LANCZOS)
-        
-        # CRITICAL: Normalize line thickness to 2.00px (same as training data)
-        # This ensures consistency with how training images were processed
-        from line_normalizer import normalize_line_thickness
-        img_array_rgb = np.array(pil_img)
-        img_array_rgb = normalize_line_thickness(img_array_rgb, target_thickness=2.0)
-        
-        # Convert to grayscale after normalization
-        pil_img = Image.fromarray(img_array_rgb).convert('L')
+        # Apply full preprocessing pipeline (matches training)
+        img_array = preprocess_bytes_for_prediction(
+            image_bytes,
+            metadata=metadata,
+            debug=False
+        )
         
         # Convert to tensor
-        img_array = np.array(pil_img, dtype=np.float32) / 255.0
         img_tensor = torch.from_numpy(img_array).unsqueeze(0).unsqueeze(0)  # [1, 1, H, W]
         
         # Load model

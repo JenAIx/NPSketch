@@ -158,6 +158,78 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [1.1.8] - 2026-01-20
+
+### Fixed - Training Pipeline Preprocessing Consistency
+
+**Problem:** Non-augmented training path had incomplete preprocessing after pre-shrink, causing train-serve mismatch
+
+**Impact:** 
+- Images processed with pre-shrink had anti-aliased (gray) pixels instead of binary
+- Line thickness not re-normalized after shrink
+- Inconsistent preprocessing between augmented and non-augmented training paths
+- Potential model performance degradation
+
+**Solution:** Complete preprocessing pipeline alignment for all training paths
+
+#### Bug Fixes
+
+**1. Non-Augmented Path Missing Post-Shrink Processing**
+- **Location:** `dataset.py::DrawingDataset.__getitem__()`
+- **Before:** Pre-shrink applied, but no re-binarization or line normalization
+- **After:** Full pipeline: pre-shrink → binarize (threshold 175) → line normalize (2px)
+- **Impact:** Non-augmented models now get same preprocessing as augmented models
+
+**2. Code Consolidation - Removed Duplicate Implementations**
+- `_apply_pre_shrink()` was implemented 3 times (dataset.py, data_augmentation.py, preprocessing.py)
+- Now uses single shared implementation from `preprocessing.py`
+- `dataset.py`: Removed local method, imports from preprocessing.py
+- `data_augmentation.py`: Wrapper method now calls shared implementation
+- **Benefit:** Single source of truth, easier maintenance, guaranteed consistency
+
+#### Changes
+
+- `dataset.py`: 
+  - Import `apply_pre_shrink` from preprocessing.py
+  - Added constants `BINARIZATION_THRESHOLD` (175) and `LINE_THICKNESS` (2.0)
+  - Rewrote `__getitem__()` with full preprocessing pipeline
+  - Removed duplicate `_apply_pre_shrink()` method
+
+- `data_augmentation.py`:
+  - Import shared `apply_pre_shrink` as `_shared_apply_pre_shrink`
+  - Simplified `_apply_pre_shrink()` to use shared implementation
+
+- `training_config.yaml`:
+  - Removed unused config: `num_workers`, `pin_memory`, `prefetch_factor`
+  - Added note explaining DataLoader workers hardcoded to 0 (Docker compatibility)
+
+#### Preprocessing Pipeline (All Paths)
+
+```
+Database Image (568×274, binary, 2px lines)
+       ↓
+Pre-shrink (0.90 factor, ~28px margins)
+       ↓
+Re-binarize (threshold 175) ← NEW for non-augmented
+       ↓
+Re-normalize lines (2px) ← NEW for non-augmented
+       ↓
+Convert to grayscale
+       ↓
+Normalize to [0,1] float32
+       ↓
+Model Input
+```
+
+#### Verification
+
+- All preprocessing produces binary images (only 2 unique values: 0 and 1)
+- Margins created correctly (~28px for 0.90 factor)
+- Line thickness maintained at 2px
+- No anti-aliased gray pixels after pipeline
+
+---
+
 ## [1.1.7] - 2026-01-19
 
 ### Added - Training Data Quality Check Workflow
@@ -611,7 +683,7 @@ Restored best model from epoch 20
 
 ---
 
-**Current Version:** 1.1.6  
-**Last Updated:** 2026-01-12  
+**Current Version:** 1.1.8  
+**Last Updated:** 2026-01-20  
 **Status:** Production Ready
 

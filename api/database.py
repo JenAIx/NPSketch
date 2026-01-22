@@ -250,7 +250,7 @@ class TrainingDataImage(Base):
     
     # Metadata
     session_id = Column(String, index=True)
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    uploaded_at = Column(DateTime, default=datetime.utcnow, index=True)  # Index for ORDER BY performance
     
     def __repr__(self):
         return f"<TrainingDataImage(id={self.id}, patient={self.patient_id}, task={self.task_type})>"
@@ -270,6 +270,7 @@ def init_database():
 def _run_migrations():
     """
     Add new columns to existing tables if they don't exist.
+    Also creates indexes for performance.
     """
     from sqlalchemy import text
     
@@ -277,6 +278,12 @@ def _run_migrations():
         # Quality check columns for training_data_images
         ("training_data_images", "quality_check_status", "VARCHAR"),
         ("training_data_images", "quality_check_date", "DATETIME"),
+    ]
+    
+    # Indexes to create for performance
+    indexes = [
+        # Index on uploaded_at for ORDER BY optimization (critical for large datasets)
+        ("ix_training_data_images_uploaded_at", "training_data_images", "uploaded_at"),
     ]
     
     with engine.connect() as conn:
@@ -292,6 +299,16 @@ def _run_migrations():
                     print(f"✓ Added column {column} to {table}")
                 except Exception as e:
                     print(f"Warning: Could not add column {column} to {table}: {e}")
+        
+        # Create indexes
+        for index_name, table, column in indexes:
+            try:
+                conn.execute(text(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table} ({column})"))
+                conn.commit()
+                print(f"✓ Created index {index_name}")
+            except Exception as e:
+                # Index may already exist or other error
+                pass
 
 
 def get_db():

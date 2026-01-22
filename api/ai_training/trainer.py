@@ -20,47 +20,9 @@ from .model import DrawingClassifier
 from .dataset import create_dataloaders, create_augmented_dataloaders
 from .warmup_scheduler import WarmupScheduler
 from utils.logger import get_logger
+from config import get_config
 
 logger = get_logger(__name__)
-
-
-class WarmupScheduler:
-    """Learning rate warmup scheduler with linear warmup."""
-    
-    def __init__(self, optimizer, warmup_epochs: int, base_lr: float, warmup_start_lr: float = 0.0):
-        """
-        Initialize warmup scheduler.
-        
-        Args:
-            optimizer: PyTorch optimizer
-            warmup_epochs: Number of epochs for warmup
-            base_lr: Target learning rate after warmup
-            warmup_start_lr: Starting learning rate (default: 0.0)
-        """
-        self.optimizer = optimizer
-        self.warmup_epochs = warmup_epochs
-        self.base_lr = base_lr
-        self.warmup_start_lr = warmup_start_lr
-        self.current_epoch = 0
-    
-    def step(self, epoch: int):
-        """Update learning rate based on current epoch."""
-        self.current_epoch = epoch
-        if epoch < self.warmup_epochs:
-            # Linear warmup: gradually increase from warmup_start_lr to base_lr
-            lr = self.warmup_start_lr + (self.base_lr - self.warmup_start_lr) * (epoch + 1) / self.warmup_epochs
-            for param_group in self.optimizer.param_groups:
-                # For differential LR, scale by the original multiplier
-                if 'initial_lr' in param_group:
-                    param_group['lr'] = lr * (param_group['initial_lr'] / self.base_lr)
-                else:
-                    param_group['lr'] = lr
-            return lr
-        return self.base_lr
-    
-    def is_warming_up(self, epoch: int) -> bool:
-        """Check if still in warmup phase."""
-        return epoch < self.warmup_epochs
 
 
 class EarlyStopping:
@@ -222,8 +184,13 @@ class CNNTrainer:
                 self.device = torch.device('mps')
             else:
                 self.device = torch.device('cpu')
-                # Optimize CPU performance on M1
-                torch.set_num_threads(8)  # M1 has 8 performance cores
+                # Configure CPU threads from training config (default to 8)
+                config = get_config()
+                threads = config.get("performance.torch_num_threads", 8)
+                try:
+                    torch.set_num_threads(max(1, int(threads)))
+                except (TypeError, ValueError):
+                    torch.set_num_threads(8)
         else:
             self.device = torch.device(device)
         
@@ -631,7 +598,8 @@ class CNNTrainer:
             metrics = self.train_epoch(
                 train_loader,
                 val_loader,
-                callback=lambda batch, loss: callback(epoch, batch, loss) if callback else None
+                callback=lambda batch, loss: callback(epoch, batch, loss) if callback else None,
+                epoch=epoch
             )
             
             # Store history (learning_rate managed by caller to avoid duplication)

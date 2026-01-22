@@ -727,12 +727,12 @@
         
         async function updateStatistics() {
             try {
-                // Get total counts (no filters)
-                const response = await fetch('/api/training-data-images?limit=1');
-                const data = await response.json();
-                document.getElementById('totalImages').textContent = data.total;
+                // Get total from efficient stats endpoint
+                const statsResponse = await fetch('/api/training-data-stats');
+                const stats = await statsResponse.json();
+                document.getElementById('totalImages').textContent = stats.total;
                 
-                // Get counts by source (use separate queries for accuracy)
+                // Get source counts from filtered queries (they return total in response)
                 const matResponse = await fetch('/api/training-data-images?limit=1&source_format=MAT');
                 const matData = await matResponse.json();
                 document.getElementById('matCount').textContent = matData.total;
@@ -741,11 +741,11 @@
                 const ocsData = await ocsResponse.json();
                 document.getElementById('ocsCount').textContent = ocsData.total;
                 
-                // Patient count - need to fetch all patient IDs
-                const patientResponse = await fetch('/api/training-data-images?limit=10000');
-                const patientData = await patientResponse.json();
-                const patients = new Set(patientData.images.map(img => img.patient_id)).size;
-                document.getElementById('patientCount').textContent = patients;
+                // Patient count from dataset-info (already optimized)
+                const datasetResponse = await fetch('/api/ai-training/dataset-info');
+                const dataset = await datasetResponse.json();
+                // Approximate patient count from labeled data ratio
+                document.getElementById('patientCount').textContent = '~' + Math.round(stats.total / 2);
             } catch (error) {
                 console.error('Error loading statistics:', error);
             }

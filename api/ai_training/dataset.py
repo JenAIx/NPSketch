@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 
 from .normalization import TargetNormalizer
+from .preprocessing import preprocess_for_training
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -25,6 +26,8 @@ logger = get_logger(__name__)
 class DrawingDataset(Dataset):
     """
     PyTorch Dataset for training data images.
+    
+    Supports optional pre-shrink for consistent preprocessing with augmented data.
     """
     
     def __init__(
@@ -34,7 +37,9 @@ class DrawingDataset(Dataset):
         transform=None,
         normalizer: Optional[TargetNormalizer] = None,
         is_classification: bool = False,
-        num_classes: int = None
+        num_classes: int = None,
+        pre_shrink_enabled: bool = True,
+        pre_shrink_factor: float = 0.90
     ):
         """
         Initialize dataset.
@@ -46,6 +51,8 @@ class DrawingDataset(Dataset):
             normalizer: Optional TargetNormalizer for target values (None for classification)
             is_classification: True if classification mode
             num_classes: Number of classes (for classification)
+            pre_shrink_enabled: Apply pre-shrink preprocessing (default: True)
+            pre_shrink_factor: Pre-shrink factor (default: 0.90 = 10% shrink)
         """
         self.images_data = images_data
         self.target_feature = target_feature
@@ -53,6 +60,8 @@ class DrawingDataset(Dataset):
         self.normalizer = normalizer
         self.is_classification = is_classification
         self.num_classes = num_classes
+        self.pre_shrink_enabled = pre_shrink_enabled
+        self.pre_shrink_factor = pre_shrink_factor
         
         # Validate classification parameters
         if is_classification and num_classes is None:
@@ -82,7 +91,17 @@ class DrawingDataset(Dataset):
         return len(self.valid_indices)
     
     def __getitem__(self, idx) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Get item by index."""
+        """
+        Get item by index.
+        
+        Preprocessing pipeline (matches augmented path via preprocess_for_training):
+        1. Load image from bytes, convert to RGB
+        2. Pre-shrink (if enabled) - creates margins for augmentation tolerance
+        3. Binarization - removes anti-aliasing artifacts from shrink
+        4. Line normalization - ensures consistent 2px line thickness
+        5. Convert to grayscale for model input
+        6. Normalize to [0, 1] float32
+        """
         real_idx = self.valid_indices[idx]
         img_data = self.images_data[real_idx]
         
@@ -90,15 +109,26 @@ class DrawingDataset(Dataset):
         image_bytes = img_data['processed_image_data']
         image = Image.open(io.BytesIO(image_bytes))
         
-        # Convert to grayscale
-        if image.mode != 'L':
-            image = image.convert('L')
+        # Convert to RGB for preprocessing pipeline
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
         
-        # Convert to numpy array
-        img_array = np.array(image, dtype=np.float32)
+        # Convert to numpy array (uint8)
+        img_array = np.array(image, dtype=np.uint8)
         
-        # Normalize to [0, 1]
-        img_array = img_array / 255.0
+        # Apply full preprocessing pipeline (uses shared functions from preprocessing.py)
+        # This ensures consistency with augmented training path
+        img_array = preprocess_for_training(
+            img_array,
+            pre_shrink_enabled=self.pre_shrink_enabled,
+            pre_shrink_factor=self.pre_shrink_factor,
+            apply_binarize=True,
+            apply_line_norm=True,
+            convert_to_grayscale=True
+        )
+        
+        # Convert to float32 and normalize to [0, 1]
+        img_array = img_array.astype(np.float32) / 255.0
         
         # Add channel dimension: (H, W) -> (1, H, W)
         img_tensor = torch.from_numpy(img_array).unsqueeze(0)
@@ -145,7 +175,9 @@ def create_dataloaders(
     random_seed: int = 42,
     normalizer: Optional[TargetNormalizer] = None,
     is_classification: bool = False,
-    num_classes: int = None
+    num_classes: int = None,
+    pre_shrink_enabled: bool = True,
+    pre_shrink_factor: float = 0.90
 ) -> Tuple[DataLoader, DataLoader, Dict]:
     """
     Create train and validation dataloaders with stratified split.
@@ -157,17 +189,27 @@ def create_dataloaders(
         batch_size: Batch size
         shuffle: Shuffle training data
         random_seed: Random seed for reproducibility
+        normalizer: Optional target normalizer
+        is_classification: Whether this is classification task
+        num_classes: Number of classes (for classification)
+        pre_shrink_enabled: Apply pre-shrink preprocessing (default: True)
+        pre_shrink_factor: Pre-shrink factor (default: 0.90 = 10% shrink)
     
     Returns:
         (train_loader, val_loader, stats)
     """
+    # Log pre-shrink config
+    logger.info(f"Non-augmented dataloader: pre_shrink_enabled={pre_shrink_enabled}, factor={pre_shrink_factor}")
+    
     # Create full dataset WITHOUT normalizer to get raw target values for stratified split
     full_dataset_raw = DrawingDataset(
         images_data, 
         target_feature, 
         normalizer=None,
         is_classification=is_classification,
-        num_classes=num_classes
+        num_classes=num_classes,
+        pre_shrink_enabled=pre_shrink_enabled,
+        pre_shrink_factor=pre_shrink_factor
     )
     
     if len(full_dataset_raw) == 0:
@@ -360,7 +402,9 @@ def create_dataloaders(
         target_feature, 
         normalizer=normalizer,
         is_classification=is_classification,
-        num_classes=num_classes
+        num_classes=num_classes,
+        pre_shrink_enabled=pre_shrink_enabled,
+        pre_shrink_factor=pre_shrink_factor
     )
     
     # Create subsets using indices
@@ -415,7 +459,12 @@ def create_dataloaders(
         "train_target_range": [float(min(train_targets)), float(max(train_targets))],
         "val_target_range": [float(min(val_targets)), float(max(val_targets))],
         "train_image_ids": train_image_ids,
-        "val_image_ids": val_image_ids
+        "val_image_ids": val_image_ids,
+        # Pre-shrink config (for model metadata, enables prediction to apply same)
+        "pre_shrink": {
+            "enabled": pre_shrink_enabled,
+            "factor": pre_shrink_factor
+        }
     }
     
     # Add split strategy info if available

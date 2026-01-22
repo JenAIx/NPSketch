@@ -1137,10 +1137,10 @@
         // Load test images with virtual scrolling
         async function loadTestImages() {
             try {
-                const response = await fetch('/api/training-data-images?limit=10000');
+                // Fetch only DRAWN images - use reasonable limit (API returns total count)
+                const response = await fetch('/api/training-data-images?limit=1000&source_format=DRAWN');
                 const data = await response.json();
-                // Filter for only DRAWN images
-                allTestImages = data.images.filter(img => img.source_format === 'DRAWN');
+                allTestImages = data.images;
                 
                 // Update counter
                 const counter = document.getElementById('imageCounter');

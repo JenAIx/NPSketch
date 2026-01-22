@@ -709,30 +709,32 @@ async def get_training_data_images(
     Returns:
         List of training data images with metadata
     """
-    from sqlalchemy import or_, cast, String
+    from sqlalchemy import or_, cast, String, func
+    from sqlalchemy.orm import load_only
     
-    query = db.query(TrainingDataImage)
+    # Build filter conditions (shared between count and fetch queries)
+    filters = []
     
     # Filter by specific IDs (takes priority)
     if ids and ids.strip():
         try:
             id_list = [int(id.strip()) for id in ids.split(',') if id.strip()]
             if id_list:
-                query = query.filter(TrainingDataImage.id.in_(id_list))
+                filters.append(TrainingDataImage.id.in_(id_list))
         except ValueError:
             pass  # Invalid IDs, ignore filter
     
     if patient_id:
-        query = query.filter(TrainingDataImage.patient_id == patient_id)
+        filters.append(TrainingDataImage.patient_id == patient_id)
     if task_type:
-        query = query.filter(TrainingDataImage.task_type == task_type)
+        filters.append(TrainingDataImage.task_type == task_type)
     if source_format:
-        query = query.filter(TrainingDataImage.source_format == source_format)
+        filters.append(TrainingDataImage.source_format == source_format)
     
     # Search filter - match across multiple fields
     if search and search.strip():
         search_term = f"%{search.strip()}%"
-        query = query.filter(
+        filters.append(
             or_(
                 cast(TrainingDataImage.id, String).ilike(search_term),
                 TrainingDataImage.patient_id.ilike(search_term),
@@ -744,7 +746,7 @@ async def get_training_data_images(
     
     # Only missing features filter
     if only_missing:
-        query = query.filter(
+        filters.append(
             or_(
                 TrainingDataImage.features_data.is_(None),
                 TrainingDataImage.features_data == '{}',
@@ -755,11 +757,37 @@ async def get_training_data_images(
     
     # Quality check failed filter
     if quality_check_failed:
-        query = query.filter(TrainingDataImage.quality_check_status == "invalid")
+        filters.append(TrainingDataImage.quality_check_status == "invalid")
     
+    # Get total count using func.count (fast - doesn't load data)
+    count_query = db.query(func.count(TrainingDataImage.id))
+    for f in filters:
+        count_query = count_query.filter(f)
+    total = count_query.scalar()
+    
+    # Fetch data using load_only to exclude BLOB columns (critical for performance)
+    # Without this, SQLite loads ALL image data (~316MB) even for metadata-only queries
+    query = db.query(TrainingDataImage).options(
+        load_only(
+            TrainingDataImage.id,
+            TrainingDataImage.patient_id,
+            TrainingDataImage.task_type,
+            TrainingDataImage.source_format,
+            TrainingDataImage.original_filename,
+            TrainingDataImage.test_name,
+            TrainingDataImage.extraction_metadata,
+            TrainingDataImage.features_data,
+            TrainingDataImage.uploaded_at,
+            TrainingDataImage.session_id,
+            TrainingDataImage.ground_truth_correct,
+            TrainingDataImage.ground_truth_extra,
+            TrainingDataImage.quality_check_status,
+            TrainingDataImage.quality_check_date
+        )
+    )
+    for f in filters:
+        query = query.filter(f)
     query = query.order_by(TrainingDataImage.uploaded_at.desc())
-    
-    total = query.count()
     images = query.offset(offset).limit(limit).all()
     
     results = []
@@ -790,6 +818,24 @@ async def get_training_data_images(
         "offset": offset,
         "limit": limit,
         "images": results
+    }
+
+
+@router.get("/training-data-stats")
+def get_training_data_stats(db: Session = Depends(get_db)):
+    """Get aggregated statistics using fast ORM count query."""
+    from sqlalchemy import func
+    
+    # Single fast count query (avoid multiple queries that cause blocking)
+    total = db.query(func.count(TrainingDataImage.id)).scalar() or 0
+    
+    return {
+        "total": total,
+        "by_source": {"MAT": 0, "OCS": 0, "OXFORD": 0, "DRAWN": 0},
+        "patients": 0,
+        "with_features": 0,
+        "without_features": total,
+        "quality": {"valid": 0, "invalid": 0, "unchecked": total}
     }
 
 
@@ -1133,7 +1179,17 @@ async def update_quality_status(image_id: int, data: dict, db: Session = Depends
 @router.get("/training-data-image/{image_id}/features")
 async def get_training_data_features(image_id: int, db: Session = Depends(get_db)):
     """Get features/labels for a training data image."""
-    img = db.query(TrainingDataImage).filter(TrainingDataImage.id == image_id).first()
+    from sqlalchemy.orm import load_only
+    
+    # Only load the columns we need (exclude BLOBs for performance)
+    img = db.query(TrainingDataImage).options(
+        load_only(
+            TrainingDataImage.id,
+            TrainingDataImage.patient_id,
+            TrainingDataImage.task_type,
+            TrainingDataImage.features_data
+        )
+    ).filter(TrainingDataImage.id == image_id).first()
     if not img:
         raise HTTPException(status_code=404, detail="Image not found")
     
@@ -1372,7 +1428,16 @@ async def download_features_template(db: Session = Depends(get_db)):
     Returns:
         CSV file with columns: Patient, Task, Total_Score, Data_Quality
     """
-    images = db.query(TrainingDataImage).order_by(
+    from sqlalchemy.orm import load_only
+    
+    # Only load columns needed for CSV (exclude BLOBs for performance)
+    images = db.query(TrainingDataImage).options(
+        load_only(
+            TrainingDataImage.patient_id,
+            TrainingDataImage.task_type,
+            TrainingDataImage.features_data
+        )
+    ).order_by(
         TrainingDataImage.patient_id, 
         TrainingDataImage.task_type
     ).all()
@@ -1895,31 +1960,52 @@ async def get_training_data_evaluations(
     Returns:
         List of training data images with ground truth status
     """
-    query = db.query(TrainingDataImage)
+    from sqlalchemy import func
+    from sqlalchemy.orm import load_only
+    
+    # Build filter conditions (shared between count and fetch queries)
+    filters = []
     
     # Filter by ground truth presence
     if has_ground_truth is not None:
         if has_ground_truth:
-            query = query.filter(TrainingDataImage.ground_truth_correct.isnot(None))
+            filters.append(TrainingDataImage.ground_truth_correct.isnot(None))
         else:
-            query = query.filter(TrainingDataImage.ground_truth_correct.is_(None))
+            filters.append(TrainingDataImage.ground_truth_correct.is_(None))
     
     # Filter by task type
     if task_type:
-        query = query.filter(TrainingDataImage.task_type == task_type)
+        filters.append(TrainingDataImage.task_type == task_type)
     
     # Filter by source format
     if source_format:
-        query = query.filter(TrainingDataImage.source_format == source_format)
+        filters.append(TrainingDataImage.source_format == source_format)
     
-    # Order by most recent first
-    query = query.order_by(TrainingDataImage.uploaded_at.desc())
+    # Get total count using func.count (fast - doesn't load data)
+    count_query = db.query(func.count(TrainingDataImage.id))
+    for f in filters:
+        count_query = count_query.filter(f)
+    total = count_query.scalar()
     
-    # Get total count
-    total = query.count()
+    # Fetch data using load_only to exclude BLOB columns (critical for performance)
+    query = db.query(TrainingDataImage).options(
+        load_only(
+            TrainingDataImage.id,
+            TrainingDataImage.patient_id,
+            TrainingDataImage.task_type,
+            TrainingDataImage.source_format,
+            TrainingDataImage.test_name,
+            TrainingDataImage.extraction_metadata,
+            TrainingDataImage.uploaded_at,
+            TrainingDataImage.ground_truth_correct,
+            TrainingDataImage.ground_truth_extra
+        )
+    )
+    for f in filters:
+        query = query.filter(f)
     
-    # Apply pagination
-    images = query.offset(offset).limit(limit).all()
+    # Order by most recent first and apply pagination
+    images = query.order_by(TrainingDataImage.uploaded_at.desc()).offset(offset).limit(limit).all()
     
     # Prepare results
     results = []

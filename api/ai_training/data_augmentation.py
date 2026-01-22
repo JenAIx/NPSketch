@@ -30,6 +30,13 @@ import shutil
 from pathlib import Path
 from utils.logger import get_logger
 
+# Import shared preprocessing functions
+from .preprocessing import (
+    apply_pre_shrink as _shared_apply_pre_shrink,
+    apply_binarization,
+    apply_line_normalization
+)
+
 logger = get_logger(__name__)
 
 # Import SSIM for similarity checking
@@ -195,13 +202,9 @@ def apply_local_warp(
     if len(warped.shape) == 2:
         warped = cv2.cvtColor(warped, cv2.COLOR_GRAY2RGB)
     
-    # Re-binarize and normalize line thickness
-    gray = cv2.cvtColor(warped, cv2.COLOR_RGB2GRAY)
-    _, binary = cv2.threshold(gray, 175, 255, cv2.THRESH_BINARY)
-    warped = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
-    
-    from line_normalizer import normalize_line_thickness
-    warped = normalize_line_thickness(warped, target_thickness=2.0)
+    # Re-binarize and normalize line thickness using shared functions
+    warped = apply_binarization(warped)
+    warped = apply_line_normalization(warped)
     
     return warped
 
@@ -374,27 +377,21 @@ class ImageAugmentor:
         )
         
         # Re-binarize to ensure consistent binary images (no grayscale from interpolation)
-        # Use threshold 175: optimal balance between line preservation and anti-fragmentation
-        if len(augmented.shape) == 3:
-            # RGB image: convert to grayscale, binarize, convert back to RGB
-            gray = cv2.cvtColor(augmented, cv2.COLOR_RGB2GRAY)
-            _, binary = cv2.threshold(gray, 175, 255, cv2.THRESH_BINARY)
-            augmented = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
-        else:
-            # Grayscale image: binarize directly
-            _, augmented = cv2.threshold(augmented, 175, 255, cv2.THRESH_BINARY)
+        # Ensure RGB format first (apply_binarization handles the conversion internally)
+        if len(augmented.shape) == 2:
+            augmented = cv2.cvtColor(augmented, cv2.COLOR_GRAY2RGB)
         
-        # Re-normalize line thickness after augmentation to ensure consistent 2px lines
-        # This is CRITICAL: Augmentation changes line thickness through interpolation
-        # Skeleton + Dilation brings it back to consistent 2px
-        from line_normalizer import normalize_line_thickness
-        augmented = normalize_line_thickness(augmented, target_thickness=2.0)
+        # Use shared functions for consistency across all preprocessing paths
+        augmented = apply_binarization(augmented)
+        augmented = apply_line_normalization(augmented)
         
         return augmented
     
     def _apply_pre_shrink(self, image: np.ndarray) -> np.ndarray:
         """
         Apply pre-shrink to create margins for translation/rotation.
+        
+        Uses shared implementation from preprocessing.py for consistency.
         
         Args:
             image: Input image (H×W or H×W×3)
@@ -405,25 +402,8 @@ class ImageAugmentor:
         if not self.pre_shrink_enabled or self.pre_shrink_factor >= 1.0:
             return image
         
-        h, w = image.shape[:2]
-        new_h, new_w = int(h * self.pre_shrink_factor), int(w * self.pre_shrink_factor)
-        
-        # Shrink image
-        shrunk = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-        
-        # Create white canvas
-        if len(image.shape) == 3:
-            canvas = np.ones((h, w, image.shape[2]), dtype=np.uint8) * 255
-        else:
-            canvas = np.ones((h, w), dtype=np.uint8) * 255
-        
-        # Center shrunk image on canvas
-        offset_y, offset_x = (h - new_h) // 2, (w - new_w) // 2
-        canvas[offset_y:offset_y+new_h, offset_x:offset_x+new_w] = shrunk
-        
-        logger.debug(f"Pre-shrink: {w}×{h} → {new_w}×{new_h}, margins: ~{offset_x}px")
-        
-        return canvas
+        # Use shared implementation for consistency across all paths
+        return _shared_apply_pre_shrink(image, factor=self.pre_shrink_factor)
     
     def _calculate_similarity(self, img1_gray: np.ndarray, img2_gray: np.ndarray) -> float:
         """
@@ -1145,7 +1125,12 @@ class AugmentedDatasetBuilder:
                 'rotation_range': self.augmentor.rotation_range,
                 'translation_range': self.augmentor.translation_range,
                 'scale_range': self.augmentor.scale_range,
-                'num_augmentations': self.augmentor.num_augmentations
+                'num_augmentations': self.augmentor.num_augmentations,
+                # Pre-shrink config (critical for prediction alignment)
+                'pre_shrink': {
+                    'enabled': self.augmentor.pre_shrink_enabled,
+                    'factor': self.augmentor.pre_shrink_factor
+                }
             },
             'include_original': self.include_original,
             'statistics': stats
@@ -1230,26 +1215,16 @@ class AugmentedDatasetBuilder:
                     # This ensures all images in training dataset have same margins
                     original_to_save = self.augmentor._apply_pre_shrink(img_array)
                     
-                    # Apply same post-processing as augmented images
-                    # Re-binarize
-                    if len(original_to_save.shape) == 3:
-                        gray = cv2.cvtColor(original_to_save, cv2.COLOR_RGB2GRAY)
-                        _, binary = cv2.threshold(gray, 175, 255, cv2.THRESH_BINARY)
-                        original_to_save = binary
-                    else:
-                        _, original_to_save = cv2.threshold(original_to_save, 175, 255, cv2.THRESH_BINARY)
-                    
-                    # Re-normalize line thickness
-                    from line_normalizer import normalize_line_thickness
+                    # Apply same post-processing as augmented images using shared functions
+                    # Ensure RGB for consistent processing
                     if len(original_to_save.shape) == 2:
-                        original_to_save_rgb = cv2.cvtColor(original_to_save, cv2.COLOR_GRAY2RGB)
-                    else:
-                        original_to_save_rgb = original_to_save
-                    original_to_save = normalize_line_thickness(original_to_save_rgb, target_thickness=2.0)
+                        original_to_save = cv2.cvtColor(original_to_save, cv2.COLOR_GRAY2RGB)
                     
-                    # Convert back to grayscale for saving
-                    if len(original_to_save.shape) == 3:
-                        original_to_save = cv2.cvtColor(original_to_save, cv2.COLOR_RGB2GRAY)
+                    original_to_save = apply_binarization(original_to_save)
+                    original_to_save = apply_line_normalization(original_to_save)
+                    
+                    # Convert to grayscale for saving (disk-optimized)
+                    original_to_save = cv2.cvtColor(original_to_save, cv2.COLOR_RGB2GRAY)
                     
                     original_path = output_dir / f"{patient_id}_id{img_id}_original.png"
                     cv2.imwrite(str(original_path), original_to_save)

@@ -14,6 +14,7 @@ Version: 1.0
 
 from fastapi import FastAPI, Depends
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import os
 
@@ -39,6 +40,15 @@ app = FastAPI(
     title="NPSketch API",
     description="Automated line detection and comparison for hand-drawn images",
     version="1.0.0"
+)
+
+# Enable CORS for external access (e.g., from mars.biomag.uni-jena.de)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for development/internal use
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Mount static files for visualizations (ensure directory exists)

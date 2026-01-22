@@ -343,6 +343,11 @@ docker logs npsketch-api
   - **Progressive retry**: Increases parameters if augmentation too similar
   - **Pipeline**: Pre-shrink → Transform → Similarity check → Retry if needed → Binarize (175) → Line normalize (2px)
 
+### Upload vs Draw Prediction Differences
+- `draw_testimage.html` sends the raw 568×274 canvas directly to `/api/ai-training/models/predict-single`.
+- `upload.html` runs `/api/normalize-image` first (auto-crop + rescale + center), which can change margins and line scale before prediction.
+- This can lead to slightly different model outputs even when starting from the same drawing.
+
 ### Quality Check Workflow
 - **Purpose**: Flag problematic training images (double drawings, ink outside main figure)
 - **DB Fields**: `quality_check_status` ("valid"/"invalid"/NULL), `quality_check_date`
@@ -526,8 +531,8 @@ logger.debug("Debugging only")
 
 ---
 
-**Last Updated:** 2026-01-07 
+**Last Updated:** 2026-01-20 
 **Container Name:** `npsketch-api` 
 **Working Directory:** `/app` 
-**Version:** 1.1.5
+**Version:** 1.1.8
 

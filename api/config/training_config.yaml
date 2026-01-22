@@ -274,14 +274,11 @@ database:
 
 # Performance & Resources
 performance:
-  # Worker settings
-  num_workers: 0  # DataLoader workers (0 = main thread)
+  # Torch CPU settings (actually used)
+  torch_num_threads: 64  # Number of CPU threads for torch operations
   
-  # Memory settings
-  pin_memory: false
-  
-  # Batch processing
-  prefetch_factor: 2
+  # NOTE: DataLoader num_workers is hardcoded to 0 (no multiprocessing)
+  # This is intentional due to Docker volume mounts and SQLite locking issues
 
 # Validation & Constraints
 validation:

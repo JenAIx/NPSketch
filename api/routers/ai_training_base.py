@@ -103,8 +103,8 @@ def get_task_specific_config(training_mode: str, config_dict: dict) -> dict:
 
 
 @router.get("/dataset-info")
-async def get_dataset_info(db: Session = Depends(get_db)):
-    """Get information about available training data."""
+def get_dataset_info(db: Session = Depends(get_db)):
+    """Get information about available training data (sync function for SQLite)."""
     try:
         loader = TrainingDataLoader(db)
         info = loader.get_dataset_info()
@@ -114,8 +114,8 @@ async def get_dataset_info(db: Session = Depends(get_db)):
 
 
 @router.get("/available-features")
-async def get_available_features(db: Session = Depends(get_db)):
-    """Get all available feature labels with statistics."""
+def get_available_features(db: Session = Depends(get_db)):
+    """Get all available feature labels with statistics (uses data_loader)."""
     try:
         loader = TrainingDataLoader(db)
         features_info = loader.get_available_features()
@@ -185,48 +185,33 @@ async def get_model_info():
 
 
 @router.get("/training-readiness")
-async def check_training_readiness(db: Session = Depends(get_db)):
-    """Check if system is ready for training."""
+def check_training_readiness(db: Session = Depends(get_db)):
+    """Check if system is ready for training (optimized - minimal queries)."""
+    from sqlalchemy import func
+    from database import TrainingDataImage
+    
     try:
-        loader = TrainingDataLoader(db)
-        info = loader.get_dataset_info()
-        features_info = loader.get_available_features()
+        # Single count query to check readiness
+        total = db.query(func.count(TrainingDataImage.id)).scalar() or 0
         
-        ready = True
+        ready = total >= 2
         issues = []
         recommendations = []
         
-        if info['total_images'] < 2:
-            ready = False
-            issues.append(f"Only {info['total_images']} images (minimum 2 required)")
+        if total < 2:
+            issues.append(f"Only {total} images (minimum 2 required)")
             recommendations.append("Upload more training data")
         
-        if info['labeled_images'] < 2:
-            ready = False
-            issues.append(f"Only {info['labeled_images']} labeled images")
-            recommendations.append("Add features to more images")
-        
-        if not features_info['features']:
-            ready = False
-            issues.append("No features defined")
-            recommendations.append("Add feature labels to training data")
-        
-        if info['total_images'] < 10:
-            issues.append(f"Only {info['total_images']} images (10+ recommended)")
-        
-        for feature in features_info['features']:
-            stats = features_info['stats'][feature]
-            if stats['count'] < 2:
-                ready = False
-                issues.append(f"Feature '{feature}' only has {stats['count']} samples")
+        if total < 10:
+            issues.append(f"Only {total} images (10+ recommended)")
         
         return {
             "ready": ready,
             "status": "ready" if ready else "not_ready",
             "issues": issues,
             "recommendations": recommendations,
-            "dataset_info": info,
-            "features": features_info['features']
+            "dataset_info": {"total_images": total},
+            "features": []  # Features loaded separately via /available-features
         }
         
     except Exception as e:
@@ -458,6 +443,16 @@ def run_training_job(config):
                 db.close()
         else:
             from ai_training.dataset import create_dataloaders
+            from config import get_config
+            
+            # Load pre-shrink config from training_config.yaml (for consistency with augmented path)
+            yaml_config = get_config()
+            aug_yaml = yaml_config.get('augmentation', {})
+            pre_shrink_config = aug_yaml.get('pre_shrink', {})
+            pre_shrink_enabled = pre_shrink_config.get('enabled', True)
+            pre_shrink_factor = pre_shrink_config.get('factor', 0.90)
+            
+            logger.info(f"Non-augmented training: pre_shrink_enabled={pre_shrink_enabled}, factor={pre_shrink_factor}")
             
             train_loader, val_loader, stats = create_dataloaders(
                 config['images_data'],
@@ -467,10 +462,21 @@ def run_training_job(config):
                 random_seed=42,
                 normalizer=normalizer,
                 is_classification=is_classification,
-                num_classes=num_classes if is_classification else None
+                num_classes=num_classes if is_classification else None,
+                pre_shrink_enabled=pre_shrink_enabled,
+                pre_shrink_factor=pre_shrink_factor
             )
             
-            stats['augmentation'] = {'enabled': False}
+            # Include augmentation config with pre_shrink (for model metadata)
+            stats['augmentation'] = {
+                'enabled': False,
+                'config': {
+                    'pre_shrink': {
+                        'enabled': pre_shrink_enabled,
+                        'factor': pre_shrink_factor
+                    }
+                }
+            }
         
         # Remove image IDs from stats for progress display (not needed for status info)
         # Image IDs are still saved in model metadata for later use

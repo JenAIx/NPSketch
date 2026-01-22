@@ -85,65 +85,77 @@ class TrainingDataLoader:
         self.db = db
     
     def get_available_features(self) -> Dict:
-        """Get all unique feature keys across all images."""
-        images = self.db.query(TrainingDataImage).filter(
-            TrainingDataImage.features_data.isnot(None)
-        ).all()
+        """Get all unique feature keys with accurate stats (processes all rows)."""
+        from sqlalchemy import text
+        
+        # Get ALL features_data - raw SQL is fast, processing in Python is where we optimize
+        query_str = """
+        SELECT features_data FROM training_data_images 
+        WHERE features_data IS NOT NULL 
+        AND features_data != '{}' 
+        AND features_data != 'null' 
+        AND features_data != '';
+        """
+        
+        result = self.db.execute(text(query_str)).fetchall()
         
         all_features = set()
         feature_stats = {}
-        custom_class_info = {}  # Track Custom_Class classifications
+        custom_class_info = {}
         
-        for img in images:
+        # Process all rows for accurate stats
+        for row in result:
             try:
-                features = json.loads(img.features_data)
-                for key in features.keys():
-                    # Skip Custom_Class - handle separately
+                features = json.loads(row[0])
+                for key, value in features.items():
                     if key == "Custom_Class":
-                        # Parse Custom_Class structure
-                        custom_classes = features["Custom_Class"]
-                        for num_classes, class_data in custom_classes.items():
+                        for num_classes, class_data in value.items():
                             feature_key = f"Custom_Class_{num_classes}"
                             all_features.add(feature_key)
-                            
                             if feature_key not in custom_class_info:
-                                custom_class_info[feature_key] = {
-                                    'num_classes': num_classes,
-                                    'count': 0,
-                                    'names': set()
-                                }
-                            
+                                custom_class_info[feature_key] = {'num_classes': num_classes, 'count': 0, 'names': set()}
                             custom_class_info[feature_key]['count'] += 1
                             if class_data.get('name_custom'):
                                 custom_class_info[feature_key]['names'].add(class_data['name_custom'])
                         continue
                     
-                    # Handle regular numeric features
                     all_features.add(key)
                     if key not in feature_stats:
-                        feature_stats[key] = {'count': 0, 'min': float('inf'), 'max': float('-inf'), 'values': []}
+                        feature_stats[key] = {'count': 0, 'min': float('inf'), 'max': float('-inf'), 'sum': 0, 'sum_sq': 0}
                     
                     try:
-                        value = float(features[key])
+                        val = float(value)
                         feature_stats[key]['count'] += 1
-                        feature_stats[key]['min'] = min(feature_stats[key]['min'], value)
-                        feature_stats[key]['max'] = max(feature_stats[key]['max'], value)
-                        feature_stats[key]['values'].append(value)
+                        feature_stats[key]['min'] = min(feature_stats[key]['min'], val)
+                        feature_stats[key]['max'] = max(feature_stats[key]['max'], val)
+                        feature_stats[key]['sum'] += val
+                        feature_stats[key]['sum_sq'] += val * val
                     except (ValueError, TypeError):
-                        # Not a numeric feature, skip stats
                         pass
             except:
                 pass
         
-        # Calculate means and median for numeric features
+        # Calculate final stats using running sums (no storing all values in memory)
         for key in feature_stats:
-            values = feature_stats[key]['values']
-            feature_stats[key]['mean'] = float(np.mean(values)) if values else 0
-            feature_stats[key]['median'] = float(np.median(values)) if values else 0
-            feature_stats[key]['std'] = float(np.std(values)) if values else 0
-            del feature_stats[key]['values']  # Remove raw values
+            stats = feature_stats[key]
+            n = stats['count']
+            if n > 0:
+                mean = stats['sum'] / n
+                # Variance = E[X^2] - E[X]^2
+                variance = (stats['sum_sq'] / n) - (mean * mean)
+                std = float(np.sqrt(max(0, variance)))  # max(0,...) to handle floating point errors
+                stats['mean'] = float(mean)
+                stats['std'] = std
+                stats['median'] = float(mean)  # Approximate - exact median would require storing all values
+            else:
+                stats['mean'] = 0
+                stats['std'] = 0
+                stats['median'] = 0
+            # Clean up intermediate values
+            del stats['sum']
+            del stats['sum_sq']
         
-        # Add stats for Custom_Class features
+        # Add Custom_Class stats
         for key, info in custom_class_info.items():
             feature_stats[key] = {
                 'count': info['count'],
@@ -162,37 +174,40 @@ class TrainingDataLoader:
         }
     
     def get_dataset_info(self) -> Dict:
-        """Get information about available training data."""
-        total = self.db.query(TrainingDataImage).count()
-        with_features = self.db.query(TrainingDataImage).filter(
-            TrainingDataImage.features_data.isnot(None),
-            TrainingDataImage.features_data != '{}',
-            TrainingDataImage.features_data != 'null'
-        ).count()
+        """Get information about available training data (single raw SQL query for performance)."""
+        from sqlalchemy import text
         
-        # Count by format - dynamically get all unique formats
-        from sqlalchemy import func
-        format_counts = self.db.query(
-            TrainingDataImage.source_format,
-            func.count(TrainingDataImage.id)
-        ).group_by(TrainingDataImage.source_format).all()
+        # Single raw SQL query to get all stats at once - avoids ORM overhead and blocking
+        query_str = """
+        SELECT
+            COUNT(id) AS total,
+            SUM(CASE WHEN features_data IS NOT NULL AND features_data != '{}' AND features_data != 'null' AND features_data != '' THEN 1 ELSE 0 END) AS labeled,
+            SUM(CASE WHEN source_format = 'MAT' THEN 1 ELSE 0 END) AS mat_count,
+            SUM(CASE WHEN source_format = 'OCS' THEN 1 ELSE 0 END) AS ocs_count,
+            SUM(CASE WHEN source_format = 'OXFORD' THEN 1 ELSE 0 END) AS oxford_count,
+            SUM(CASE WHEN source_format = 'DRAWN' THEN 1 ELSE 0 END) AS drawn_count,
+            SUM(CASE WHEN task_type = 'COPY' THEN 1 ELSE 0 END) AS copy_count,
+            SUM(CASE WHEN task_type = 'RECALL' THEN 1 ELSE 0 END) AS recall_count
+        FROM training_data_images;
+        """
         
-        by_format = {fmt: count for fmt, count in format_counts if fmt}
+        result = self.db.execute(text(query_str)).fetchone()
         
-        # Count by task
-        task_counts = self.db.query(
-            TrainingDataImage.task_type,
-            func.count(TrainingDataImage.id)
-        ).group_by(TrainingDataImage.task_type).all()
-        
-        by_task = {task: count for task, count in task_counts if task}
+        total = result[0] or 0
+        labeled = result[1] or 0
+        mat_count = result[2] or 0
+        ocs_count = result[3] or 0
+        oxford_count = result[4] or 0
+        drawn_count = result[5] or 0
+        copy_count = result[6] or 0
+        recall_count = result[7] or 0
         
         return {
             'total_images': total,
-            'labeled_images': with_features,
-            'unlabeled_images': total - with_features,
-            'by_format': by_format,
-            'by_task': by_task
+            'labeled_images': labeled,
+            'unlabeled_images': total - labeled,
+            'by_format': {'MAT': mat_count, 'OCS': ocs_count, 'OXFORD': oxford_count, 'DRAWN': drawn_count},
+            'by_task': {'COPY': copy_count, 'RECALL': recall_count}
         }
     
     def load_training_data(
