@@ -12,7 +12,7 @@ Stores original + processed data in database with duplicate detection.
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import os
 import subprocess
 import shutil
@@ -1602,6 +1602,7 @@ async def save_drawn_image(
     name: str = Form(...),
     correct_lines: int = Form(0),
     extra_lines: int = Form(0),
+    total_score: Optional[int] = Form(None),
     source_format: str = Form('DRAWN'),
     task_type: str = Form('DRAWN'),
     db: Session = Depends(get_db)
@@ -1612,6 +1613,9 @@ async def save_drawn_image(
     Ground truth fields:
     - correct_lines: Number of correctly drawn lines (0-11)
     - extra_lines: Number of extra/wrong lines drawn
+
+    Optional features:
+    - total_score: Total_Score clinical feature
     
     Source format: DRAWN (from draw tool), UPLOAD (from upload page), MAT, OCS
     Task type: DRAWN, UPLOAD, undefined, COPY, RECALL
@@ -1722,6 +1726,10 @@ async def save_drawn_image(
         # Get final dimensions
         height, width = normalized_array.shape[:2]
         
+        features_data = None
+        if total_score is not None:
+            features_data = json.dumps({"Total_Score": total_score})
+
         # Create entry
         training_image = TrainingDataImage(
             patient_id=name,  # Use name as patient_id
@@ -1733,6 +1741,7 @@ async def save_drawn_image(
             image_hash=image_hash,
             ground_truth_correct=correct_lines if correct_lines > 0 else None,
             ground_truth_extra=extra_lines if extra_lines > 0 else None,
+            features_data=features_data,
             test_name=name,
             session_id=f'{source_format.lower()}_upload',  # e.g., 'upload_upload' or 'drawn_upload'
             extraction_metadata=json.dumps({

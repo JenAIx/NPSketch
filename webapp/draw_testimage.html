@@ -350,6 +350,16 @@
             font-size: 12px;
             font-weight: bold;
         }
+
+        .status-badge {
+            background: #d4edda;
+            color: #155724;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            display: none;
+        }
         
         .virtual-list-container {
             flex: 1;
@@ -437,16 +447,6 @@
         }
         
         
-        
-        .success-message {
-            background: #d4edda;
-            color: #155724;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            border-left: 4px solid #28a745;
-            display: none;
-        }
         
         /* Mobile Optimizations */
         @media (max-width: 1024px) {
@@ -634,10 +634,6 @@
         <h1>🎨 Draw Test Image</h1>
         <p class="subtitle">Create test images with manual scoring for evaluation testing</p>
         
-        <div class="success-message" id="successMessage">
-            ✓ Test image saved successfully!
-        </div>
-        
         <div class="main-grid">
             <div class="left-column">
                 <div class="canvas-section">
@@ -709,6 +705,16 @@
                                 </span>
                             </div>
                         </div>
+
+                        <div class="form-group">
+                            <label>Feature: Total_Score</label>
+                            <input type="number" id="totalScore" min="0" max="60" step="1" value="" placeholder="e.g., 28">
+                            <div class="lines-help">
+                                <span style="color: #999; font-size: 0.85em;">
+                                    Optional clinical score stored in the features column.
+                                </span>
+                            </div>
+                        </div>
                         
                         <button class="save-btn" id="saveBtn" onclick="saveOrUpdateTestImage()">
                             💾 Save Test Image
@@ -756,6 +762,7 @@
             <div class="test-images-list">
                 <div class="list-header">
                     <div class="list-title">📋 Test Images</div>
+                    <div class="status-badge" id="savedBadge">Saved</div>
                     <div class="image-counter" id="imageCounter">0</div>
                 </div>
                 <div class="virtual-list-container" id="virtualListContainer">
@@ -784,6 +791,7 @@
         let originalCanvasData = null;
         let originalCorrectLines = null;
         let originalExtraLines = null;
+        let originalTotalScore = null;
         let hasChanges = false;
         let hasContent = false;  // Track if canvas has content
         
@@ -811,6 +819,7 @@
         ctx.fillStyle = 'white';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         updateDownloadButton();
+        updateSaveButton();
         
         // Set up line drawing properties
         ctx.lineCap = 'round';
@@ -818,12 +827,32 @@
         
         // Track line changes
         document.getElementById('correctLines').addEventListener('input', () => {
+            updateTotalScoreFromCorrectLines();
             checkForChanges();
         });
         
         document.getElementById('extraLines').addEventListener('input', () => {
             checkForChanges();
         });
+
+        document.getElementById('totalScore').addEventListener('input', () => {
+            checkForChanges();
+        });
+
+        function updateTotalScoreFromCorrectLines() {
+            const correctLinesRaw = document.getElementById('correctLines').value.trim();
+            if (!correctLinesRaw) {
+                document.getElementById('totalScore').value = '';
+                return;
+            }
+
+            const correctLines = parseInt(correctLinesRaw, 10);
+            if (Number.isNaN(correctLines)) {
+                return;
+            }
+
+            document.getElementById('totalScore').value = correctLines * 3;
+        }
         
         // Drawing functions
         canvas.addEventListener('mousedown', startDrawing);
@@ -916,6 +945,7 @@
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             currentRotation = 0;
             hasContent = false;
+            document.getElementById('testName').value = '';
             updateRotationDisplay();
             checkForChanges();
             updateDownloadButton();
@@ -983,6 +1013,21 @@
         }
         
         updateBrushPreview();
+
+        function showStatusBadge(text, background, color) {
+            const badge = document.getElementById('savedBadge');
+            if (!badge) {
+                return;
+            }
+
+            badge.textContent = text;
+            badge.style.background = background;
+            badge.style.color = color;
+            badge.style.display = 'inline-block';
+            setTimeout(() => {
+                badge.style.display = 'none';
+            }, 3000);
+        }
         
         // Update download button state
         function updateDownloadButton() {
@@ -1014,16 +1059,7 @@
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
                 
-                // Show success message
-                const msg = document.getElementById('successMessage');
-                msg.textContent = `✓ Downloaded: ${filename}`;
-                msg.style.background = '#d1ecf1';
-                msg.style.color = '#0c5460';
-                msg.style.borderLeftColor = '#17a2b8';
-                msg.style.display = 'block';
-                setTimeout(() => {
-                    msg.style.display = 'none';
-                }, 3000);
+                showStatusBadge(`Downloaded`, '#d1ecf1', '#0c5460');
             }, 'image/png');
         }
         
@@ -1038,6 +1074,8 @@
             let testName = document.getElementById('testName').value.trim();
             const correctLines = parseInt(document.getElementById('correctLines').value);
             const extraLines = parseInt(document.getElementById('extraLines').value);
+            const totalScoreRaw = document.getElementById('totalScore').value.trim();
+            const totalScore = totalScoreRaw === '' ? null : parseInt(totalScoreRaw, 10);
             
             // Generate default name if empty
             if (!testName) {
@@ -1061,6 +1099,9 @@
                 formData.append('name', testName);
                 formData.append('correct_lines', correctLines);
                 formData.append('extra_lines', extraLines);
+                if (totalScore !== null && !Number.isNaN(totalScore)) {
+                    formData.append('total_score', totalScore);
+                }
                 
                 try {
                     let response;
@@ -1104,27 +1145,22 @@
             originalCanvasData = null;
             originalCorrectLines = null;
             originalExtraLines = null;
+            originalTotalScore = null;
             hasChanges = false;
             hasContent = false;
             clearCanvas();
             document.getElementById('testName').value = '';
             document.getElementById('correctLines').value = '0';
             document.getElementById('extraLines').value = '0';
+            document.getElementById('totalScore').value = '';
             currentRotation = 0;
             updateSaveButton();
             updateDownloadButton();
         }
         
         function showSuccessMessage(action = 'saved') {
-            const msg = document.getElementById('successMessage');
-            msg.textContent = action === 'updated' ? '✓ Test image updated successfully!' : '✓ Test image saved successfully!';
-            msg.style.background = '#d4edda';
-            msg.style.color = '#155724';
-            msg.style.borderLeftColor = '#28a745';
-            msg.style.display = 'block';
-            setTimeout(() => {
-                msg.style.display = 'none';
-            }, 3000);
+            const label = action === 'updated' ? 'Updated' : 'Saved';
+            showStatusBadge(label, '#d4edda', '#155724');
         }
         
         // Virtual scrolling variables
@@ -1138,18 +1174,20 @@
         async function loadTestImages() {
             try {
                 // Fetch only DRAWN images - use reasonable limit (API returns total count)
-                const response = await fetch('/api/training-data-images?limit=1000&source_format=DRAWN');
+                const response = await fetch('/api/training-data-images?limit=20&offset=0&source_format=DRAWN');
                 const data = await response.json();
                 allTestImages = data.images;
                 
                 // Update counter
                 const counter = document.getElementById('imageCounter');
-                counter.textContent = allTestImages.length;
+                const total = typeof data.total === 'number' ? data.total : allTestImages.length;
+                counter.textContent = `${allTestImages.length} of ${total}`;
                 
                 const listDiv = document.getElementById('testImagesList');
                 
                 if (allTestImages.length === 0) {
                     listDiv.innerHTML = '<div class="empty-list">No test images yet</div>';
+                    counter.textContent = '0 of 0';
                     return;
                 }
                 
@@ -1267,11 +1305,13 @@
                     document.getElementById('testName').value = testName;
                     document.getElementById('correctLines').value = correctLines;
                     document.getElementById('extraLines').value = extraLines;
+                    document.getElementById('totalScore').value = '';
                     
                     // Store original values
                     originalCanvasData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                     originalCorrectLines = correctLines;
                     originalExtraLines = extraLines;
+                    originalTotalScore = null;
                     hasChanges = false;
                     hasContent = true;  // Image is loaded
                     
@@ -1279,22 +1319,22 @@
                     updateSaveButton();
                     updateDownloadButton();
                     
-                    // Show success message
-                    const msg = document.getElementById('successMessage');
-                    msg.textContent = `✓ Loaded: ${testName}`;
-                    msg.style.background = '#d1ecf1';
-                    msg.style.color = '#0c5460';
-                    msg.style.borderLeftColor = '#17a2b8';
-                    msg.style.display = 'block';
-                    setTimeout(() => {
-                        msg.style.display = 'none';
-                        msg.textContent = '✓ Test image saved successfully!';
-                        msg.style.background = '#d4edda';
-                        msg.style.color = '#155724';
-                        msg.style.borderLeftColor = '#28a745';
-                    }, 3000);
+                    showStatusBadge('Loaded', '#d1ecf1', '#0c5460');
                 };
                 img.src = imageUrl;
+
+                try {
+                    const featuresResponse = await fetch(`/api/training-data-image/${testId}/features`);
+                    if (featuresResponse.ok) {
+                        const featuresData = await featuresResponse.json();
+                        const totalScoreValue = featuresData?.features?.Total_Score;
+                        document.getElementById('totalScore').value =
+                            totalScoreValue !== undefined && totalScoreValue !== null ? totalScoreValue : '';
+                        originalTotalScore = totalScoreValue ?? null;
+                    }
+                } catch (error) {
+                    // Intentionally ignore feature load errors
+                }
                 
             } catch (error) {
                 alert('Error loading test image: ' + error.message);
@@ -1318,8 +1358,11 @@
             // Check form changes
             const currentCorrect = parseInt(document.getElementById('correctLines').value) || 0;
             const currentExtra = parseInt(document.getElementById('extraLines').value) || 0;
+            const currentTotalScoreRaw = document.getElementById('totalScore').value.trim();
+            const currentTotalScore = currentTotalScoreRaw === '' ? null : parseInt(currentTotalScoreRaw, 10);
             const formChanged = currentCorrect !== originalCorrectLines || 
-                               currentExtra !== originalExtraLines;
+                               currentExtra !== originalExtraLines ||
+                               currentTotalScore !== originalTotalScore;
             
             hasChanges = canvasChanged || formChanged;
             updateSaveButton();
@@ -1372,6 +1415,11 @@
                 saveBtn.disabled = false;
                 warning.style.display = 'none';
             }
+
+            if (!hasContent) {
+                saveBtn.disabled = true;
+                warning.style.display = 'none';
+            }
         }
         
         // Watch for name changes
@@ -1399,19 +1447,7 @@
                         resetForm();
                     }
                     
-                    const msg = document.getElementById('successMessage');
-                    msg.textContent = '✓ Test image deleted successfully!';
-                    msg.style.background = '#f8d7da';
-                    msg.style.color = '#721c24';
-                    msg.style.borderLeftColor = '#dc3545';
-                    msg.style.display = 'block';
-                    setTimeout(() => {
-                        msg.style.display = 'none';
-                        msg.textContent = '✓ Test image saved successfully!';
-                        msg.style.background = '#d4edda';
-                        msg.style.color = '#155724';
-                        msg.style.borderLeftColor = '#28a745';
-                    }, 3000);
+                    showStatusBadge('Deleted', '#f8d7da', '#721c24');
                 } else {
                     alert('Error deleting test image');
                 }
