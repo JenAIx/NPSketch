@@ -263,6 +263,7 @@ async def start_training(config_dict: dict = Body(...), db: Session = Depends(ge
         for img in images:
             images_data.append({
                 'id': img.id,
+                'patient_id': img.patient_id,
                 'processed_image_data': img.processed_image_data,
                 'features_data': img.features_data
             })
@@ -416,7 +417,8 @@ def run_training_job(config):
                     output_dir='/app/data/ai_training_data',
                     normalizer=normalizer,
                     add_synthetic_bad_images=config.get('add_synthetic_bad_images', False),
-                    synthetic_n_samples=config.get('synthetic_n_samples', 50)
+                    synthetic_n_samples=config.get('synthetic_n_samples', 50),
+                    max_images=config.get('max_images')
                 )
                 
                 train_loader, val_loader, stats = create_augmented_dataloaders(
@@ -614,6 +616,7 @@ def run_training_job(config):
             'normalization': normalizer.get_config() if normalizer else {'enabled': False},
             'augmentation': stats.get('augmentation', {'enabled': False}),
             'synthetic_bad_images': stats.get('synthetic_bad_images', {'enabled': False}),
+            'imbalance_sampler': stats.get('imbalance_sampler', {'enabled': False}),
             'class_weights': {
                 'enabled': class_weights is not None,
                 'weights': class_weights if class_weights else None

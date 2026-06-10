@@ -168,11 +168,22 @@ class CNNTrainer:
         self.warmup_enabled = warmup_enabled
         self.warmup_epochs = warmup_epochs
         
-        # Auto-determine use_sigmoid if not specified
+        # Reproducibility: seed PyTorch (NumPy is seeded in the split strategy).
+        # Without this, weight init / dropout / shuffling differ between runs.
+        torch.manual_seed(42)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(42)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+        # Auto-determine use_sigmoid if not specified.
+        # Regression now uses a LINEAR output head: with min-max targets the bulk
+        # of this dataset sits near 1.0, exactly in the sigmoid saturation zone
+        # (vanishing gradients at score extremes). Predictions are clamped to the
+        # valid range after denormalization instead.
         if use_sigmoid is None:
-            # Use Sigmoid for regression with normalization
-            use_sigmoid = (training_mode == "regression" and normalizer is not None)
-        
+            use_sigmoid = False
+
         self.use_sigmoid = use_sigmoid
         
         # Auto-detect device
@@ -461,10 +472,10 @@ class CNNTrainer:
                     all_predictions.extend(predicted_classes.cpu().numpy())
                     all_targets.extend(targets.cpu().numpy())
                 else:
-                    # Regression: get raw output values
-                    # Clamp to [0, 1] if using sigmoid (safety check)
-                    if self.use_sigmoid:
-                        outputs = torch.clamp(outputs, 0.0, 1.0)
+                    # Regression: get raw output values.
+                    # No pre-denormalization clamping here - predictions are
+                    # clamped to the valid score range AFTER denormalization
+                    # in _calculate_regression_metrics (matches inference).
                     all_predictions.extend(outputs.cpu().numpy().flatten())
                     all_targets.extend(targets.cpu().numpy().flatten())
         
@@ -489,38 +500,60 @@ class CNNTrainer:
         """Calculate regression metrics (MAE, RMSE, R², etc.)"""
         # Denormalize if normalizer is provided
         if self.normalizer is not None:
-            predictions_before = predictions.copy()
-            targets_before = targets.copy()
-            
             predictions = self.normalizer.inverse_transform(predictions)
             targets = self.normalizer.inverse_transform(targets)
-            
+
+            # Clamp predictions to the valid score range (linear head can
+            # overshoot slightly; matches inference behavior)
+            if self.normalizer.min_value is not None and self.normalizer.max_value is not None:
+                predictions = np.clip(predictions, self.normalizer.min_value, self.normalizer.max_value)
+
             # Debug: Log after denormalization (only if debug level)
             logger.debug(f"After denormalization: min={predictions.min():.2f}, max={predictions.max():.2f}, mean={predictions.mean():.2f}")
-        
+
         # Calculate metrics
         mse = np.mean((predictions - targets) ** 2)
         rmse = np.sqrt(mse)
         mae = np.mean(np.abs(predictions - targets))
-        
+
         # R² score
         ss_res = np.sum((targets - predictions) ** 2)
         ss_tot = np.sum((targets - np.mean(targets)) ** 2)
         r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
-        
+
         # MAPE
         mask = targets != 0
         if np.any(mask):
             mape = np.mean(np.abs((targets[mask] - predictions[mask]) / targets[mask])) * 100
         else:
             mape = 0
-        
+
+        # Per-score-bin metrics (decades on the denormalized scale): makes
+        # performance at the score extremes visible, which the global R²/MAE
+        # hide on a heavily skewed distribution.
+        per_score_bin = {}
+        bin_width = 10.0
+        bin_starts = np.floor(targets / bin_width) * bin_width
+        for start in sorted(np.unique(bin_starts)):
+            bin_mask = bin_starts == start
+            bin_t = targets[bin_mask]
+            bin_p = predictions[bin_mask]
+            label = f"{int(start)}-{int(start + bin_width - 1)}"
+            per_score_bin[label] = {
+                'count': int(bin_mask.sum()),
+                'mae': float(np.mean(np.abs(bin_p - bin_t))),
+                'rmse': float(np.sqrt(np.mean((bin_p - bin_t) ** 2))),
+                'mean_pred': float(np.mean(bin_p)),
+                'mean_target': float(np.mean(bin_t))
+            }
+
         return {
             'mse': float(mse),
             'rmse': float(rmse),
             'mae': float(mae),
             'r2_score': float(r2),
             'mape': float(mape),
+            'per_score_bin': per_score_bin,
             'predictions': predictions.tolist()[:1000],
             'targets': targets.tolist()[:1000],
             'num_samples': len(targets)

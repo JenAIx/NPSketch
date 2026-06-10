@@ -378,11 +378,12 @@ class TrainingDataLoader:
         output_dir: str = '/app/data/ai_training_data',
         normalizer=None,
         add_synthetic_bad_images: bool = False,
-        synthetic_n_samples: int = 50
+        synthetic_n_samples: int = 50,
+        max_images: Optional[int] = None
     ) -> Tuple[Dict, str]:
         """
         Prepare augmented training dataset and save to disk.
-        
+
         Args:
             target_feature: Feature to predict
             train_split: Train/validation split ratio
@@ -393,7 +394,9 @@ class TrainingDataLoader:
                 - scale_range: (min, max) scale factor, default: (0.95, 1.05)
                 - num_augmentations: number per image, default: 5
             output_dir: Directory to save augmented data
-        
+            max_images: Optional cap on the number of (real) images, sampled
+                randomly with random_seed. For quick trial/smoke runs only.
+
         Returns:
             (statistics_dict, output_directory_path)
         """
@@ -465,8 +468,16 @@ class TrainingDataLoader:
         
         if len(images_data) == 0:
             raise ValueError(f"No images found with feature '{target_feature}'")
-        
+
         logger.info(f"Found {len(images_data)} images with feature '{target_feature}'")
+
+        # Optional cap for quick trial/smoke runs
+        if max_images is not None and len(images_data) > max_images:
+            import random as _random
+            _random.Random(random_seed).shuffle(images_data)
+            images_data = images_data[:max_images]
+            logger.warning(f"max_images={max_images}: randomly sampled subset "
+                           f"({len(images_data)} images) - NOT a full training run")
         
         # Track synthetic images info for metadata
         synthetic_info = {
@@ -634,34 +645,39 @@ class TrainingDataLoader:
         
         y_array = np.array(y_values)
         
-        # Create stratified split indices
-        indices = np.arange(len(images_data))
-        
+        # Create patient-level (group-aware) stratified split.
+        # All images of the same patient_id go to the SAME set - prevents
+        # leakage (e.g. FC0/FC1 or COPY/RECALL drawings of the same patient
+        # ending up in train AND val). Synthetic images (SYNTH_*) are always
+        # assigned to train.
+        from ai_training.split_strategy import stratified_group_split
+
+        groups = []
+        for i, img_data in enumerate(images_data):
+            pid = img_data.get('patient_id')
+            # Images without patient_id form their own single-image group
+            groups.append(str(pid) if pid else f"__img_{img_data.get('id', i)}")
+
         # Initialize for scope
         recommendation = None
-        train_indices = []
-        val_indices = []
-        
-        # Choose split strategy based on task type
+
         if is_classification_mode:
-            # For classification: stratify by class labels
-            from ai_training.split_strategy import stratified_split_classification
-            
             unique_classes = np.unique(y_array)
             logger.info("="*60)
-            logger.info("SPLIT STRATEGY: CLASSIFICATION")
+            logger.info("SPLIT STRATEGY: CLASSIFICATION (patient-level groups)")
             logger.info("="*60)
             logger.info(f"Total samples: {len(y_array)}")
             logger.info(f"Number of classes: {len(unique_classes)}")
             logger.info(f"Train/Val split: {train_split*100:.0f}% / {(1-train_split)*100:.0f}%")
-            
-            _, _, _, _, split_info = stratified_split_classification(
-                indices.reshape(-1, 1),
+
+            train_indices, val_indices, split_info = stratified_group_split(
                 y_array,
+                groups,
                 train_split=train_split,
-                random_seed=random_seed
+                random_seed=random_seed,
+                is_classification=True
             )
-            
+
             # Log split quality warnings
             if split_info.get('warnings'):
                 logger.warning("\nSPLIT QUALITY WARNINGS:")
@@ -670,55 +686,20 @@ class TrainingDataLoader:
             else:
                 logger.info("\n✓ Split quality: GOOD (well-balanced)")
             logger.info("="*60)
-            
-            # Get actual indices for classification
-            np.random.seed(random_seed)
-            unique_classes = np.unique(y_array)
-            
-            for cls in unique_classes:
-                class_mask = y_array == cls
-                class_idxs = np.where(class_mask)[0]
-                np.random.shuffle(class_idxs)
-                
-                split_point = int(len(class_idxs) * train_split)
-                
-                # Ensure at least 1 sample in val if possible
-                if split_point == len(class_idxs) and len(class_idxs) > 1:
-                    split_point = len(class_idxs) - 1
-                
-                train_indices.extend(class_idxs[:split_point].tolist())
-                val_indices.extend(class_idxs[split_point:].tolist())
-                
         else:
-            # For regression: stratify by binning continuous values
-            from ai_training.split_strategy import stratified_split_regression, create_bins
-            
             recommendation = get_split_recommendation(len(images_data), y_array.max() - y_array.min())
-            
-            logger.info(f"Split strategy: {recommendation['strategy']} with {recommendation['n_bins']} bins")
-            
-            _, _, _, _, split_info = stratified_split_regression(
-                indices.reshape(-1, 1),
+            recommendation['strategy'] = 'stratified_group'
+
+            logger.info(f"Split strategy: stratified_group (patient-level) with {recommendation['n_bins']} bins")
+
+            train_indices, val_indices, split_info = stratified_group_split(
                 y_array,
+                groups,
                 train_split=train_split,
                 n_bins=recommendation['n_bins'],
-                random_seed=random_seed
+                random_seed=random_seed,
+                is_classification=False
             )
-            
-            # Get actual indices for regression
-            np.random.seed(random_seed)
-            
-            bin_assignments = create_bins(y_array, n_bins=recommendation['n_bins'], method='quantile')
-            unique_bins = np.unique(bin_assignments)
-            
-            for bin_idx in unique_bins:
-                bin_mask = bin_assignments == bin_idx
-                bin_idxs = np.where(bin_mask)[0]
-                np.random.shuffle(bin_idxs)
-                
-                split_point = int(len(bin_idxs) * train_split)
-                train_indices.extend(bin_idxs[:split_point].tolist())
-                val_indices.extend(bin_idxs[split_point:].tolist())
         
         split_indices = {
             'train': train_indices,
@@ -818,7 +799,7 @@ class TrainingDataLoader:
         
         # Add strategy info based on task type
         if is_classification_mode:
-            stats['split_strategy'] = 'stratified_classification'
+            stats['split_strategy'] = 'stratified_group_classification'
             stats['n_bins'] = None  # Not applicable for classification
         else:
             stats['split_strategy'] = recommendation['strategy']
@@ -839,7 +820,7 @@ class TrainingDataLoader:
             
             # Add split information
             if is_classification_mode:
-                metadata['split_strategy'] = 'stratified_classification'
+                metadata['split_strategy'] = 'stratified_group_classification'
                 metadata['n_bins'] = None
             else:
                 metadata['split_strategy'] = recommendation['strategy']

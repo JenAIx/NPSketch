@@ -360,6 +360,174 @@ def stratified_split_classification(
     return X_train, X_test, y_train, y_test, split_info
 
 
+def stratified_group_split(
+    y: np.ndarray,
+    groups: List[str],
+    train_split: float = 0.8,
+    n_bins: int = 4,
+    random_seed: int = 42,
+    is_classification: bool = False,
+    force_train_prefixes: Tuple[str, ...] = ('SYNTH_',),
+    group_label: str = 'patient_id'
+) -> Tuple[List[int], List[int], Dict]:
+    """
+    Group-aware stratified train/val split (e.g. patient-level).
+
+    All samples sharing the same group key (typically patient_id) are assigned
+    to the SAME set, preventing leakage between train and val (e.g. FC0/FC1
+    drawings of the same patient, or COPY/RECALL of the same patient).
+
+    Stratification works on group representatives:
+    - regression: median target value per group, binned into quantile bins
+    - classification: majority class per group
+
+    Within each bin, groups are assigned greedily by cumulative sample count so
+    the train fraction holds on the sample level (groups vary in size).
+
+    Args:
+        y: Target values, one per sample
+        groups: Group key per sample (same length as y). Samples with a key
+                starting with one of force_train_prefixes (e.g. synthetic
+                images) are always assigned to train.
+        train_split: Fraction of samples for training
+        n_bins: Number of quantile bins (regression only)
+        random_seed: Random seed for reproducibility
+        is_classification: Stratify by class labels instead of value bins
+        force_train_prefixes: Group-key prefixes that are forced into train
+        group_label: Name of the group key (for logging/split_info only)
+
+    Returns:
+        (train_indices, val_indices, split_info)
+    """
+    if len(y) != len(groups):
+        raise ValueError(f"y ({len(y)}) and groups ({len(groups)}) must have the same length")
+
+    np.random.seed(random_seed)
+
+    # Build group -> sample indices mapping (insertion order)
+    group_to_indices: Dict[str, List[int]] = {}
+    for idx, key in enumerate(groups):
+        group_to_indices.setdefault(str(key), []).append(idx)
+
+    # Separate groups that are forced into train (e.g. synthetic images)
+    forced_train_keys = [k for k in group_to_indices
+                         if any(k.startswith(p) for p in force_train_prefixes)]
+    splittable_keys = [k for k in group_to_indices if k not in set(forced_train_keys)]
+
+    if len(splittable_keys) < 2:
+        raise ValueError(f"Need at least 2 groups to split, got {len(splittable_keys)}")
+
+    # Representative target value per group
+    def representative(key: str) -> float:
+        values = [y[i] for i in group_to_indices[key]]
+        if is_classification:
+            # Majority class
+            uniq, counts = np.unique(values, return_counts=True)
+            return float(uniq[np.argmax(counts)])
+        return float(np.median(values))
+
+    reps = np.array([representative(k) for k in splittable_keys])
+
+    # Assign each group to a stratification bin
+    if is_classification:
+        bin_assignments = reps  # class label IS the bin
+    else:
+        if float(reps.max() - reps.min()) == 0:
+            bin_assignments = np.zeros(len(reps))
+            logger.warning("All group representatives identical - using single bin (grouped random split)")
+        else:
+            bin_assignments = create_bins(reps, n_bins=n_bins, method='quantile').astype(float)
+
+    # Split groups bin-wise, greedily by cumulative sample count
+    train_keys: List[str] = []
+    val_keys: List[str] = []
+
+    for bin_value in np.unique(bin_assignments):
+        bin_keys = [splittable_keys[i] for i in np.where(bin_assignments == bin_value)[0]]
+        np.random.shuffle(bin_keys)
+
+        bin_total = sum(len(group_to_indices[k]) for k in bin_keys)
+        target_train = train_split * bin_total
+
+        bin_train: List[str] = []
+        bin_val: List[str] = []
+        running = 0
+        for k in bin_keys:
+            if running < target_train:
+                bin_train.append(k)
+                running += len(group_to_indices[k])
+            else:
+                bin_val.append(k)
+
+        # Ensure both sides are non-empty when the bin has >= 2 groups
+        if len(bin_keys) >= 2:
+            if not bin_val:
+                bin_val.append(bin_train.pop())
+            elif not bin_train:
+                bin_train.append(bin_val.pop())
+
+        train_keys.extend(bin_train)
+        val_keys.extend(bin_val)
+
+    train_keys.extend(forced_train_keys)
+
+    # Hard leakage check: no group may appear on both sides
+    overlap = set(train_keys) & set(val_keys)
+    if overlap:
+        raise RuntimeError(f"Group split produced overlapping groups (leakage!): {sorted(overlap)[:5]}...")
+
+    train_indices = [i for k in train_keys for i in group_to_indices[k]]
+    val_indices = [i for k in val_keys for i in group_to_indices[k]]
+    np.random.shuffle(train_indices)
+    np.random.shuffle(val_indices)
+
+    if not train_indices or not val_indices:
+        raise ValueError(f"Group split produced an empty set "
+                         f"(train={len(train_indices)}, val={len(val_indices)})")
+
+    y_train = np.asarray([y[i] for i in train_indices])
+    y_val = np.asarray([y[i] for i in val_indices])
+
+    if is_classification:
+        unique_classes = np.unique(y)
+        train_class_counts = {int(c): int(np.sum(y_train == c)) for c in unique_classes}
+        val_class_counts = {int(c): int(np.sum(y_val == c)) for c in unique_classes}
+
+        warnings = []
+        for c in unique_classes:
+            if train_class_counts[int(c)] == 0:
+                warnings.append(f"Class {int(c)} has no samples in training set")
+            if val_class_counts[int(c)] == 0:
+                warnings.append(f"Class {int(c)} has no samples in validation set")
+
+        split_info = {
+            'method': 'stratified_group_classification',
+            'num_classes': int(len(unique_classes)),
+            'train_distribution': {'count': len(y_train), 'class_counts': train_class_counts},
+            'test_distribution': {'count': len(y_val), 'class_counts': val_class_counts},
+            'warnings': warnings,
+            'is_balanced': len(warnings) == 0
+        }
+    else:
+        split_info = validate_split(y_train, y_val, y)
+        split_info['method'] = 'stratified_group'
+        split_info['n_bins'] = n_bins
+
+    split_info['group_key'] = group_label
+    split_info['n_groups_total'] = len(group_to_indices)
+    split_info['n_groups_train'] = len(set(train_keys))
+    split_info['n_groups_val'] = len(set(val_keys))
+    split_info['n_groups_forced_train'] = len(forced_train_keys)
+    split_info['group_overlap'] = 0
+
+    logger.info(f"Group split ({group_label}): "
+                f"{split_info['n_groups_train']} groups / {len(train_indices)} samples -> train, "
+                f"{split_info['n_groups_val']} groups / {len(val_indices)} samples -> val, "
+                f"group overlap: 0 (verified)")
+
+    return train_indices, val_indices, split_info
+
+
 def get_split_recommendation(n_samples: int, target_range: float) -> Dict:
     """
     Get recommended split strategy based on dataset size.

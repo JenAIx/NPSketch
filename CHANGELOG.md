@@ -6,6 +6,41 @@ All notable changes to NPSketch will be documented in this file.
 
 ## [Unreleased] - 2026-06-10
 
+### Fixed - Training Pipeline (audit findings)
+
+A deep audit of the training pipeline found two substantial problems; both fixed:
+
+- **Patient-level train/val split** (was: image-level → data leakage). 96% of labeled
+  images belong to patients with >1 image (e.g. TeleFred FC0+FC1); the old split put the
+  same patient into train AND val, systematically inflating validation metrics.
+  - New `stratified_group_split()` in `api/ai_training/split_strategy.py`: groups by
+    `patient_id`, stratifies on patient-median score (quantile bins) / majority class,
+    assigns all images of a patient to the same set, hard-fails on group overlap.
+    Synthetic images (`SYNTH_*`) are forced into train.
+  - Wired into both paths: `data_loader.prepare_augmented_training_data()` and
+    `dataset.create_dataloaders()`. `patient_id` now passed through everywhere.
+  - **Validation metrics of new models will look worse than older models (e.g. Jan-13
+    Val R² 0.87) — that is the leakage disappearing, not a regression.**
+- **Linear regression head instead of sigmoid** (was: sigmoid + min-max targets).
+  The score distribution is heavily skewed (median 56/60) → most targets sat in the
+  sigmoid saturation zone (vanishing gradients at the extremes). Regression now uses a
+  linear output; predictions are clamped to the valid range AFTER denormalization
+  (trainer metrics + `predict-single`). Old sigmoid models keep working: `use_sigmoid`
+  is read from model metadata at inference (also fixes a pre-existing `predict-single`
+  bug that silently dropped the sigmoid when rebuilding the model).
+
+### Added - Training Pipeline
+
+- **Imbalance oversampling for regression**: `WeightedRandomSampler` over equal-width
+  target bins (inverse frequency, capped), configurable via
+  `training.regression.imbalance` in `training_config.yaml` (default: enabled).
+- **Per-score-bin metrics**: train/val metrics now include MAE/RMSE/count per score
+  decade (`per_score_bin`) — makes performance at score extremes visible.
+- **PyTorch reproducibility**: `torch.manual_seed(42)` + deterministic cuDNN in `CNNTrainer`.
+- **`max_images` option** for quick trial runs (random subset cap in the augmented path).
+- **Smoke test** `api/test_training_pipeline_smoke.py`: end-to-end check of both
+  dataloader paths, asserts zero patient overlap, linear head, sampler and bin metrics.
+
 ### Added - TeleFred 202606 Training Data (Union Import)
 
 - **New tracked module** `api/telefred_extraction/` (ported from the previously untracked

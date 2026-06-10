@@ -575,8 +575,21 @@ async def predict_single_image(
         # Convert to tensor
         img_tensor = torch.from_numpy(img_array).unsqueeze(0).unsqueeze(0)  # [1, 1, H, W]
         
+        # Resolve use_sigmoid from metadata so the rebuilt model matches the
+        # trained architecture. Sigmoid has no parameters, so loading a sigmoid
+        # checkpoint into a linear head succeeds silently but skips the
+        # activation - predictions would be wrong.
+        use_sigmoid = metadata.get('use_sigmoid')
+        if use_sigmoid is None:
+            use_sigmoid = metadata.get('model', {}).get('use_sigmoid')
+        if use_sigmoid is None:
+            # Legacy fallback: all old regression models with min-max
+            # normalization were trained with a sigmoid head.
+            use_sigmoid = (training_mode == "regression"
+                           and bool(metadata.get('normalization', {}).get('method')))
+
         # Load model
-        model = DrawingClassifier(num_outputs=num_outputs, pretrained=False)
+        model = DrawingClassifier(num_outputs=num_outputs, pretrained=False, use_sigmoid=bool(use_sigmoid))
         checkpoint = torch.load(model_path, map_location='cpu')
         
         # Handle different checkpoint formats
@@ -648,10 +661,15 @@ async def predict_single_image(
                     
                     # Denormalize: value * (max - min) + min
                     predicted_value = raw_value * (max_val - min_val) + min_val
-                    
-                    # Clamp to valid range
+
+                    # Clamp to valid range (report whether clamping occurred,
+                    # frequent clamping indicates a model/config problem)
+                    unclamped_value = predicted_value
                     predicted_value = max(min_val, min(max_val, predicted_value))
-                
+                    was_clamped = (unclamped_value != predicted_value)
+                else:
+                    was_clamped = False
+
                 return {
                     'success': True,
                     'model': model_filename,
@@ -664,7 +682,8 @@ async def predict_single_image(
                     },
                     'prediction': {
                         'value': round(predicted_value, 2),
-                        'raw_output': round(raw_value, 4)
+                        'raw_output': round(raw_value, 4),
+                        'was_clamped': was_clamped
                     }
                 }
                 

@@ -7,7 +7,7 @@ Supports loading from:
 """
 
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from PIL import Image
 import numpy as np
 import io
@@ -166,6 +166,72 @@ class DrawingDataset(Dataset):
         return img_tensor, target_tensor
 
 
+def build_regression_imbalance_sampler(
+    train_targets: np.ndarray
+) -> Tuple[Optional[WeightedRandomSampler], Dict]:
+    """
+    Build a WeightedRandomSampler that oversamples rare target-value bins
+    (regression only). Counteracts heavily skewed score distributions where
+    plain MSE training collapses to predicting the dominant range.
+
+    Targets may be on any scale (raw or normalized) - bins are equal-width
+    over the observed range. Configured via training_config.yaml
+    (training.regression.imbalance). Returns (None, info) when disabled or
+    not applicable.
+
+    Returns:
+        (sampler_or_none, info_dict_for_metadata)
+    """
+    from config import get_config
+    cfg = get_config().get('training.regression.imbalance', {}) or {}
+
+    info = {'enabled': False}
+    if not cfg.get('enabled', False):
+        return None, info
+
+    train_targets = np.asarray(train_targets, dtype=np.float64)
+    num_bins = int(cfg.get('num_bins', 6))
+    max_weight = float(cfg.get('max_weight', 10.0))
+
+    value_range = train_targets.max() - train_targets.min()
+    if len(train_targets) < num_bins * 2 or value_range == 0:
+        logger.info("Imbalance sampler: not applicable (too few samples or constant targets)")
+        return None, info
+
+    # Equal-width bins over the observed range
+    edges = np.linspace(train_targets.min(), train_targets.max(), num_bins + 1)
+    bin_idx = np.clip(np.digitize(train_targets, edges[1:-1]), 0, num_bins - 1)
+    counts = np.bincount(bin_idx, minlength=num_bins)
+    nonempty = int((counts > 0).sum())
+
+    # Inverse-frequency weight per bin, capped
+    bin_weights = np.zeros(num_bins, dtype=np.float64)
+    for b in range(num_bins):
+        if counts[b] > 0:
+            bin_weights[b] = min(len(train_targets) / (nonempty * counts[b]), max_weight)
+    sample_weights = bin_weights[bin_idx]
+
+    sampler = WeightedRandomSampler(
+        weights=torch.as_tensor(sample_weights, dtype=torch.double),
+        num_samples=len(train_targets),
+        replacement=True
+    )
+
+    info = {
+        'enabled': True,
+        'num_bins': num_bins,
+        'max_weight': max_weight,
+        'bin_edges': [float(e) for e in edges],
+        'bin_counts': [int(c) for c in counts],
+        'bin_weights': [round(float(w), 4) for w in bin_weights]
+    }
+    logger.info("Imbalance sampler enabled (WeightedRandomSampler, regression):")
+    for b in range(num_bins):
+        logger.info(f"  Bin [{edges[b]:.2f}, {edges[b+1]:.2f}]: "
+                    f"{counts[b]} samples, weight {bin_weights[b]:.4f}")
+    return sampler, info
+
+
 def create_dataloaders(
     images_data: List[Dict],
     target_feature: str,
@@ -230,161 +296,98 @@ def create_dataloaders(
     
     # Import split strategy
     try:
-        from .split_strategy import get_split_recommendation, stratified_split_regression, stratified_split_classification
+        from .split_strategy import get_split_recommendation, stratified_group_split
     except ImportError:
-        from ai_training.split_strategy import get_split_recommendation, stratified_split_regression, stratified_split_classification
-    
-    # Create index array
-    indices = np.arange(len(full_dataset_raw))
-    
+        from ai_training.split_strategy import get_split_recommendation, stratified_group_split
+
+    # Build patient-level group keys, aligned with the filtered dataset positions.
+    # All images of the same patient_id are assigned to the SAME set (no leakage).
+    # Images without patient_id form their own single-image group.
+    groups = []
+    for i in range(len(full_dataset_raw)):
+        orig_idx = full_dataset_raw.valid_indices[i]
+        pid = images_data[orig_idx].get('patient_id')
+        groups.append(str(pid) if pid else f"__img_{images_data[orig_idx].get('id', orig_idx)}")
+
     # Initialize variables that may be used later
     recommendation = None
     split_info = None
-    
+
     # Choose split strategy based on task type
     if is_classification:
-        # For classification: stratify by actual class labels
-        logger.info("Using CLASSIFICATION stratification (by class labels)")
-        stratified_split_succeeded = False
+        # For classification: stratify by majority class per patient group
+        logger.info("Using CLASSIFICATION stratification (patient-level groups)")
         try:
-            _, _, _, _, split_info = stratified_split_classification(
-                indices.reshape(-1, 1),  # Dummy X
+            train_indices, val_indices, split_info = stratified_group_split(
                 all_targets,
+                groups,
                 train_split=train_split,
-                random_seed=random_seed
+                random_seed=random_seed,
+                is_classification=True
             )
-            stratified_split_succeeded = True
-        except Exception as e:
-            logger.warning(f"Stratified classification split failed: {e}, falling back to random split")
-            split_info = {
-                'method': 'random',
-                'reason': 'stratified_classification_split_failed'
-            }
-        
-        if stratified_split_succeeded:
-            # Re-do stratified split to get actual indices
-            np.random.seed(random_seed)
-            unique_classes = np.unique(all_targets)
-            
-            train_indices = []
-            val_indices = []
-            
-            for cls in unique_classes:
-                class_mask = all_targets == cls
-                class_idxs = np.where(class_mask)[0]
-                np.random.shuffle(class_idxs)
-                
-                split_point = int(len(class_idxs) * train_split)
-                
-                # Ensure at least 1 sample in test if possible
-                if split_point == len(class_idxs) and len(class_idxs) > 1:
-                    split_point = len(class_idxs) - 1
-                
-                train_indices.extend(class_idxs[:split_point].tolist())
-                val_indices.extend(class_idxs[split_point:].tolist())
-            
-            # Create recommendation dict for classification
             recommendation = {
-                'strategy': 'stratified_classification',
-                'n_bins': len(unique_classes)
-            }
-        else:
-            # Fall back to random split (consistent with regression path)
-            np.random.seed(random_seed)
-            np.random.shuffle(indices)
-            split_point = int(len(indices) * train_split)
-            train_indices = indices[:split_point].tolist()
-            val_indices = indices[split_point:].tolist()
-            
-            # Create recommendation dict for random split
-            recommendation = {
-                'strategy': 'random',
+                'strategy': 'stratified_group_classification',
                 'n_bins': len(np.unique(all_targets))
             }
-        
+        except Exception as e:
+            logger.warning(f"Grouped classification split failed: {e}, "
+                           f"falling back to grouped random split")
+            train_indices, val_indices, split_info = stratified_group_split(
+                all_targets,
+                groups,
+                train_split=train_split,
+                n_bins=1,
+                random_seed=random_seed,
+                is_classification=False
+            )
+            split_info['method'] = 'grouped_random'
+            split_info['reason'] = 'stratified_group_classification_failed'
+            recommendation = {
+                'strategy': 'grouped_random',
+                'n_bins': len(np.unique(all_targets))
+            }
+
     else:
-        # For regression: stratify by binning continuous values
-        logger.info("Using REGRESSION stratification (by value bins)")
-        
+        # For regression: stratify by quantile bins of patient-median values
+        logger.info("Using REGRESSION stratification (patient-level groups)")
+
         # Validate all_targets
         if len(all_targets) == 0:
             raise ValueError(f"No valid target values found for feature '{target_feature}'")
-        
-        # Calculate value range
-        target_min = all_targets.min()
-        target_max = all_targets.max()
-        value_range = target_max - target_min
-        
-        # If all values are the same, use simple random split
-        if value_range == 0:
-            logger.warning(f"All target values are identical ({target_min}), using random split")
-            np.random.seed(random_seed)
-            np.random.shuffle(indices)
-            split_point = int(len(indices) * train_split)
-            train_indices = indices[:split_point].tolist()
-            val_indices = indices[split_point:].tolist()
-            # Create a simple split_info for stats
-            split_info = {
-                'method': 'random',
-                'reason': 'all_values_identical'
-            }
-            recommendation = {
-                'strategy': 'random',
-                'n_bins': 1
-            }
-        else:
-            # Get split recommendation
-            try:
-                recommendation = get_split_recommendation(len(all_targets), value_range)
-                n_bins = recommendation['n_bins']
-            except Exception as e:
-                logger.warning(f"Failed to get split recommendation: {e}, using default n_bins=5")
-                n_bins = 5
-            
-            try:
-                _, _, _, _, split_info = stratified_split_regression(
-                    indices.reshape(-1, 1),  # Dummy X
-                    all_targets,
-                    train_split=train_split,
-                    n_bins=n_bins,
-                    random_seed=random_seed
-                )
-            except Exception as e:
-                logger.warning(f"Stratified split failed: {e}, falling back to random split")
-                np.random.seed(random_seed)
-                np.random.shuffle(indices)
-                split_point = int(len(indices) * train_split)
-                train_indices = indices[:split_point].tolist()
-                val_indices = indices[split_point:].tolist()
-                # Create a simple split_info for stats
-                split_info = {
-                    'method': 'random',
-                    'reason': 'stratified_split_failed'
-                }
-                if recommendation is None:
-                    recommendation = {
-                        'strategy': 'random',
-                        'n_bins': n_bins
-                    }
-            else:
-                # Re-do split to get actual indices
-                np.random.seed(random_seed)
-                
-                from .split_strategy import create_bins
-                bin_assignments = create_bins(all_targets, n_bins=n_bins, method='quantile')
-                unique_bins = np.unique(bin_assignments)
-                
-                train_indices = []
-                val_indices = []
-                
-                for bin_idx in unique_bins:
-                    bin_mask = bin_assignments == bin_idx
-                    bin_idxs = np.where(bin_mask)[0]
-                    np.random.shuffle(bin_idxs)
-                    
-                    split_point = int(len(bin_idxs) * train_split)
-                    train_indices.extend(bin_idxs[:split_point].tolist())
-                    val_indices.extend(bin_idxs[split_point:].tolist())
+
+        value_range = all_targets.max() - all_targets.min()
+
+        try:
+            recommendation = get_split_recommendation(len(all_targets), value_range)
+            n_bins = recommendation['n_bins']
+        except Exception as e:
+            logger.warning(f"Failed to get split recommendation: {e}, using default n_bins=5")
+            n_bins = 5
+        recommendation = {'strategy': 'stratified_group', 'n_bins': n_bins}
+
+        try:
+            train_indices, val_indices, split_info = stratified_group_split(
+                all_targets,
+                groups,
+                train_split=train_split,
+                n_bins=n_bins,
+                random_seed=random_seed,
+                is_classification=False
+            )
+        except Exception as e:
+            logger.warning(f"Grouped stratified split failed: {e}, "
+                           f"falling back to grouped random split")
+            train_indices, val_indices, split_info = stratified_group_split(
+                all_targets,
+                groups,
+                train_split=train_split,
+                n_bins=1,
+                random_seed=random_seed,
+                is_classification=False
+            )
+            split_info['method'] = 'grouped_random'
+            split_info['reason'] = 'stratified_group_split_failed'
+            recommendation['strategy'] = 'grouped_random'
     
     # Validate that split resulted in non-empty sets
     if len(train_indices) == 0:
@@ -410,12 +413,21 @@ def create_dataloaders(
     # Create subsets using indices
     train_dataset = torch.utils.data.Subset(full_dataset_normalized, train_indices)
     val_dataset = torch.utils.data.Subset(full_dataset_normalized, val_indices)
-    
+
+    # Optional oversampling of rare score bins (regression only)
+    imbalance_sampler = None
+    imbalance_info = {'enabled': False}
+    if not is_classification:
+        imbalance_sampler, imbalance_info = build_regression_imbalance_sampler(
+            np.array([all_targets[i] for i in train_indices])
+        )
+
     # Create dataloaders
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=shuffle,
+        shuffle=shuffle if imbalance_sampler is None else False,
+        sampler=imbalance_sampler,
         num_workers=0,  # No multiprocessing in Docker
         pin_memory=False
     )
@@ -464,7 +476,8 @@ def create_dataloaders(
         "pre_shrink": {
             "enabled": pre_shrink_enabled,
             "factor": pre_shrink_factor
-        }
+        },
+        "imbalance_sampler": imbalance_info
     }
     
     # Add split strategy info if available
@@ -747,12 +760,31 @@ def create_augmented_dataloaders(
     # Create datasets
     train_dataset = AugmentedDrawingDataset(data_dir, split='train', transform=transform, is_classification=is_classification)
     val_dataset = AugmentedDrawingDataset(data_dir, split='val', transform=transform, is_classification=is_classification)
-    
+
+    # Optional oversampling of rare score bins (regression only).
+    # Targets on disk are already normalized; equal-width binning works on
+    # any scale, so the sampler is built directly from the stored values.
+    imbalance_sampler = None
+    imbalance_info = {'enabled': False}
+    if not is_classification:
+        train_targets = []
+        for sample in train_dataset.samples:
+            try:
+                with open(sample['label_path'], 'r') as f:
+                    train_targets.append(float(json.load(f)['target_value']))
+            except Exception as e:
+                logger.warning(f"Could not read label {sample['label_path']}: {e}")
+                train_targets.append(0.0)
+        imbalance_sampler, imbalance_info = build_regression_imbalance_sampler(
+            np.array(train_targets)
+        )
+
     # Create dataloaders
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=shuffle_train,
+        shuffle=shuffle_train if imbalance_sampler is None else False,
+        sampler=imbalance_sampler,
         num_workers=0,
         pin_memory=False
     )
@@ -788,7 +820,8 @@ def create_augmented_dataloaders(
         "n_bins": metadata.get('n_bins', 0),
         # Restore train/val image IDs for testing on same split
         "train_image_ids": metadata.get('train_image_ids', []),
-        "val_image_ids": metadata.get('val_image_ids', [])
+        "val_image_ids": metadata.get('val_image_ids', []),
+        "imbalance_sampler": imbalance_info
     }
     
     # Calculate class weights for classification from metadata

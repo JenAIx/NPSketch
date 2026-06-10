@@ -42,7 +42,13 @@ training:
       patience: 15
       min_delta: 0.001
       min_epochs: 2
-  
+    # Counteract skewed target distributions (e.g. Total_Score median 56 with
+    # almost no low scores): oversample rare score bins via WeightedRandomSampler
+    imbalance:
+      enabled: true
+      num_bins: 6                  # Equal-width bins over the observed target range
+      max_weight: 10.0             # Cap per-sample weight (avoid extreme oversampling)
+
   # Classification-specific settings
   classification:
     learning_rate: 0.0005          # Recommended LR for classification tasks

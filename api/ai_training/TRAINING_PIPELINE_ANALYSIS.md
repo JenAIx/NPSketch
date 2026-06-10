@@ -422,5 +422,56 @@ After implementing these changes:
 
 ---
 
-**Last Updated:** 2026-01-13
-**Status:** Analysis Complete - Ready for Implementation
+# Audit 2026-06-10: Patient-Level Leakage & Sigmoid Saturation (FIXED)
+
+A second deep audit (after the TeleFred 202606 import) found two substantial problems.
+Both are fixed; details in `CHANGELOG.md` ([Unreleased] - 2026-06-10).
+
+## Findings (verified against code + DB)
+
+1. **CRITICAL — image-level train/val split leaked patients.**
+   7081 labeled images / 3663 patients; 3400 patients (96% of images) have >1 image
+   (TeleFred FC0+FC1, OXFORD/ALGORITHM multi-images). The old split
+   (`split_strategy.py`, image indices) put nearly every patient into train AND val →
+   validation metrics systematically inflated (part of the Jan-13 model's Val R² 0.87).
+   → Fixed: `stratified_group_split()` (patient-level, stratified on patient-median
+   score, hard zero-overlap assert), wired into both dataloader paths.
+   **Expect lower — honest — val metrics for all models trained after this fix.**
+
+2. **HIGH — sigmoid head + heavily skewed scores.**
+   Total_Score distribution: median 56, ~2970 images ≥58, only 7 images ≤5. With
+   min-max [0,60]→[0,1] most targets sit at 0.87–1.0, in the sigmoid saturation zone
+   (vanishing gradients). → Fixed: linear head for regression (`use_sigmoid=False`),
+   clamping moved to AFTER denormalization. `use_sigmoid` is read from metadata at
+   inference, so old sigmoid models still predict correctly (this also fixed a
+   pre-existing predict-single bug that rebuilt models without the sigmoid).
+
+3. **MEDIUM — no torch seeding** → fixed (`torch.manual_seed(42)`, deterministic cuDNN).
+
+4. **MEDIUM — score imbalance unaddressed in regression** → added capped
+   inverse-frequency `WeightedRandomSampler` (`training.regression.imbalance` in YAML).
+
+5. **Observability** → per-score-decade MAE/RMSE in train/val metrics (`per_score_bin`).
+
+## Known, intentionally deferred (phase 2)
+
+- Extractor rendering squashes the content bbox to 568×274 **without preserving aspect
+  ratio** (`ocs_extractor.py: render_red_pixels_to_image`, also Oxford/MAT) while the
+  upload/inference path preserves it. Fixing requires re-importing TELEFRED/OCS data.
+- Three different binarization thresholds (127 line_normalizer / 175 preprocessing /
+  250 upload) — unify on the inference path.
+- TeleFred `TotalScore=0` is stored unlabeled (ambiguous: "not filled in" vs. true 0);
+  the model currently never sees true score-0 drawings. Clarify with data provider.
+
+## Checked and NOT broken (false alarms from the audit)
+
+- Normalizer fitting is NOT a val-leak for `Total_Score` (fixed preset range [0,60],
+  `fit()` does not override preset values).
+- Early stopping epoch-1 lock: already fixed by `min_epochs` + best-weight restore
+  (see issue #1 above, resolved since).
+- Split-before-augmentation order is correct (val stays unaugmented).
+
+---
+
+**Last Updated:** 2026-06-10
+**Status:** 2026-06 fixes implemented; phase 2 (preprocessing consistency) open
