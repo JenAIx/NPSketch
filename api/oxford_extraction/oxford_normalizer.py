@@ -175,11 +175,19 @@ def normalize_oxford_image(input_path, output_path, target_size=(568, 274),
                 if verbose:
                     print(f"    Warning: No content found, skipping crop")
         
-        # Resize to target size
+        # Resize to target size PRESERVING ASPECT RATIO, centered on white
+        # canvas (a direct stretch distorted each drawing by a content-
+        # dependent factor and mismatched the inference path).
         if img.size != target_size:
             if verbose:
-                print(f"    Resizing from {img.size[0]}×{img.size[1]} to {target_size[0]}×{target_size[1]}px")
-            img = img.resize(target_size, Image.Resampling.LANCZOS)
+                print(f"    Fitting {img.size[0]}×{img.size[1]} into {target_size[0]}×{target_size[1]}px (AR preserved)")
+            w, h = img.size
+            scale = min(target_size[0] / w, target_size[1] / h)
+            new_w = max(1, int(w * scale))
+            new_h = max(1, int(h * scale))
+            resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            img = Image.new('RGB', target_size, (255, 255, 255))
+            img.paste(resized, ((target_size[0] - new_w) // 2, (target_size[1] - new_h) // 2))
             img_array = np.array(img)
         else:
             if verbose:

@@ -250,29 +250,31 @@ def preprocess_image_for_model(
     """
     # Ensure RGB
     image = _ensure_rgb(image)
-    
+
     # Step 1: Resize to 568×274
     if apply_resize:
         image = _resize_to_target(image)
-    
-    # Step 2: Binarization
+
+    # Steps 2-4 MUST match the training order in preprocess_for_training():
+    # pre-shrink → binarize → line-norm. Line normalization comes LAST so the
+    # final line thickness is invariant regardless of earlier resampling.
+    # (The previous order - line-norm before pre-shrink - left ~0.4% of pixels
+    # differing from the training transform.)
+
+    # Step 2: Pre-shrink (if enabled)
+    if pre_shrink_enabled:
+        image = apply_pre_shrink(image, factor=pre_shrink_factor)
+
+    # Step 3: Binarization (also removes anti-aliasing from resize/shrink)
     if apply_binarization:
         gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         _, binary = cv2.threshold(gray, BINARIZATION_THRESHOLD, 255, cv2.THRESH_BINARY)
         image = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
-    
-    # Step 3: Line thickness normalization
+
+    # Step 4: Line thickness normalization
     if apply_line_normalization_flag:
         image = apply_line_normalization(image, target_thickness=LINE_THICKNESS)
-    
-    # Step 4: Pre-shrink (if enabled)
-    if pre_shrink_enabled:
-        image = apply_pre_shrink(image, factor=pre_shrink_factor)
-        # Re-binarize after shrink (resize can create gray pixels)
-        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        _, binary = cv2.threshold(gray, BINARIZATION_THRESHOLD, 255, cv2.THRESH_BINARY)
-        image = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
-    
+
     # Step 5: Convert to grayscale for model
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     
@@ -448,20 +450,16 @@ def _preprocess_with_debug(
     image = _resize_to_target(image)
     record_step("resized", image)
 
-    # Step 2: binarize
-    image = apply_binarization(image)
-    record_step("binarized", image)
-
-    # Step 3: line thickness normalization
-    image = apply_line_normalization(image)
-    record_step("line_normalized", image)
-
-    # Step 4: pre-shrink (optional)
+    # Steps 2-4 in training order: pre-shrink → binarize → line-norm
     if pre_shrink_enabled:
         image = apply_pre_shrink(image, factor=pre_shrink_factor)
         record_step("pre_shrunk", image)
-        image = apply_binarization(image)
-        record_step("pre_shrunk_binarized", image)
+
+    image = apply_binarization(image)
+    record_step("binarized", image)
+
+    image = apply_line_normalization(image)
+    record_step("line_normalized", image)
 
     # Step 5: final grayscale
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)

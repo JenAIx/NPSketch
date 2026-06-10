@@ -29,6 +29,28 @@ A deep audit of the training pipeline found two substantial problems; both fixed
   is read from model metadata at inference (also fixes a pre-existing `predict-single`
   bug that silently dropped the sigmoid when rebuilding the model).
 
+### Fixed - Preprocessing Consistency (empirical audit, phase 2)
+
+Measured on the stored images (not just code review):
+
+- **True 2px line thickness**: the dilation kernel in `line_normalizer.py` was
+  `max(1, target-1) = 1×1` — a no-op. ALL stored "2px" images were actually 1px
+  (measured area/skeleton = 1.00 across every source). Kernel fixed
+  (`kernel = target_thickness`); the duplicate implementation in
+  `ocs_extraction/ocs_extractor.py` replaced by a re-export of the shared one.
+- **Aspect-ratio-preserving rendering**: extractors stretched the content bbox to
+  568×274 (measured distortion: TELEFRED median 1.24×, 59% of images >20%, 18% >50%;
+  OXFORD/ALGORITHM median ~1.17×) while the inference path preserves AR. Fixed in
+  `ocs_extractor.render_red_pixels_to_image` and `oxford_normalizer.normalize_oxford_image`
+  (fit + center on white canvas).
+- **All stored `processed_image_data` re-rendered from originals** via the new
+  `api/reprocess_processed_images.py` (TELEFRED/OCS: red-pixel re-extraction;
+  OXFORD/ALGORITHM: bbox-crop + AR-fit; MAT/DRAWN: 2px re-norm only, AR not
+  reconstructable). DB backup: `npsketch.db.bak_pre_rerender_20260610`.
+- **Train/inference transform order unified**: prediction ran line-norm BEFORE
+  pre-shrink (training: after) → 0.38% of pixels differed. `preprocess_image_for_model`
+  now uses the training order (pre-shrink → binarize → line-norm); measured diff now 0.000%.
+
 ### Added - Training Pipeline
 
 - **Imbalance oversampling for regression**: `WeightedRandomSampler` over equal-width

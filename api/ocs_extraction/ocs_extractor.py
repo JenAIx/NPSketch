@@ -64,56 +64,15 @@ def create_default_config(config_path):
     return False
 
 
-def normalize_line_thickness(image_array, target_thickness=2, threshold=127):
-    """
-    Normalize line thickness to a consistent width using skeletonization and dilation.
-    
-    Args:
-        image_array: RGB or grayscale numpy array
-        target_thickness: Desired line thickness in pixels (default: 2)
-        threshold: Threshold for binarization (default: 127)
-    
-    Returns:
-        Normalized RGB numpy array (uint8)
-    """
-    # Convert to grayscale if needed
-    if len(image_array.shape) == 3:
-        gray = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
-    else:
-        gray = image_array.copy()
-    
-    # Binarize: white background (255), black lines (0)
-    _, binary = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
-    
-    # Invert for processing: black background, white lines
-    binary_inv = cv2.bitwise_not(binary)
-    
-    # Check if there's any content
-    if np.sum(binary_inv) == 0:
-        # Empty image, return as-is
-        result = np.ones_like(gray) * 255
-        return cv2.cvtColor(result, cv2.COLOR_GRAY2RGB)
-    
-    # Skeletonize to 1-pixel thin lines using Zhang-Suen thinning
-    skeleton = cv2.ximgproc.thinning(binary_inv, thinningType=cv2.ximgproc.THINNING_ZHANGSUEN)
-    
-    # If target thickness is 1, we're done
-    if target_thickness <= 1:
-        skeleton_inv = cv2.bitwise_not(skeleton)
-        return cv2.cvtColor(skeleton_inv, cv2.COLOR_GRAY2RGB)
-    
-    # Dilate to target thickness
-    kernel_size = max(1, target_thickness - 1)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-    dilated = cv2.dilate(skeleton, kernel, iterations=1)
-    
-    # Invert back: white background, black lines
-    result = cv2.bitwise_not(dilated)
-    
-    # Convert to RGB
-    result_rgb = cv2.cvtColor(result, cv2.COLOR_GRAY2RGB)
-    
-    return result_rgb
+# Single shared implementation - the previous local copy had the same
+# 1px-instead-of-2px dilation bug as line_normalizer (fixed there).
+# Re-exported here for backward compatibility (e.g. image_quality_check).
+try:
+    from line_normalizer import normalize_line_thickness
+except ImportError:
+    import sys as _sys
+    _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from line_normalizer import normalize_line_thickness
 
 
 def extract_red_pixels(image_path, red_threshold):
@@ -203,22 +162,32 @@ def render_red_pixels_to_image(red_mask, bbox, output_path, canvas_size=(568, 27
             return True
         
         min_x, min_y, max_x, max_y = bbox
-        
+
         # Crop to bounding box
         cropped_mask = red_mask[min_y:max_y+1, min_x:max_x+1]
-        
+
         # Create image from cropped mask (red pixels -> black, others -> white)
         height, width = cropped_mask.shape
         img_array = np.ones((height, width, 3), dtype=np.uint8) * 255
         img_array[cropped_mask] = [0, 0, 0]  # Red pixels become black
-        
-        # Create PIL image and resize
+
+        # Scale to fit the canvas PRESERVING ASPECT RATIO, centered on white.
+        # (Previously the bbox was stretched to the full canvas, distorting
+        # every drawing by a content-dependent factor - median 1.24x for
+        # TeleFred - and mismatching the inference path, which preserves AR.)
+        canvas_w, canvas_h = canvas_size
+        scale = min(canvas_w / width, canvas_h / height)
+        new_w = max(1, int(width * scale))
+        new_h = max(1, int(height * scale))
+
         img = Image.fromarray(img_array, mode='RGB')
-        img = img.resize(canvas_size, Image.Resampling.LANCZOS)
-        
+        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+        canvas = Image.new('RGB', canvas_size, (255, 255, 255))
+        canvas.paste(img, ((canvas_w - new_w) // 2, (canvas_h - new_h) // 2))
+
         # Normalize line thickness for consistency
-        img_array_resized = np.array(img)
-        normalized = normalize_line_thickness(img_array_resized, target_thickness=2)
+        normalized = normalize_line_thickness(np.array(canvas), target_thickness=2)
         img = Image.fromarray(normalized, mode='RGB')
         
         img.save(output_path)

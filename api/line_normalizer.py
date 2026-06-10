@@ -58,11 +58,11 @@ def normalize_line_thickness(image_array, target_thickness=2, threshold=127):
         skeleton_inv = cv2.bitwise_not(skeleton)
         return cv2.cvtColor(skeleton_inv, cv2.COLOR_GRAY2RGB)
     
-    # Dilate to target thickness
-    # Calculate kernel size based on target thickness
-    # For thickness=2, we need minimal dilation
-    # For thickness=3, we need slightly more, etc.
-    kernel_size = max(1, target_thickness - 1)
+    # Dilate to target thickness.
+    # A (k,k) structuring element grows the 1px skeleton to ~k px width;
+    # the previous formula (target_thickness - 1) yielded a 1x1 kernel for
+    # target 2, i.e. NO dilation - all "2px" images were actually 1px.
+    kernel_size = max(1, int(round(target_thickness)))
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
     
     dilated = cv2.dilate(skeleton, kernel, iterations=1)
