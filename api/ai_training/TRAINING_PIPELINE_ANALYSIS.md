@@ -453,13 +453,28 @@ Both are fixed; details in `CHANGELOG.md` ([Unreleased] - 2026-06-10).
 
 5. **Observability** → per-score-decade MAE/RMSE in train/val metrics (`per_score_bin`).
 
-## Known, intentionally deferred (phase 2)
+## Phase 2 — preprocessing consistency (DONE 2026-06-10, same day)
 
-- Extractor rendering squashes the content bbox to 568×274 **without preserving aspect
-  ratio** (`ocs_extractor.py: render_red_pixels_to_image`, also Oxford/MAT) while the
-  upload/inference path preserves it. Fixing requires re-importing TELEFRED/OCS data.
+Empirical audit on the stored images, all fixed and re-verified:
+
+- **All "2px" images were actually 1px** (measured area/skeleton = 1.00 in every
+  source): the dilation kernel in `line_normalizer.py` was `max(1, target-1)` = 1×1,
+  a no-op. Kernel fixed; the duplicate implementation in `ocs_extractor.py` replaced
+  by a re-export. Measured after fix: 2.0–2.1px everywhere.
+- **Aspect-ratio distortion** (extractors stretched content bbox to 568×274;
+  TELEFRED median 1.24×, 59% of images >20%): rendering now fits + centers with AR
+  preserved; ALL 7690 `processed_image_data` re-rendered from originals via
+  `api/reprocess_processed_images.py` (MAT/DRAWN: 2px renorm only — AR not
+  reconstructable from .mat, 13 images). After: 0.2% of images >20% distortion.
+  DB backup: `npsketch.db.bak_pre_rerender_20260610`.
+- **Train/inference transform order** unified (pre-shrink → binarize → line-norm);
+  measured pixel diff between paths: 0.38% → 0.000%.
+
+## Still open
+
 - Three different binarization thresholds (127 line_normalizer / 175 preprocessing /
-  250 upload) — unify on the inference path.
+  250 upload.py `/normalize-image`). Irrelevant for stored pure-b/w images; matters
+  only for grayscale photo uploads on the algorithm path. Unify when touching upload.
 - TeleFred `TotalScore=0` is stored unlabeled (ambiguous: "not filled in" vs. true 0);
   the model currently never sees true score-0 drawings. Clarify with data provider.
 
