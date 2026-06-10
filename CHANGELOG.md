@@ -4,6 +4,25 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [Unreleased] - 2026-06-10
+
+### Added - TeleFred 202606 Training Data (Union Import)
+
+- **New tracked module** `api/telefred_extraction/` (ported from the previously untracked
+  per-dataset scripts, with an indentation/syntax bug in `select_images_with_red()` fixed):
+  - `telefred_import.py` — now supports **multiple `--base` directories** with order-based label
+    precedence (first base wins on SHA256 duplicate detection), enabling reproducible union imports.
+  - `telefred_scan.py` — pre-import red-pixel / resolution scan.
+  - `README.md` — workflow + options.
+- **Imported `training_data_telefred_202606`** as a **union with `training_data_telefred_20260119`**:
+  old TELEFRED rows deleted, then re-imported with 202606 first (corrected labels win), 20260119
+  second (adds the 559 fc0 + 553 fc1 images dropped from the new delivery).
+  - DB result: **5993 TELEFRED entries** (was 4577) — FC0 2909 / FC1 3084; labeled 5385.
+  - 380 blank (zero-red) scans newly present in 202606 are correctly skipped.
+  - Session `telefred_20260610`. See `templates/training_data_telefred_202606/IMPORT_SUMMARY.md`.
+
+---
+
 ## [1.2.0] - 2026-01-22
 
 ### Changed - Score-Based Synthetic Images
