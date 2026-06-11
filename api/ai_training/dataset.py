@@ -17,7 +17,7 @@ import json
 from pathlib import Path
 
 from .normalization import TargetNormalizer
-from .preprocessing import preprocess_for_training
+from .preprocessing import preprocess_for_training, resize_for_model_input, get_model_input_size
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -62,7 +62,9 @@ class DrawingDataset(Dataset):
         self.num_classes = num_classes
         self.pre_shrink_enabled = pre_shrink_enabled
         self.pre_shrink_factor = pre_shrink_factor
-        
+        # CNN input resolution (downscale from 568x274); None = full res
+        self.model_input_size = get_model_input_size()
+
         # Validate classification parameters
         if is_classification and num_classes is None:
             raise ValueError(f"num_classes must be provided when is_classification=True for feature '{target_feature}'")
@@ -129,7 +131,10 @@ class DrawingDataset(Dataset):
         
         # Convert to float32 and normalize to [0, 1]
         img_array = img_array.astype(np.float32) / 255.0
-        
+
+        # Downscale to CNN input resolution (identical in inference)
+        img_array = resize_for_model_input(img_array, self.model_input_size)
+
         # Add channel dimension: (H, W) -> (1, H, W)
         img_tensor = torch.from_numpy(img_array).unsqueeze(0)
         
@@ -683,6 +688,8 @@ class AugmentedDrawingDataset(Dataset):
         self.split = split
         self.transform = transform
         self.is_classification = is_classification
+        # CNN input resolution (downscale from 568x274); None = full res
+        self.model_input_size = get_model_input_size()
         
         self.split_dir = self.data_dir / split
         if not self.split_dir.exists():
@@ -710,10 +717,13 @@ class AugmentedDrawingDataset(Dataset):
         
         # Load image
         img_array = cv2.imread(str(sample['image_path']), cv2.IMREAD_GRAYSCALE)
-        
+
         # Normalize to [0, 1]
         img_array = img_array.astype(np.float32) / 255.0
-        
+
+        # Downscale to CNN input resolution (identical in inference)
+        img_array = resize_for_model_input(img_array, self.model_input_size)
+
         # Convert to tensor: (H, W) -> (1, H, W)
         img_tensor = torch.from_numpy(img_array).unsqueeze(0)
         

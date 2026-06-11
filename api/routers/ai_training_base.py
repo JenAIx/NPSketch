@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from database import get_db, TrainingDataImage
 from pydantic import ValidationError
 import json
+import os
 import sys
 from datetime import datetime
 
@@ -528,7 +529,21 @@ def run_training_job(config):
         epoch_times = []  # Track time per epoch for estimation
         early_stopped = False
         stopped_epoch = None
-        
+
+        # CNN input resolution (for metadata so inference resizes identically)
+        from ai_training.preprocessing import get_model_input_size
+        _model_input_size = get_model_input_size()
+        if _model_input_size:
+            logger.info(f"Model input resolution: {_model_input_size[0]}x{_model_input_size[1]} "
+                        f"(downscaled from 568x274)")
+
+        # Crash-safe checkpoint of the best epoch so far (the final timestamped
+        # model is saved at the end; this is insurance against a mid-run crash
+        # on long CPU jobs)
+        import torch as _torch
+        checkpoint_path = f"/app/data/models/checkpoint_{config['target_feature']}.pth"
+        best_val_for_ckpt = None
+
         for epoch in range(config['num_epochs']):
             # Check for cancellation request
             if training_state.get('cancelled', False):
@@ -544,7 +559,7 @@ def run_training_job(config):
             training_state['progress']['message'] = f"Training epoch {epoch+1}/{config['num_epochs']}..."
             
             metrics = trainer.train_epoch(train_loader, val_loader, epoch=epoch)
-            
+
             # Update training history
             trainer.history['epoch'].append(epoch)
             trainer.history['train_loss'].append(metrics['train_loss'])
@@ -552,7 +567,28 @@ def run_training_job(config):
                 trainer.history['val_loss'].append(metrics['val_loss'])
             # Store learning rate to track LR scheduling changes
             trainer.history['learning_rate'].append(metrics.get('learning_rate', config['learning_rate']))
-            
+
+            # Per-epoch progress line (the only place epochs are logged - makes
+            # long CPU runs observable via tail -f training.log)
+            epoch_duration = time.time() - epoch_start_time
+            val_str = f"{metrics['val_loss']:.5f}" if metrics['val_loss'] is not None else "n/a"
+            logger.info(f"Epoch {epoch+1}/{config['num_epochs']} | "
+                        f"train_loss={metrics['train_loss']:.5f} | val_loss={val_str} | "
+                        f"lr={metrics.get('learning_rate', 0):.2e} | {epoch_duration:.0f}s")
+
+            # Crash-safe best checkpoint to disk when val loss improves
+            if metrics['val_loss'] is not None and (best_val_for_ckpt is None or metrics['val_loss'] < best_val_for_ckpt):
+                best_val_for_ckpt = metrics['val_loss']
+                try:
+                    _torch.save({
+                        'model_state_dict': trainer.model.state_dict(),
+                        'epoch': epoch + 1,
+                        'val_loss': metrics['val_loss'],
+                        'target_feature': config['target_feature'],
+                    }, checkpoint_path)
+                except Exception as ckpt_err:
+                    logger.warning(f"Could not write checkpoint: {ckpt_err}")
+
             # Check early stopping
             if trainer.early_stopping is not None and metrics['val_loss'] is not None:
                 if trainer.early_stopping(metrics['val_loss'], trainer.model, epoch):
@@ -562,11 +598,10 @@ def run_training_job(config):
                     # Restore best weights
                     trainer.early_stopping.restore_best(trainer.model)
                     break
-            
+
             # Calculate duration and estimated remaining time
             current_time = time.time()
             elapsed_time = current_time - start_time
-            epoch_duration = current_time - epoch_start_time
             epoch_times.append(epoch_duration)
             
             # Calculate estimated remaining time based on average epoch time
@@ -614,6 +649,10 @@ def run_training_job(config):
                 'warmup_epochs': config.get('warmup_epochs', 3)
             },
             'normalization': normalizer.get_config() if normalizer else {'enabled': False},
+            'model_input': (
+                {'width': _model_input_size[0], 'height': _model_input_size[1]}
+                if _model_input_size else {'width': None, 'height': None}
+            ),
             'augmentation': stats.get('augmentation', {'enabled': False}),
             'synthetic_bad_images': stats.get('synthetic_bad_images', {'enabled': False}),
             'imbalance_sampler': stats.get('imbalance_sampler', {'enabled': False}),
@@ -689,7 +728,14 @@ def run_training_job(config):
         }
         
         model_path = trainer.save_model(f"model_{config['target_feature']}", metadata=metadata)
-        
+
+        # Final model saved - remove the crash-safe checkpoint
+        try:
+            if os.path.exists(checkpoint_path):
+                os.remove(checkpoint_path)
+        except Exception:
+            pass
+
         training_state['status'] = 'completed'
         training_state['progress']['message'] = 'Training completed!'
         training_state['progress']['model_path'] = model_path

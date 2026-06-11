@@ -53,6 +53,17 @@ Measured on the stored images (not just code review):
 
 ### Added - Training Pipeline
 
+- **CNN input downscaling** (`training.model_input` in YAML, default 284×137 =
+  half of 568×274, aspect ratio preserved): ~4× faster CPU training. Applied
+  identically in training and inference; the size is recorded in model metadata
+  and re-applied at prediction (old models without it keep using full 568×274).
+- **Per-epoch progress logging** in `run_training_job` (train/val loss, LR, epoch
+  time) — long CPU runs are now observable via `tail -f training.log`. Previously
+  the epoch loop logged nothing unless the LR changed.
+- **Crash-safe best checkpoint**: the best epoch so far is written to
+  `checkpoint_<feature>.pth` whenever val loss improves and removed on successful
+  completion — a mid-run crash no longer loses all progress (the final timestamped
+  model is still saved at the end).
 - **Imbalance oversampling for regression**: `WeightedRandomSampler` over equal-width
   target bins (inverse frequency, capped), configurable via
   `training.regression.imbalance` in `training_config.yaml` (default: enabled).

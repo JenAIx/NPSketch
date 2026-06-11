@@ -65,7 +65,7 @@ def main():
         config = {
             "target_feature": "Total_Score",   # regression (does not start with Custom_Class_)
             "train_split": 0.8,
-            "num_epochs": 30,
+            "num_epochs": 15,                  # CPU run; early stopping may end earlier
             "learning_rate": None,             # use regression default from training_config.yaml
             "batch_size": 8,
             "use_augmentation": True,          # full run: augmentation ON
@@ -85,7 +85,7 @@ def main():
 
         print("\nConfiguration:")
         print("  Target:        Total_Score (regression)")
-        print("  Epochs:        30 (+ early stopping)")
+        print("  Epochs:        15 (+ early stopping)")
         print("  Augmentation:  ON (~6x)")
         print("  Normalization: ON (min-max target)")
         print("  Batch size:    8")

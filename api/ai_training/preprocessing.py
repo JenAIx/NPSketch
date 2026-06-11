@@ -34,6 +34,40 @@ BINARIZATION_THRESHOLD = 175
 LINE_THICKNESS = 2.0
 
 
+def get_model_input_size() -> Optional[Tuple[int, int]]:
+    """
+    CNN input resolution (width, height) from config, or None for full
+    568x274. Downscaling speeds up CPU training; both dims are halved by
+    default so the aspect ratio is preserved.
+    """
+    try:
+        from config import get_config
+        cfg = get_config().get('training.model_input', {}) or {}
+    except Exception:
+        return None
+    if not cfg.get('enabled', False):
+        return None
+    w, h = cfg.get('width'), cfg.get('height')
+    if not w or not h:
+        return None
+    return int(w), int(h)
+
+
+def resize_for_model_input(gray: np.ndarray, size: Optional[Tuple[int, int]]) -> np.ndarray:
+    """
+    Resize a grayscale model-input array to (width, height).
+
+    Applied identically in training and inference so train/predict stay in
+    parity. INTER_AREA is used (best for downscaling). size=None is a no-op.
+    """
+    if size is None:
+        return gray
+    w, h = size
+    if gray.shape[1] == w and gray.shape[0] == h:
+        return gray
+    return cv2.resize(gray, (w, h), interpolation=cv2.INTER_AREA)
+
+
 def apply_pre_shrink(image: np.ndarray, factor: float = 0.90) -> np.ndarray:
     """
     Apply pre-shrink to create margins for rotation/translation tolerance.
@@ -229,7 +263,8 @@ def preprocess_image_for_model(
     apply_line_normalization_flag: bool = True,
     pre_shrink_enabled: bool = False,
     pre_shrink_factor: float = 0.90,
-    return_tensor: bool = True
+    return_tensor: bool = True,
+    model_input_size: Optional[Tuple[int, int]] = None
 ) -> np.ndarray:
     """
     Full preprocessing pipeline for model input.
@@ -277,11 +312,14 @@ def preprocess_image_for_model(
 
     # Step 5: Convert to grayscale for model
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-    
+
+    # Step 6: Resize to CNN input resolution (must match training)
+    gray = resize_for_model_input(gray, model_input_size)
+
     if return_tensor:
         # Normalize to [0, 1] float32
         return gray.astype(np.float32) / 255.0
-    
+
     return gray
 
 
@@ -300,19 +338,26 @@ def get_preprocessing_config_from_metadata(metadata: Dict) -> Dict:
     # Default config (no pre-shrink for backwards compatibility)
     config = {
         'pre_shrink_enabled': False,
-        'pre_shrink_factor': 0.90
+        'pre_shrink_factor': 0.90,
+        # None = full 568x274 (old models trained before model_input downscaling)
+        'model_input_size': None
     }
-    
+
     # Check augmentation config for pre-shrink settings
     augmentation = metadata.get('augmentation', {})
     if augmentation.get('enabled', False):
         aug_config = augmentation.get('config', {})
         pre_shrink = aug_config.get('pre_shrink', {})
-        
+
         if pre_shrink:
             config['pre_shrink_enabled'] = pre_shrink.get('enabled', False)
             config['pre_shrink_factor'] = pre_shrink.get('factor', 0.90)
-    
+
+    # CNN input resolution used at training time (recorded in metadata)
+    mi = metadata.get('model_input')
+    if mi and mi.get('width') and mi.get('height'):
+        config['model_input_size'] = (int(mi['width']), int(mi['height']))
+
     return config
 
 
@@ -353,18 +398,20 @@ def preprocess_pil_image_for_prediction(
     # Determine pre-shrink settings
     pre_shrink_enabled = force_pre_shrink
     factor = pre_shrink_factor
-    
+    model_input_size = None
+
     if metadata and not force_pre_shrink:
         preproc_config = get_preprocessing_config_from_metadata(metadata)
         pre_shrink_enabled = preproc_config['pre_shrink_enabled']
         factor = preproc_config['pre_shrink_factor']
-    
+        model_input_size = preproc_config['model_input_size']
+
     # Log preprocessing config
     if pre_shrink_enabled:
         logger.info(f"Prediction preprocessing: pre-shrink enabled (factor={factor})")
     else:
         logger.debug("Prediction preprocessing: pre-shrink disabled")
-    
+
     # Apply full preprocessing
     if debug:
         return _preprocess_with_debug(
@@ -381,7 +428,8 @@ def preprocess_pil_image_for_prediction(
         apply_line_normalization_flag=True,
         pre_shrink_enabled=pre_shrink_enabled,
         pre_shrink_factor=factor,
-        return_tensor=True
+        return_tensor=True,
+        model_input_size=model_input_size
     )
 
 
