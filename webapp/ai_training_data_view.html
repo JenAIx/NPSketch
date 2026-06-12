@@ -795,8 +795,9 @@
                         valB = new Date(b.uploaded_at).getTime();
                         break;
                     case 'features':
-                        valA = a.has_features ? 1 : 0;
-                        valB = b.has_features ? 1 : 0;
+                        // Sort by Total_Score (rows without a score sort to the bottom)
+                        valA = (a.total_score !== null && a.total_score !== undefined) ? a.total_score : -Infinity;
+                        valB = (b.total_score !== null && b.total_score !== undefined) ? b.total_score : -Infinity;
                         break;
                     default:
                         return 0;
