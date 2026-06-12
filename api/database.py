@@ -76,11 +76,7 @@ class TrainingDataImage(Base):
 
     # CNN training labels (nullable - only if available)
     features_data = Column(String, nullable=True)  # JSON: Total_Score + optional components
-    
-    # Quality check status (for identifying problematic images)
-    quality_check_status = Column(String, nullable=True, index=True)  # "valid", "invalid", or NULL
-    quality_check_date = Column(DateTime, nullable=True)  # When the quality check was performed
-    
+
     # Metadata
     session_id = Column(String, index=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow, index=True)  # Index for ORDER BY performance
@@ -108,11 +104,9 @@ def _run_migrations():
     from sqlalchemy import text
     
     migrations = [
-        # Quality check columns for training_data_images
-        ("training_data_images", "quality_check_status", "VARCHAR"),
-        ("training_data_images", "quality_check_date", "DATETIME"),
+        # (no column migrations currently)
     ]
-    
+
     # Indexes to create for performance
     indexes = [
         # Index on uploaded_at for ORDER BY optimization (critical for large datasets)

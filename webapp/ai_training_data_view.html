@@ -531,19 +531,6 @@
                 <div class="stat-label">Patients</div>
             </div>
         </div>
-        
-        <!-- Bulk Features Section -->
-        <div class="section">
-            <h2>🛠️ Image Management</h2>
-            <div style="display: flex; gap: 15px; flex-wrap: wrap;">
-                <div class="tooltip-wrapper" data-tooltip="Run background quality check on all images. Results are saved to DB. Use 'Quality Failed' checkbox to filter.">
-                    <button class="btn btn-small" id="qualityCheckBtn" onclick="runQualityCheck()" style="background: #ff9800;">
-                        🧪 Run Quality Check
-                    </button>
-                </div>
-            </div>
-            <div id="csvUploadResult" style="margin-top: 15px;"></div>
-        </div>
 
         <!-- Data Table -->
         <div class="section">
@@ -565,22 +552,12 @@
                         <input type="checkbox" id="filterMissing" onchange="searchData()" style="cursor: pointer;">
                         <span style="color: #856404; font-weight: 600;">Only Missing</span>
                     </label>
-                    <label id="filterQualityLabel" style="display: flex; align-items: center; gap: 6px; background: #ffebee; padding: 6px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; font-size: 0.9em;">
-                        <input type="checkbox" id="filterQualityFailed" onchange="searchData()" style="cursor: pointer;">
-                        <span style="color: #c62828; font-weight: 600;">Quality Failed</span>
-                    </label>
-                    <input type="text" 
+                    <input type="text"
                            id="searchInput" 
                            placeholder="🔍 Search ID, Patient, Task, Source, Date..." 
                            style="flex: 1; padding: 10px; border: 2px solid #dee2e6; border-radius: 6px; font-size: 0.95em;"
                            oninput="searchData()">
                     <button id="clearBtn" class="btn btn-secondary btn-small" onclick="clearSearch()" style="white-space: nowrap;">Clear</button>
-                </div>
-                <div id="qualityCheckProgress" style="display: none; background: #e3f2fd; color: #1565c0; padding: 10px 15px; border-radius: 6px; margin-top: 10px; font-weight: 600;">
-                    ⏳ Quality Check Running: <span id="qualityProgressText">0%</span>
-                    <div style="background: #bbdefb; height: 6px; border-radius: 3px; margin-top: 8px;">
-                        <div id="qualityProgressBar" style="background: #1565c0; height: 100%; border-radius: 3px; width: 0%; transition: width 0.3s;"></div>
-                    </div>
                 </div>
             </div>
             
@@ -665,8 +642,7 @@
         let sortDirection = 'desc';  // 'asc' or 'desc'
         let loadLimit = 10;
         let searchDebounceTimer = null;
-        let qualityCheckPolling = null;
-        
+
         async function loadData() {
             try {
                 // Build URL with server-side filters
@@ -684,13 +660,7 @@
                 if (onlyMissing) {
                     params.set('only_missing', 'true');
                 }
-                
-                // Add "quality check failed" filter (server-side)
-                const qualityFailed = document.getElementById('filterQualityFailed').checked;
-                if (qualityFailed) {
-                    params.set('quality_check_failed', 'true');
-                }
-                
+
                 const response = await fetch(`/api/training-data-images?${params.toString()}`);
                 const data = await response.json();
                 
@@ -759,10 +729,7 @@
             
             // Change color if filtered
             const onlyMissing = document.getElementById('filterMissing').checked;
-            const qualityFailed = document.getElementById('filterQualityFailed').checked;
-            if (qualityFailed) {
-                countElement.style.background = '#c62828';  // Red for quality failed
-            } else if (searchTerm && searchTerm.trim() !== '' || onlyMissing) {
+            if (searchTerm && searchTerm.trim() !== '' || onlyMissing) {
                 countElement.style.background = '#28a745';  // Green when filtering
             } else {
                 countElement.style.background = '#667eea';  // Default blue
@@ -788,103 +755,11 @@
         function clearSearch() {
             document.getElementById('searchInput').value = '';
             document.getElementById('filterMissing').checked = false;
-            document.getElementById('filterQualityFailed').checked = false;
             searchTerm = '';
             currentPage = 0;
             loadData();
         }
 
-        let qualityCheckRunning = false;
-        
-        async function runQualityCheck() {
-            // Prevent multiple simultaneous quality checks
-            if (qualityCheckRunning) {
-                console.log('Quality check already running, skipping...');
-                return;
-            }
-            
-            const btn = document.getElementById('qualityCheckBtn');
-            btn.disabled = true;
-            qualityCheckRunning = true;
-            const originalText = btn.innerHTML;
-            btn.innerHTML = '⏳ Starting...';
-            
-            try {
-                // Start background quality check job
-                const response = await fetch('/api/training-data-image-quality-check/start?recheck_invalid_only=true', {
-                    method: 'POST'
-                });
-                
-                if (!response.ok) {
-                    const errData = await response.json().catch(() => ({}));
-                    throw new Error(errData.detail || errData.message || 'Failed to start quality check');
-                }
-                
-                const data = await response.json();
-                if (!data.success) {
-                    throw new Error(data.message || 'Quality check could not start');
-                }
-                
-                // Show progress bar
-                const progressDiv = document.getElementById('qualityCheckProgress');
-                progressDiv.style.display = 'block';
-                
-                // Start polling for status
-                pollQualityCheckStatus(btn, originalText);
-                
-            } catch (error) {
-                showAlert('error', `Quality check error: ${error.message}`);
-                btn.disabled = false;
-                btn.innerHTML = originalText;
-                qualityCheckRunning = false;
-            }
-        }
-        
-        function pollQualityCheckStatus(btn, originalText) {
-            qualityCheckPolling = setInterval(async () => {
-                try {
-                    const response = await fetch('/api/training-data-image-quality-check/status');
-                    const status = await response.json();
-                    
-                    // Update progress bar
-                    document.getElementById('qualityProgressText').textContent = 
-                        `${status.progress}% (${status.checked}/${status.total}) - Valid: ${status.valid}, Invalid: ${status.invalid}`;
-                    document.getElementById('qualityProgressBar').style.width = `${status.progress}%`;
-                    btn.innerHTML = `⏳ ${status.progress}%`;
-                    
-                    // Check if done
-                    if (!status.running) {
-                        clearInterval(qualityCheckPolling);
-                        qualityCheckPolling = null;
-                        
-                        // Hide progress bar
-                        document.getElementById('qualityCheckProgress').style.display = 'none';
-                        
-                        // Reset button
-                        btn.disabled = false;
-                        btn.innerHTML = originalText;
-                        qualityCheckRunning = false;
-                        
-                        if (status.error) {
-                            showAlert('error', `Quality check error: ${status.error}`);
-                        } else {
-                            showAlert('success', `Quality check complete: ${status.invalid} invalid, ${status.valid} valid images`);
-                            
-                            // Auto-check the "Quality Failed" filter if there are invalid images
-                            if (status.invalid > 0) {
-                                document.getElementById('filterQualityFailed').checked = true;
-                            }
-                            
-                            // Reload data to show results
-                            loadData();
-                        }
-                    }
-                } catch (error) {
-                    console.error('Error polling quality check status:', error);
-                }
-            }, 1000);  // Poll every second
-        }
-        
         function sortData() {
             // Sort existingData based on current sortColumn and sortDirection
             existingData.sort((a, b) => {
@@ -1134,17 +1009,6 @@
                             <p><strong>Format:</strong> Black-on-white PNG</p>
                             <p><strong>Auto-cropped:</strong> 5px padding</p>
                         </div>
-                        <div id="qualityStatusSection" style="margin-top: 15px; padding: 12px; border-radius: 8px; ${img.quality_check_status === 'invalid' ? 'background: #ffebee; border: 2px solid #c62828;' : img.quality_check_status === 'valid' ? 'background: #e8f5e9; border: 2px solid #2e7d32;' : 'background: #f5f5f5; border: 2px solid #9e9e9e;'}">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <div>
-                                    <strong style="color: ${img.quality_check_status === 'invalid' ? '#c62828' : img.quality_check_status === 'valid' ? '#2e7d32' : '#616161'};">
-                                        ${img.quality_check_status === 'invalid' ? '❌ Quality Check: INVALID' : img.quality_check_status === 'valid' ? '✅ Quality Check: VALID' : '⏳ Quality Check: Not checked'}
-                                    </strong>
-                                    ${img.quality_check_date ? '<p style="margin: 5px 0 0 0; font-size: 0.85em; color: #666;">Checked: ' + new Date(img.quality_check_date).toLocaleString() + '</p>' : ''}
-                                </div>
-                                ${img.quality_check_status === 'invalid' ? '<button class="btn btn-small" onclick="markAsValid(' + img.id + ')" style="background: #2e7d32;">✓ Mark as Valid</button>' : ''}
-                            </div>
-                        </div>
                     </div>
                 </div>
             `;
@@ -1332,72 +1196,6 @@
         function closeModal() {
             cancelCrop();  // Clean up crop mode if active
             document.getElementById('previewModal').classList.remove('show');
-        }
-        
-        async function markAsValid(imageId) {
-            try {
-                const response = await fetch(`/api/training-data-image/${imageId}/quality-status`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: 'valid' })
-                });
-                
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Failed to update status');
-                }
-                
-                const result = await response.json();
-                
-                // Update UI immediately
-                const section = document.getElementById('qualityStatusSection');
-                if (section) {
-                    section.style.background = '#e8f5e9';
-                    section.style.border = '2px solid #2e7d32';
-                    section.innerHTML = `
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <strong style="color: #2e7d32;">✅ Quality Check: VALID</strong>
-                                <p style="margin: 5px 0 0 0; font-size: 0.85em; color: #666;">Checked: ${new Date(result.quality_check_date).toLocaleString()}</p>
-                            </div>
-                        </div>
-                    `;
-                }
-                
-                // Update in local data
-                const imgIndex = existingData.findIndex(img => img.id === imageId);
-                if (imgIndex >= 0) {
-                    existingData[imgIndex].quality_check_status = 'valid';
-                    existingData[imgIndex].quality_check_date = result.quality_check_date;
-                }
-                
-                // If "Quality Failed" filter is active, remove item from list and re-render
-                const qualityFailedFilter = document.getElementById('filterQualityFailed').checked;
-                if (qualityFailedFilter) {
-                    // Remove from existingData
-                    if (imgIndex >= 0) {
-                        existingData.splice(imgIndex, 1);
-                        allData = allData.filter(img => img.id !== imageId);
-                    }
-                    
-                    // Re-render table
-                    totalPages = Math.ceil(existingData.length / pageSize);
-                    if (currentPage >= totalPages && currentPage > 0) {
-                        currentPage = totalPages - 1;
-                    }
-                    renderDataTable(getPaginatedData());
-                    updatePagination();
-                    updateResultCount();
-                    
-                    // Close modal if list is now empty or item removed
-                    closeModal();
-                }
-                
-                showAlert('success', `Image #${imageId} marked as valid`);
-                
-            } catch (error) {
-                showAlert('error', `Error: ${error.message}`);
-            }
         }
         
         // Crop functionality

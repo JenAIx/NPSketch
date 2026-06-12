@@ -32,7 +32,6 @@ from PIL import Image
 import csv
 
 from database import get_db, TrainingDataImage
-from image_quality_check.contour_quality import run_quality_check
 from line_normalizer import normalize_line_thickness
 
 router = APIRouter(prefix="/api", tags=["training_data"])
@@ -699,7 +698,6 @@ async def get_training_data_images(
     source_format: str = None,
     search: str = None,
     only_missing: bool = False,
-    quality_check_failed: bool = False,
     ids: str = None,
     db: Session = Depends(get_db)
 ):
@@ -714,7 +712,6 @@ async def get_training_data_images(
         source_format: Filter by source format
         search: Search term (filters ID, patient_id, task_type, source_format, filename)
         only_missing: If true, only return images without features
-        quality_check_failed: If true, only return images that failed quality check
         ids: Comma-separated list of image IDs to filter by (e.g., "122,123,456")
         db: Database session
     
@@ -766,11 +763,7 @@ async def get_training_data_images(
                 TrainingDataImage.features_data == '',
             )
         )
-    
-    # Quality check failed filter
-    if quality_check_failed:
-        filters.append(TrainingDataImage.quality_check_status == "invalid")
-    
+
     # Get total count using func.count (fast - doesn't load data)
     count_query = db.query(func.count(TrainingDataImage.id))
     for f in filters:
@@ -790,9 +783,7 @@ async def get_training_data_images(
             TrainingDataImage.extraction_metadata,
             TrainingDataImage.features_data,
             TrainingDataImage.uploaded_at,
-            TrainingDataImage.session_id,
-            TrainingDataImage.quality_check_status,
-            TrainingDataImage.quality_check_date
+            TrainingDataImage.session_id
         )
     )
     for f in filters:
@@ -829,9 +820,7 @@ async def get_training_data_images(
             "session_id": img.session_id,
             "has_features": has_features,
             "total_score": total_score,
-            "has_components": has_components,
-            "quality_check_status": img.quality_check_status,
-            "quality_check_date": img.quality_check_date.isoformat() if img.quality_check_date else None
+            "has_components": has_components
         })
     
     return {
@@ -855,168 +844,8 @@ def get_training_data_stats(db: Session = Depends(get_db)):
         "by_source": {"MAT": 0, "OCS": 0, "OXFORD": 0, "DRAWN": 0},
         "patients": 0,
         "with_features": 0,
-        "without_features": total,
-        "quality": {"valid": 0, "invalid": 0, "unchecked": total}
+        "without_features": total
     }
-
-
-# Global state for quality check background job
-quality_check_job = {
-    "running": False,
-    "progress": 0,
-    "total": 0,
-    "checked": 0,
-    "invalid": 0,
-    "valid": 0,
-    "started_at": None,
-    "finished_at": None,
-    "error": None,
-}
-
-
-def _run_quality_check_background(recheck_invalid_only: bool = False):
-    """Background task to run quality check and update DB."""
-    import threading
-    from database import SessionLocal
-    from image_quality_check.contour_quality import analyze_image, preprocess_original_image
-    
-    global quality_check_job
-    
-    quality_check_job["running"] = True
-    quality_check_job["started_at"] = datetime.now().isoformat()
-    quality_check_job["finished_at"] = None
-    quality_check_job["error"] = None
-    quality_check_job["checked"] = 0
-    quality_check_job["invalid"] = 0
-    quality_check_job["valid"] = 0
-    
-    # Quality check parameters
-    red_threshold = {"r_min": 150, "g_max": 100, "b_max": 100}
-    
-    try:
-        db = SessionLocal()
-        
-        # Get entries to check
-        query = db.query(TrainingDataImage)
-        if recheck_invalid_only:
-            # Only check entries that are NULL or invalid
-            from sqlalchemy import or_
-            query = query.filter(
-                or_(
-                    TrainingDataImage.quality_check_status.is_(None),
-                    TrainingDataImage.quality_check_status == "invalid"
-                )
-            )
-        
-        entries = query.all()
-        quality_check_job["total"] = len(entries)
-        
-        logger.info(f"Quality check background job started: {len(entries)} entries to check")
-        
-        for i, entry in enumerate(entries):
-            try:
-                # Use original image data
-                image_bytes = entry.original_file_data
-                if not image_bytes:
-                    image_bytes = entry.processed_image_data
-                
-                if not image_bytes:
-                    continue
-                
-                # Analyze image with all parameters
-                result = analyze_image(
-                    image_bytes=image_bytes,
-                    use_original=True,
-                    red_threshold=red_threshold,
-                    min_component_area=100,
-                    min_component_ratio=0.01,
-                    min_gap_px=80,
-                    merge_kernel=5,
-                    merge_iterations=2,
-                    peak_threshold_ratio=0.1,
-                    min_peak_separation=9999,  # Disable projection-based check
-                    outside_margin_ratio=0.05,
-                    outside_ink_ratio=0.08,
-                    min_contour_area=1,
-                    contour_only=False,
-                    require_gap_and_outside=True,
-                    min_component_height_ratio=0.1,
-                    require_contours=True,
-                    min_contour_count=2,
-                )
-                
-                # Update entry
-                is_flagged = result.get("flagged", False)
-                entry.quality_check_status = "invalid" if is_flagged else "valid"
-                entry.quality_check_date = datetime.now()
-                
-                if is_flagged:
-                    quality_check_job["invalid"] += 1
-                else:
-                    quality_check_job["valid"] += 1
-                
-                quality_check_job["checked"] = i + 1
-                quality_check_job["progress"] = int((i + 1) / len(entries) * 100)
-                
-                # Commit in batches so DB is updated while running
-                if (i + 1) % 50 == 0:
-                    db.commit()
-                
-            except Exception as e:
-                logger.warning(f"Error checking image {entry.id}: {e}")
-                continue
-        
-        db.commit()
-        db.close()
-        
-        quality_check_job["finished_at"] = datetime.now().isoformat()
-        logger.info(f"Quality check complete: {quality_check_job['invalid']} invalid, {quality_check_job['valid']} valid")
-        
-    except Exception as e:
-        logger.error(f"Quality check background job error: {e}", exc_info=True)
-        quality_check_job["error"] = str(e)
-    finally:
-        quality_check_job["running"] = False
-
-
-@router.post("/training-data-image-quality-check/start")
-async def start_quality_check(recheck_invalid_only: bool = True):
-    """
-    Start background quality check job.
-    
-    Args:
-        recheck_invalid_only: If true, only check entries with status=NULL or status="invalid"
-    """
-    import threading
-    
-    global quality_check_job
-    
-    if quality_check_job["running"]:
-        return {
-            "success": False,
-            "message": "Quality check already running",
-            "status": quality_check_job,
-        }
-    
-    # Start background thread
-    thread = threading.Thread(
-        target=_run_quality_check_background,
-        args=(recheck_invalid_only,),
-        daemon=True
-    )
-    thread.start()
-    
-    return {
-        "success": True,
-        "message": "Quality check started",
-        "recheck_invalid_only": recheck_invalid_only,
-    }
-
-
-@router.get("/training-data-image-quality-check/status")
-async def get_quality_check_status():
-    """Get current status of quality check background job."""
-    return quality_check_job
 
 
 @router.get("/training-data-image/{image_id}/original")
@@ -1163,38 +992,6 @@ async def delete_training_data_image(image_id: int, db: Session = Depends(get_db
     db.commit()
     
     return {"success": True}
-
-
-@router.post("/training-data-image/{image_id}/quality-status")
-async def update_quality_status(image_id: int, data: dict, db: Session = Depends(get_db)):
-    """
-    Manually update the quality check status of an image.
-    
-    Args:
-        image_id: Image ID
-        data: Dictionary with 'status' ("valid" or "invalid")
-    """
-    img = db.query(TrainingDataImage).filter(TrainingDataImage.id == image_id).first()
-    if not img:
-        raise HTTPException(status_code=404, detail="Image not found")
-    
-    status = data.get('status')
-    if status not in ('valid', 'invalid'):
-        raise HTTPException(status_code=400, detail="Status must be 'valid' or 'invalid'")
-    
-    img.quality_check_status = status
-    img.quality_check_date = datetime.now()
-    
-    db.commit()
-    
-    logger.info(f"Quality status for image {image_id} manually set to '{status}'")
-    
-    return {
-        "success": True,
-        "image_id": img.id,
-        "quality_check_status": img.quality_check_status,
-        "quality_check_date": img.quality_check_date.isoformat()
-    }
 
 
 @router.get("/training-data-image/{image_id}/features")
@@ -1404,182 +1201,6 @@ async def crop_and_reprocess_image(
     except Exception as e:
         logger.error(f"Error cropping image {image_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
-
-
-@router.get("/training-data-features-template")
-async def download_features_template(db: Session = Depends(get_db)):
-    """
-    Generate CSV template with all training data entries for bulk feature upload.
-    
-    Returns:
-        CSV file with columns: Patient, Task, Total_Score, Data_Quality
-    """
-    from sqlalchemy.orm import load_only
-    
-    # Only load columns needed for CSV (exclude BLOBs for performance)
-    images = db.query(TrainingDataImage).options(
-        load_only(
-            TrainingDataImage.patient_id,
-            TrainingDataImage.task_type,
-            TrainingDataImage.features_data
-        )
-    ).order_by(
-        TrainingDataImage.patient_id, 
-        TrainingDataImage.task_type
-    ).all()
-    
-    # Create CSV in memory
-    output = io.StringIO()
-    writer = csv.writer(output)
-    
-    # Header
-    writer.writerow(['Patient', 'Task', 'Total_Score', 'Data_Quality'])
-    
-    # Rows - add existing features if present
-    for img in images:
-        features = {}
-        if img.features_data:
-            try:
-                features = json.loads(img.features_data)
-            except:
-                pass
-        
-        total_score = features.get('Total_Score', '')
-        data_quality = features.get('Data_Quality', '')
-        
-        writer.writerow([
-            img.patient_id,
-            img.task_type,
-            total_score,
-            data_quality
-        ])
-    
-    # Return as downloadable CSV
-    csv_content = output.getvalue()
-    output.close()
-    
-    return Response(
-        content=csv_content,
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": f"attachment; filename=training_data_features_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        }
-    )
-
-
-@router.post("/training-data-features-upload")
-async def upload_features_csv(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db)
-):
-    """
-    Upload CSV file with features and update database.
-    
-    CSV Format: Patient, Task, Total_Score, Data_Quality
-    Matching: Case-insensitive Patient + Task
-    
-    Returns:
-        Update statistics
-    """
-    try:
-        # Read CSV
-        content = await file.read()
-        content_str = content.decode('utf-8')
-        
-        # Auto-detect delimiter using csv.Sniffer (handles quoted fields correctly)
-        try:
-            # Sample first few lines for detection
-            sample = '\n'.join(content_str.split('\n')[:5])
-            sniffer = csv.Sniffer()
-            delimiter = sniffer.sniff(sample, delimiters=',;').delimiter
-        except Exception:
-            # Fallback to comma if detection fails
-            delimiter = ','
-        
-        csv_reader = csv.DictReader(io.StringIO(content_str), delimiter=delimiter)
-        
-        updated = 0
-        skipped = 0
-        errors = []
-        
-        for row in csv_reader:
-            try:
-                patient = row.get('Patient', '').strip()
-                task = row.get('Task', '').strip()
-                total_score = row.get('Total_Score', '').strip()
-                data_quality = row.get('Data_Quality', '').strip()
-                
-                if not patient or not task:
-                    skipped += 1
-                    continue
-                
-                # Find matching entry in DB (case-insensitive)
-                img = db.query(TrainingDataImage).filter(
-                    TrainingDataImage.patient_id.ilike(patient),
-                    TrainingDataImage.task_type.ilike(task)
-                ).first()
-                
-                if img:
-                    # Load existing features or create new
-                    features = {}
-                    if img.features_data:
-                        try:
-                            features = json.loads(img.features_data)
-                        except:
-                            pass
-                    
-                    # Track if any feature was successfully added
-                    any_success = False
-                    
-                    # Update features from CSV
-                    if total_score:
-                        try:
-                            features['Total_Score'] = float(total_score)
-                            any_success = True
-                        except ValueError:
-                            # Sanitize error message to prevent XSS
-                            safe_patient = patient.replace('<', '&lt;').replace('>', '&gt;')
-                            safe_task = task.replace('<', '&lt;').replace('>', '&gt;')
-                            safe_score = total_score.replace('<', '&lt;').replace('>', '&gt;')
-                            errors.append(f"{safe_patient}/{safe_task}: Invalid Total_Score '{safe_score}'")
-                    
-                    if data_quality:
-                        try:
-                            features['Data_Quality'] = float(data_quality)
-                            any_success = True
-                        except ValueError:
-                            # Sanitize error message to prevent XSS
-                            safe_patient = patient.replace('<', '&lt;').replace('>', '&gt;')
-                            safe_task = task.replace('<', '&lt;').replace('>', '&gt;')
-                            safe_quality = data_quality.replace('<', '&lt;').replace('>', '&gt;')
-                            errors.append(f"{safe_patient}/{safe_task}: Invalid Data_Quality '{safe_quality}'")
-                    
-                    # Only save and count as updated if at least one feature was successfully parsed
-                    if any_success:
-                        img.features_data = json.dumps(features)
-                        db.commit()
-                        updated += 1
-                    else:
-                        # All features failed to parse - skip this row
-                        skipped += 1
-                else:
-                    skipped += 1
-                    
-            except Exception as e:
-                # Sanitize exception message to prevent XSS
-                safe_error = str(e).replace('<', '&lt;').replace('>', '&gt;')
-                errors.append(f"Row error: {safe_error}")
-        
-        return {
-            "success": True,
-            "updated": updated,
-            "skipped": skipped,
-            "errors": errors,
-            "total_rows": updated + skipped
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"CSV processing error: {str(e)}")
 
 
 @router.post("/save-drawn-image")
