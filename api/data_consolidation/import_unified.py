@@ -191,12 +191,13 @@ def main():
             src = r["source"]
             # Unscored placeholders: label_status='zero' marks rows that were never
             # actually scored (all components 0, total_score 0) — they are NOT genuine
-            # zero-score drawings (e.g. id 6006 is a near-complete figure). Exclude them;
-            # otherwise good drawings labelled 0 poison regression and component training.
-            if (r.get("label_status") or "").strip().lower() == "zero":
-                stats["skip_unscored_zero"] += 1; continue
+            # zero-score drawings (e.g. id 6006 is a near-complete figure). We KEEP the
+            # image but import it WITHOUT features (features_data=NULL), so it is excluded
+            # from training (queries filter features_data IS NOT NULL) yet still appears
+            # under "Only Missing" in the UI for later labelling.
+            unscored = (r.get("label_status") or "").strip().lower() == "zero"
             # invalid score
-            if r["total_score"] not in ("", None):
+            if not unscored and r["total_score"] not in ("", None):
                 try:
                     if int(r["total_score"]) < 0:
                         stats["drop_negative"] += 1; continue
@@ -217,15 +218,20 @@ def main():
             if args.dry_run:
                 # count what would be inserted, skip actual preprocessing/insert
                 inserted += 1; stats[f"src_{src}"] += 1
+                if unscored:
+                    stats["unscored_no_features"] += 1
                 continue
 
             proc = process_red(orig) if style == "red" else process_black(orig)
             if proc is None:
                 stats["skip_no_content"] += 1; continue
 
-            feats = build_features(r)
+            # unscored placeholders are kept as images but get NO features (NULL)
+            feats = None if unscored else build_features(r)
+            if unscored:
+                stats["unscored_no_features"] += 1
             label_warning = None
-            if r["total_score_sum"] != "" and r["total_score"] not in ("", None):
+            if not unscored and r["total_score_sum"] != "" and r["total_score"] not in ("", None):
                 if abs(int(r["total_score"]) - int(r["total_score_sum"])) > 5:
                     label_warning = f"total={r['total_score']} vs sum={r['total_score_sum']}"
                     stats["flagged_mismatch"] += 1
@@ -242,7 +248,7 @@ def main():
                 source_format=src, original_filename=r["orig_filename"],
                 original_file_data=orig, processed_image_data=proc,
                 image_hash=r["_sha"], extraction_metadata=json.dumps(meta),
-                features_data=json.dumps(feats),
+                features_data=(json.dumps(feats) if feats is not None else None),
                 session_id=f"unified_{datetime.utcnow():%Y%m%d}",
             ))
             inserted += 1
@@ -261,7 +267,7 @@ def main():
     print(f"corrupt rows dropped:   {corrupt_drop} (hash groups with conflicting scores)")
     print(f"exact-dup rows dropped: {dup_drop}")
     print(f"representatives:        {len(reps)}")
-    print(f"  skip unscored (zero): {stats['skip_unscored_zero']}")
+    print(f"  unscored→no features: {stats['unscored_no_features']} (kept as images, NULL features → 'Only Missing')")
     print(f"  skip blank:           {stats['skip_blank']}")
     print(f"  skip no content:      {stats['skip_no_content']}")
     print(f"  drop negative score:  {stats['drop_negative']}")
