@@ -4,6 +4,27 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [2.0.0] - 2026-06-12 — AI-only pivot
+
+Removed the classical algorithm pipeline entirely; the app is now CNN-only
+(regression / classification / components).
+
+- **Backend**: deleted `image_processing/`, `services/` (evaluation + reference),
+  routers `evaluations.py` / `references.py` / `test_images.py`, the algorithm
+  `/api/upload` + `/api/register-image` + `/training-data-image/{id}/evaluate`
+  endpoints, and the dead `synthetic_bad_images.py` / `generate_synthetic_images.py`.
+  `line_normalizer.py` kept (shared preprocessing).
+- **DB**: dropped the algorithm tables (reference_images, uploaded_images,
+  extracted_features, evaluation_results, test_images) and the `ground_truth_*`
+  columns; single table `training_data_images`. Rebuilt from labels.csv (7693 rows).
+  Backup: `npsketch.db.bak_pre_pivot_20260612`.
+- **Frontend**: removed reference.html + training_evaluations.html; index.html nav
+  rewritten (AI-only); upload.html is AI-only (no algorithm toggle); draw +
+  data-view use the component evaluation; run_test.html rewritten as an AI batch
+  test backed by the new `/api/ai-training/models/run-on-test-images`.
+- **Models**: deleted the 27 January model files (kept the June Total_Score model
+  and the new component model/checkpoint).
+
 ## [Unreleased] - 2026-06-12
 
 ### Added - Component-score model (third training mode)

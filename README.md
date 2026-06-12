@@ -1,22 +1,23 @@
-# NPSketch v1.0
+# NPSketch v2.0
 
-**Automated Line Detection & AI Training for Hand-Drawn Images**
+**CNN-based scoring of hand-drawn neuropsychological figures**
 
-NPSketch is a computer vision and machine learning application that automatically compares hand-drawn images to reference templates, provides detailed feedback on drawing accuracy, and trains CNN models to predict clinical features from neuropsychological drawings.
+NPSketch trains and applies ResNet-18 CNN models to score hand-drawn OCS-Plus figures directly from
+the image — predicting the Total_Score, a score class, or the full 20-element ×
+Presence/Accuracy/Position component breakdown. (The earlier classical line-detection/template-matching
+pipeline was removed in v2.0; see `CLAUDE.md`.)
 
 ---
 
 ## 🎯 Features
 
 ### Core Functionality
-- **Automated Line Detection**: OpenCV Hough Transform with iterative pixel subtraction
-- **Smart Comparison**: Hungarian algorithm for optimal line matching
-- **Visual Feedback**: Color-coded visualizations showing matches and differences
-- **Dual Analysis Methods**: 
-  - Algorithm-based: Line detection and matching
-  - AI-based: Trained CNN model prediction (regression or classification)
-- **Duplicate Detection**: SHA256 hash-based checking across both upload and training databases
-- **Optimized Processing**: Separate thinning and registration options for faster uploads
+- **Draw or upload** a figure → score it with a trained model (component breakdown for component models)
+- **Three training modes**: regression (Total_Score), classification (score classes), components (60 sub-labels)
+- **Unified data base**: all sources consolidated into `templates/labels.csv` + `img/`, imported via
+  `api/data_consolidation/import_unified.py`
+- **Run Tests**: batch-evaluate a model over your drawn test images (predicted vs. expected)
+- **Duplicate Detection**: SHA256 hash-based
 
 ### AI Training Pipeline
 - **CNN Model Training**: ResNet-18, three training modes (see `CLAUDE.md` §7)

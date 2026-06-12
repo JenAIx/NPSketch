@@ -11,15 +11,15 @@ for the full functional documentation.
 **NPSketch** is a computer-vision + ML application for analysing hand-drawn neuropsychological
 figures (e.g. OCS-Plus / Oxford copy & recall tasks).
 
-Two largely independent capabilities live side by side:
+**AI-only (2026-06).** The app trains ResNet-18 CNNs to score drawings directly from the image,
+in three modes: **regression** (`Total_Score`), **classification** (custom score classes), and
+**components** (the 60 OCS-Plus sub-labels = 20 elements × Presence/Accuracy/Position; Total_Score =
+their sum). The classical algorithm pipeline (Hough line detection, Hungarian template matching,
+reference templates, line-based evaluation) was **removed** — including its routers, services,
+`image_processing/`, and DB tables. Only `line_normalizer.py` (shared preprocessing) survives from it.
 
-1. **Algorithm pipeline** — detect lines (Hough + iterative pixel subtraction), match a drawing
-   against a reference template (Hungarian algorithm), and score correct / missing / extra lines.
-2. **AI pipeline** — train ResNet-18 CNNs (regression *or* classification) to predict clinical
-   features (`Total_Score`, `MMSE`, custom score classes) directly from a drawing image.
-
-**Stack:** FastAPI (Python 3.10+) · SQLite (`npsketch.db`) · PyTorch (ResNet-18) · OpenCV / PIL ·
-static HTML/JS frontend served by nginx.
+**Stack:** FastAPI (Python 3.10+) · SQLite (`npsketch.db`, single table `training_data_images`) ·
+PyTorch (ResNet-18) · OpenCV / PIL · static HTML/JS frontend served by nginx.
 
 ---
 
@@ -34,44 +34,31 @@ NPSketch/
 │   ├── line_normalizer.py            # Shared 2px line-thickness normalization
 │   │
 │   ├── routers/                      # API endpoint modules (see §6)
-│   │   ├── admin.py                  # Admin & migrations
-│   │   ├── upload.py                 # Upload + algorithm evaluation
-│   │   ├── evaluations.py            # Evaluation CRUD
-│   │   ├── references.py             # Reference templates
-│   │   ├── test_images.py            # Test image management
-│   │   ├── training_data.py          # Training-data management (MAT/OCS extract, quality check)
+│   │   ├── admin.py                  # reset-database, cleanup-tmp
+│   │   ├── upload.py                 # /normalize-image, /check-duplicate
+│   │   ├── training_data.py          # Training-data management, /save-drawn-image (components)
 │   │   ├── ai_training_base.py       # Dataset info, features, distributions, start-training
 │   │   ├── ai_training_classification.py  # Class generation / custom-class endpoints
-│   │   └── ai_training_models.py     # Model list / metadata / test / predict-single / delete
+│   │   └── ai_training_models.py     # Model list / metadata / test / predict-single / run-on-test-images
 │   │
-│   ├── image_processing/             # Algorithm CV library
-│   │   ├── line_detector.py          # Hough Transform line detection
-│   │   ├── comparator.py             # Hungarian-algorithm line matching
-│   │   ├── image_registration.py     # Optional alignment to reference
-│   │   └── utils.py
-│   │
+│   ├── data_consolidation/           # consolidate_templates.py + import_unified.py (the single import)
 │   ├── ai_training/                  # ML pipeline
 │   │   ├── model.py                  # ResNet-18 CNN
-│   │   ├── trainer.py                # Training orchestration
+│   │   ├── trainer.py                # Training orchestration (regression / classification / components)
 │   │   ├── data_loader.py            # DB → augmented training set
 │   │   ├── dataset.py                # PyTorch Dataset / DataLoader
 │   │   ├── data_augmentation.py      # Diversity-controlled augmentation
-│   │   ├── split_strategy.py         # Stratified train/val split
+│   │   ├── split_strategy.py         # Patient-level stratified split (stratified_group_split)
 │   │   ├── normalization.py / preprocessing.py
-│   │   ├── classification_generator.py
-│   │   ├── synthetic_score_based.py  # Score-targeted synthetic images (v1.2.0, current)
-│   │   ├── synthetic_bad_images.py / generate_synthetic_images.py  # Earlier synthetic approaches
+│   │   ├── synthetic_score_based.py  # Score-targeted synthetic images (current)
 │   │   ├── warmup_scheduler.py / visualization.py
 │   │   └── *.md                      # CONTENT_PROTECTION, MODEL_METADATA, TRAINING_PIPELINE_ANALYSIS
 │   │
-│   ├── mat_extraction/               # MATLAB .mat extractor (+ .conf)
-│   ├── ocs_extraction/               # OCS red-pixel extractor (+ .conf)
-│   ├── oxford_extraction/            # Oxford PNG+CSV importer (normalizer, db_populator, validators)
-│   ├── algorithm_extraction/         # algorithm_db_populator.py  (undocumented elsewhere — see §9)
+│   ├── mat_extraction/ · ocs_extraction/ · oxford_extraction/ · telefred_extraction/  # legacy/scan helpers
 │   ├── image_quality_check/          # contour_quality.py — training-image quality check
 │   ├── config/                       # training_config.yaml + config_loader.py + models.py (Pydantic)
-│   ├── services/                     # evaluation_service.py, reference_service.py
-│   ├── migrations/                   # add_image_hash.{py,sql}
+│   ├── line_normalizer.py            # shared 2px line normalization (kept from the old pipeline)
+│   ├── migrations/                   # add_image_hash.{py,sql} (legacy)
 │   ├── utils/logger.py               # Structured logging
 │   ├── Dockerfile · requirements.txt
 │   └── (root-level dev/debug scripts: start_*_training.py, grid_search_quick.py,
@@ -199,20 +186,19 @@ Confirm exact columns in `database.py` before relying on them — this list is a
 
 Mounted in `api/main.py`. Full interactive list: `http://localhost/api/docs`.
 
-- **upload.py** — `/api/upload`, `/api/normalize-image`, `/api/register-image`, `/api/check-duplicate`
-- **evaluations.py** — `/api/evaluations/recent`, `/api/evaluations/{id}` (GET/DELETE), `/api/evaluations/{id}/evaluate`
-- **references.py** — `/api/references`, `/api/references/{id}/image`, `/api/visualizations/{file}`
-- **training_data.py** — `/api/training-data/upload`, `/api/extract-training-data`,
-  `/api/training-data-evaluations`, `/api/training-data-image/{id}/evaluate|ground-truth`,
-  `/api/training-data-image-quality-check/start|status`, `/api/training-data-image/{id}/quality-status`
+- **upload.py** — `/api/normalize-image`, `/api/check-duplicate` (algorithm `/api/upload` +
+  `/api/register-image` were removed)
+- **training_data.py** — `/api/save-drawn-image` (accepts `components`), `/api/training-data-images`,
+  `/api/training-data-image/{id}` (GET/DELETE), `/{id}/features`, `/{id}/original`, quality-check
+  endpoints. (Bulk `/api/extract-training-data[-oxford]` return HTTP 410; ground-truth + algorithm
+  eval endpoints removed.)
 - **ai_training_base.py** — `/api/ai-training/dataset-info`, `/available-features`,
   `/feature-distribution/{feature}`, `/start-training`, `/training-status`
 - **ai_training_classification.py** — `/api/ai-training/custom-class-distribution/{feature}`,
   `/generate-classes`, `/recalculate-class-counts`
-- **ai_training_models.py** — `/api/ai-training/models` (GET/DELETE),
-  `/models/{filename}/metadata`, `/models/test`, `/models/predict-single`
-- **admin.py** — admin / migration endpoints
-- **test_images.py** — test-image management
+- **ai_training_models.py** — `/api/ai-training/models` (GET/DELETE), `/models/{filename}/metadata`,
+  `/models/test`, `/models/predict-single`, `/models/run-on-test-images` ("Run Tests")
+- **admin.py** — `/api/admin/reset-database`, `/api/admin/cleanup-tmp`
 
 > Endpoint paths are summarised from the routers; treat `/api/docs` as the source of truth.
 
