@@ -189,6 +189,12 @@ def main():
     try:
         for r in reps:
             src = r["source"]
+            # Unscored placeholders: label_status='zero' marks rows that were never
+            # actually scored (all components 0, total_score 0) — they are NOT genuine
+            # zero-score drawings (e.g. id 6006 is a near-complete figure). Exclude them;
+            # otherwise good drawings labelled 0 poison regression and component training.
+            if (r.get("label_status") or "").strip().lower() == "zero":
+                stats["skip_unscored_zero"] += 1; continue
             # invalid score
             if r["total_score"] not in ("", None):
                 try:
@@ -255,6 +261,7 @@ def main():
     print(f"corrupt rows dropped:   {corrupt_drop} (hash groups with conflicting scores)")
     print(f"exact-dup rows dropped: {dup_drop}")
     print(f"representatives:        {len(reps)}")
+    print(f"  skip unscored (zero): {stats['skip_unscored_zero']}")
     print(f"  skip blank:           {stats['skip_blank']}")
     print(f"  skip no content:      {stats['skip_no_content']}")
     print(f"  drop negative score:  {stats['drop_negative']}")
