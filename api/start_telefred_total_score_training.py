@@ -77,8 +77,12 @@ def main():
             "backbone_lr_multiplier": None,    # default 0.1
             "dropout": None,                   # regression default from YAML
             "weight_decay": None,              # regression default from YAML
-            "early_stopping_patience": None,   # regression default from YAML
-            "early_stopping_min_delta": None,  # regression default from YAML
+            "early_stopping_patience": 4,      # short run: stop ~4 epochs after best
+                                               # (YAML default 15 never triggers in a 15-epoch run)
+            "early_stopping_min_delta": 0.00005,  # YAML default 0.001 is ~33% of the
+                                               # converged loss (~0.003) -> too coarse; it made
+                                               # best-epoch tracking ignore real improvements
+                                               # (this run locked epoch 5, missing the better epoch 8)
             "images_data": images_data,
             "db_session": db,
         }
