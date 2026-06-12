@@ -1214,8 +1214,8 @@
                 }
                 const total = elements.reduce((s, x) => s + x.subscore_hard, 0);
                 componentsHtml = `
-                    <div class="feature-editor" style="margin-bottom: 20px;">
-                        <h3>🧩 Component Labels (20 elements × Presence/Accuracy/Position)</h3>
+                    <div style="margin-top: 16px;">
+                        <h4 style="margin: 0 0 8px 0; color: #444;">🧩 Component Labels (20 elements × Presence/Accuracy/Position)</h4>
                         ${renderComponentBreakdown({total_score_hard: total, total_score_soft: total, elements: elements},
                                                    {isLabels: true, title: 'Total_Score (ground-truth labels)'})}
                     </div>
@@ -1225,18 +1225,19 @@
             const featureEditor = `
                 <div class="feature-editor" data-current-image-id="${img.id}">
                     <h3>🏷️ Features & Labels (for CNN Training)</h3>
-                    <div class="feature-list" id="featuresList">
-                        ${featuresList}
-                    </div>
                     <div class="feature-input-group">
                         <input type="text" id="featureKey" placeholder="Feature name (e.g., quality_score)" />
                         <input type="number" id="featureValue" placeholder="Numeric value (e.g., 0.85)" step="any" />
                         <button class="btn btn-small add-feature-btn" style="white-space: nowrap;">+ Add</button>
                     </div>
+                    <div class="feature-list" id="featuresList">
+                        ${featuresList}
+                    </div>
+                    ${componentsHtml}
                 </div>
             `;
-            
-            modalImages.innerHTML = imagesHtml + componentsHtml + featureEditor;
+
+            modalImages.innerHTML = imagesHtml + featureEditor;
 
             // Add event listeners for buttons (event delegation)
             setTimeout(() => {
