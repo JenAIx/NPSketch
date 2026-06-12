@@ -710,13 +710,9 @@ docker exec npsketch-api python3 /app/ocs_extraction/ocs_extractor.py \
 **Usage:**
 
 ```bash
-# Step 1: Normalize images
-docker exec npsketch-api python3 /app/oxford_extraction/oxford_normalizer.py \
-  /app/templates/training_data_oxford_manual_rater_202512/imgs \
-  /app/templates/training_data_oxford_manual_rater_202512/imgs_normalized_568x274
-
-# Step 2: Import to database
-docker exec npsketch-api python3 /app/oxford_extraction/oxford_db_populator.py
+# DEPRECATED (2026-06): per-source import was replaced by the unified path.
+# All data now lives in templates/labels.csv + img/ and is imported via:
+docker exec -e PYTHONPATH=/app npsketch-api python3 /app/data_consolidation/import_unified.py
 ```
 
 **Input:**

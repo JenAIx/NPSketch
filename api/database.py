@@ -198,9 +198,12 @@ class TrainingDataImage(Base):
     -----------
     Core Identity:
         id: Primary key
-        patient_id: Patient/test identifier (e.g., PC56, Park_16, test_001)
-        task_type: COPY, RECALL, or REFERENCE
-        source_format: MAT, OCS, or DRAWN
+        uid: Stable unique key from the consolidated base (templates/labels.csv),
+             e.g. "TF-2020_08_27-257-COPY", "ALG-PC0001-COPY". Traceable to img/<uid>.<ext>.
+        patient_id: Patient identifier, source-prefixed, groups COPY+RECALL of one
+             patient (e.g. TF-257, ALG-PC0001, OXF-C0078, OCSM-PC0460)
+        task_type: COPY | RECALL (condition) — REFERENCE for templates
+        source_format: TELEFRED | OXFORD | ALGORITHM | OCS_MACHINE (+ legacy MAT/OCS/DRAWN)
         test_name: Human-readable name (for drawn images)
     
     Image Data:
@@ -215,8 +218,12 @@ class TrainingDataImage(Base):
         ground_truth_extra: Expected number of extra/wrong lines
         
     Clinical Features (for CNN Training):
-        features_data: JSON with clinical scores (Total_Score, MMSE, Age, etc.)
-    
+        features_data: JSON. Holistic score plus optional per-component sub-labels
+            (the OCS-Plus 20 elements x 3 binary aspects). Shape:
+                {"Total_Score": 45,
+                 "components": {"presence":[..20..], "accuracy":[..20..], "position":[..20..]}}
+            "components" is null when the source has only a holistic score (OXFORD).
+
     Metadata:
         session_id: Upload session identifier
         uploaded_at: Timestamp
@@ -225,9 +232,10 @@ class TrainingDataImage(Base):
     
     # Core identity
     id = Column(Integer, primary_key=True, index=True)
+    uid = Column(String, unique=True, index=True, nullable=True)  # from templates/labels.csv
     patient_id = Column(String, index=True)
     task_type = Column(String, index=True)  # COPY, RECALL, REFERENCE
-    source_format = Column(String, index=True)  # MAT, OCS, DRAWN
+    source_format = Column(String, index=True)  # TELEFRED, OXFORD, ALGORITHM, OCS_MACHINE (legacy: MAT/OCS/DRAWN)
     test_name = Column(String, nullable=True, index=True)  # Human-readable name
     
     # Image data

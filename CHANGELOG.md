@@ -4,6 +4,39 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [Unreleased] - 2026-06-12
+
+### Changed - Single unified DB import + full reset (component-score prep)
+
+- **One import path.** New `api/data_consolidation/import_unified.py` is now the only batch
+  importer: it reads the consolidated base (`templates/labels.csv` + `img/`) and writes
+  `training_data_images`. The three per-source CLI populators (`telefred_import.py`,
+  `oxford_db_populator.py`, `algorithm_db_populator.py`) were **deleted**; the bulk web endpoints
+  `/api/extract-training-data[-oxford]` now return **HTTP 410**. Interactive single-image upload is
+  unchanged. Preprocessing libraries (ocs/oxford/mat/line_normalizer) are reused.
+- **Per-image style auto-detection** (not hard-coded by source): red ink → red extraction; else
+  dark + black-source name → bbox-crop; else heuristic. Source is only a consistency anchor;
+  mismatches are logged. (Verified: 0 style/source mismatches across 7693 images.)
+- **Curation at import:** blanks (no ink) skipped; **SHA256-dedup** on the original bytes; hash
+  groups with conflicting nonzero scores dropped as corrupt (caught the defective `2024_10_28-3991`
+  PNG that had been duplicated with 15 different labels); negative score dropped;
+  `|total − sublabel_sum| > 5` kept but flagged.
+- **Schema:** added `uid` column to `TrainingDataImage` (traceable to `labels.csv`);
+  `features_data` now carries the 60 sub-labels as `{"Total_Score", "components": {presence,
+  accuracy, position}}` (`components` null for OXFORD).
+- **Full DB reset + reload** onto the unified base: 8089 label rows → **7693 imported**
+  (TELEFRED 6011, ALGORITHM 777, OXFORD 893, OCS_MACHINE 12; 16 corrupt + 364 byte-dup + 16 blank
+  removed). All `task_type` now COPY/RECALL; `image_hash`/`uid` unique; processed images 568×274 / 2 px;
+  3999 patients. Backup: `npsketch.db.bak_pre_unified_20260612`.
+
+### Migration re-audit
+Filename-based dedup in the consolidation kept ~390 byte-identical images (blank template scans
+under different patient IDs, plus a corrupt 16-image group with conflicting labels) and 1 negative
+score. These are now handled at import via SHA256-dedup + blank-exclusion + corrupt-group drop.
+(OCS-Plus machine images are black-line drawings, not red — handled by the auto-detector.)
+
+---
+
 ## [Unreleased] - 2026-06-10
 
 ### Fixed - Training Pipeline (audit findings)

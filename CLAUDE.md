@@ -221,10 +221,17 @@ Mounted in `api/main.py`. Full interactive list: `http://localhost/api/docs`.
 **Normalized image format (all extractors + augmentation output):** 568×274 px, RGB PNG, black lines
 on white, line thickness **2.00 px** (Zhang-Suen thinning + dilation), ~5–7px margin.
 
-**Import methods → `source_format`:**
-- MAT / OCS → web UI (`/api/extract-training-data`) or the `mat_extraction` / `ocs_extraction` scripts.
-- Oxford → **command-line only**: `oxford_extraction/oxford_normalizer.py` then `oxford_db_populator.py`.
-- algorithm_extraction → see §9.
+**Import method (unified, 2026-06):** All training data lives in the consolidated base
+`templates/labels.csv` + `templates/img/` (built by `api/data_consolidation/consolidate_templates.py`).
+The **single** DB import path is `api/data_consolidation/import_unified.py` (auto-detects red vs black
+image style, dedups by SHA256, skips blanks, writes the 60 sub-labels into `features_data.components`).
+`source_format` ∈ {TELEFRED, OXFORD, ALGORITHM, OCS_MACHINE}; `task_type` ∈ {COPY, RECALL}.
+- The old per-source CLI populators (`telefred_import.py`, `oxford_db_populator.py`,
+  `algorithm_db_populator.py`) were **deleted**; the bulk web endpoints
+  `/api/extract-training-data[-oxford]` were **retired (HTTP 410)**.
+- The preprocessing libraries (`ocs_extraction`, `oxford_extraction/oxford_normalizer.py`,
+  `mat_extraction`, `line_normalizer.py`) remain — `import_unified.py` reuses them.
+- Interactive single-image upload (`/api/save-drawn-image`, prediction) is unchanged.
 
 **Augmentation (current):** pre-shrink 5% (→ ~14px margins) → diversity-controlled transforms
 → SSIM filter (vs original <0.95, between augs <0.93, progressive retry) → re-binarize (175)

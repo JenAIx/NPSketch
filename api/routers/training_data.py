@@ -190,6 +190,13 @@ async def extract_training_data(
     files: List[UploadFile] = File(...),
     db: Session = Depends(get_db)
 ):
+    raise HTTPException(
+        status_code=410,
+        detail=("Bulk training-data import was retired. The single import path is "
+                "api/data_consolidation/import_unified.py (reads templates/labels.csv + img/). "
+                "See templates/README.md."),
+    )
+    # Legacy implementation below is unreachable (retired 2026-06-12).
     """
     Extract training data from uploaded files and save to database.
     
@@ -505,6 +512,13 @@ async def extract_oxford_data(
     files: List[UploadFile] = File(...),
     db: Session = Depends(get_db)
 ):
+    raise HTTPException(
+        status_code=410,
+        detail=("Bulk training-data import was retired. The single import path is "
+                "api/data_consolidation/import_unified.py (reads templates/labels.csv + img/). "
+                "See templates/README.md."),
+    )
+    # Legacy implementation below is unreachable (retired 2026-06-12).
     """
     Extract Oxford-style PNG images and save to database.
     

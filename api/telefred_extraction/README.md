@@ -1,5 +1,10 @@
 # TeleFred Dataset Extraction
 
+> **DEPRECATED (2026-06):** `telefred_import.py` was removed. TeleFred data now flows through the
+> unified base (`templates/labels.csv` + `img/`) and the single importer
+> `api/data_consolidation/import_unified.py`. Only `telefred_scan.py` (pre-import red/resolution
+> scan) remains here. The doc below describes the retired per-delivery workflow for reference.
+
 Scripts for importing **TeleFred** deliveries into the NPSketch training database
 (`training_data_images`, `source_format="TELEFRED"`).
 
