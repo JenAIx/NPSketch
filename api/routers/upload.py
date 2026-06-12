@@ -11,9 +11,7 @@ Contains endpoints for:
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from database import get_db, UploadedImage, TrainingDataImage
-from models import UploadResponse, EvaluationResultResponse
-from services import ReferenceService, EvaluationService
+from database import get_db, TrainingDataImage
 import io
 from utils.logger import get_logger
 
@@ -52,26 +50,12 @@ async def check_duplicate(
             content = await file.read()
             image_hash = hashlib.sha256(content).hexdigest()
         
-        # Check if exists in UploadedImage table
-        existing_upload = db.query(UploadedImage).filter(
-            UploadedImage.image_hash == image_hash
-        ).first()
-        
-        # ALSO check if exists in TrainingDataImage table
+        # Check if exists in the training-data table
         existing_training = db.query(TrainingDataImage).filter(
             TrainingDataImage.image_hash == image_hash
         ).first()
-        
-        if existing_upload:
-            return {
-                "is_duplicate": True,
-                "existing_id": existing_upload.id,
-                "existing_filename": existing_upload.filename,
-                "uploaded_at": existing_upload.uploaded_at.isoformat(),
-                "uploader": existing_upload.uploader,
-                "source": "upload"
-            }
-        elif existing_training:
+
+        if existing_training:
             return {
                 "is_duplicate": True,
                 "existing_id": existing_training.id,
@@ -90,59 +74,6 @@ async def check_duplicate(
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Check failed: {str(e)}")
-
-
-@router.post("/upload", response_model=UploadResponse)
-async def upload_image(
-    file: UploadFile = File(...),
-    original_file: UploadFile = File(None),  # Optional: original file before normalization
-    uploader: str = Form(None),
-    reference_name: str = Form("default_reference"),
-    db: Session = Depends(get_db)
-):
-    """
-    Upload and evaluate a hand-drawn image.
-    
-    Args:
-        file: Processed/normalized image file to analyze
-        original_file: Optional original file (before normalization) for hash calculation
-        uploader: Optional uploader identifier
-        reference_name: Name of reference to compare against
-        db: Database session
-        
-    Returns:
-        Upload result with evaluation metrics
-    """
-    try:
-        # Read processed file content (for analysis)
-        processed_content = await file.read()
-        
-        # Read original file content (for hash and storage)
-        original_content = None
-        if original_file:
-            original_content = await original_file.read()
-        
-        # Process and evaluate
-        eval_service = EvaluationService(db)
-        uploaded_image, evaluation = eval_service.process_upload(
-            processed_content,
-            file.filename,
-            reference_name,
-            uploader,
-            original_image_bytes=original_content  # Pass original for hash calculation
-        )
-        
-        return UploadResponse(
-            success=True,
-            message="Image uploaded and evaluated successfully",
-            image_id=uploaded_image.id,
-            evaluation=EvaluationResultResponse.model_validate(evaluation)
-        )
-        
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
 
 
 @router.post("/normalize-image")
@@ -258,128 +189,3 @@ async def normalize_image(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/register-image")
-async def register_image(
-    file: UploadFile = File(...),
-    enable_translation: bool = Form(False),
-    enable_rotation: bool = Form(False),
-    enable_scale: bool = Form(False),
-    enable_thinning: bool = Form(True),
-    db: Session = Depends(get_db)
-):
-    """
-    STEP 3: Auto Processing - Optional registration + optional line thinning
-    Input: Already normalized 568×274 image from frontend
-    Output: Optionally registered + optionally thinned lines
-    
-    New: Registration and Thinning are now separate options!
-    - Registration: Slow (~10 sec), aligns to reference
-    - Thinning: Fast, reduces lines to 1px
-    """
-    import cv2
-    import numpy as np
-    from image_processing.image_registration import ImageRegistration
-    from image_processing.utils import load_image_from_bytes
-    from skimage.morphology import skeletonize
-    
-    try:
-        logger.info("=" * 60)
-        logger.info("STEP 3: AUTO PROCESSING")
-        logger.info("=" * 60)
-        logger.info(f"Registration: translation={enable_translation}, rotation={enable_rotation}, scale={enable_scale}")
-        logger.info(f"Thinning: {enable_thinning}")
-        
-        # Read uploaded file (should already be 568×274 normalized from frontend)
-        content = await file.read()
-        nparr = np.frombuffer(content, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        if img is None:
-            raise HTTPException(status_code=400, detail="Invalid image file")
-        
-        logger.info(f"Input image: {img.shape} (should be 568×274)")
-        
-        # Get reference image
-        reference_service = ReferenceService(db)
-        ref_image = reference_service.get_reference_by_name("default_reference")
-        if not ref_image:
-            raise HTTPException(status_code=404, detail="Reference image not found")
-        
-        ref_img_data = load_image_from_bytes(ref_image.processed_image_data)
-        logger.info(f"Reference: {ref_img_data.shape}")
-        
-        result_img = img.copy()
-        
-        # STEP 3a: Registration (if enabled)
-        if enable_translation or enable_rotation or enable_scale:
-            logger.info("STEP 3a: Registration...")
-            registration = ImageRegistration()
-            
-            # Build motion type based on enabled options
-            if enable_translation and enable_rotation and enable_scale:
-                motion_type = 'similarity'  # All transformations
-            elif enable_translation and enable_rotation:
-                motion_type = 'euclidean'  # Translation + Rotation
-            elif enable_translation:
-                motion_type = 'translation'  # Translation only
-            else:
-                motion_type = 'translation'  # Default
-            
-            logger.debug(f"Motion type: {motion_type}")
-            
-            try:
-                registered_img, reg_info = registration.register_images(
-                    result_img,
-                    ref_img_data,
-                    method='ecc',
-                    motion_type=motion_type,
-                    max_rotation_degrees=30.0
-                )
-                
-                if reg_info.get('success', False):
-                    result_img = registered_img
-                    logger.info(f"Registration: tx={reg_info.get('translation_x', 0):.1f}, ty={reg_info.get('translation_y', 0):.1f}, rot={reg_info.get('rotation_degrees', 0):.1f}°")
-                else:
-                    logger.warning(f"Registration skipped: {reg_info.get('reason', 'Unknown')}")
-                    
-            except Exception as reg_error:
-                logger.warning(f"Registration failed: {reg_error}")
-        else:
-            logger.info("STEP 3a: Registration skipped (disabled)")
-        
-        # STEP 3b: Line Thinning to 1px (optional)
-        if enable_thinning:
-            logger.info("STEP 3b: Thinning to 1px...")
-            
-            gray = cv2.cvtColor(result_img, cv2.COLOR_BGR2GRAY)
-            _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
-            
-            # Skeletonize to 1px
-            skeleton_bool = skeletonize(binary > 0)
-            skeleton = (skeleton_bool * 255).astype(np.uint8)
-            thinned = cv2.bitwise_not(skeleton)
-            
-            # Convert back to color
-            result_img = cv2.cvtColor(thinned, cv2.COLOR_GRAY2BGR)
-            logger.info(f"Thinned to 1px: {result_img.shape}")
-        else:
-            logger.info("STEP 3b: Thinning skipped (disabled)")
-        
-        logger.info("AUTO PROCESSING COMPLETE!")
-        logger.info("=" * 60)
-        
-        # Encode as PNG
-        success, buffer = cv2.imencode('.png', result_img)
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to encode image")
-        
-        return StreamingResponse(
-            io.BytesIO(buffer.tobytes()),
-            media_type="image/png"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Auto Match error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
