@@ -19,10 +19,15 @@ NPSketch is a computer vision and machine learning application that automaticall
 - **Optimized Processing**: Separate thinning and registration options for faster uploads
 
 ### AI Training Pipeline
-- **CNN Model Training**: ResNet-18 for both regression and classification tasks
-- **Dual Training Modes**: 
-  - Regression: Predict continuous scores (Total_Score, MMSE)
-  - Classification: Predict score ranges with custom class boundaries
+- **CNN Model Training**: ResNet-18, three training modes (see `CLAUDE.md` §7)
+- **Three Training Modes**:
+  - Regression: predict continuous scores (Total_Score, MMSE)
+  - Classification: predict score ranges with custom class boundaries
+  - Components (2026-06): predict the 60 OCS-Plus sub-labels (20 elements × Presence/Accuracy/Position);
+    Total_Score = their sum — gives dense supervision in the sparse low-score range. TELEFRED-only (v1).
+- **Unified data base**: all sources consolidated into `templates/labels.csv` + `img/`, imported via
+  the single `api/data_consolidation/import_unified.py` (auto-detects red/black image style, dedups,
+  stores the 60 sub-labels). See `templates/README.md`.
 - **Interactive Class Creation**: Visual distribution preview with customizable class names and boundaries
 - **Data Augmentation**: Realistic image transformations (rotation, translation, scaling, local warping)
 - **Synthetic Bad Images**: Generate low-quality images to address data imbalance (NEW)

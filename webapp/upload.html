@@ -675,7 +675,8 @@
             <div class="visualization" id="visualization"></div>
         </div>
     </div>
-    
+
+    <script src="/js/component_result.js"></script>
     <script>
         // DOM Elements
         const uploadArea = document.getElementById('uploadArea');
@@ -1606,9 +1607,24 @@
         function showAIResults(data) {
             const prediction = data.prediction;
             const isClassification = data.training_mode === 'classification';
-            
+
+            if (data.training_mode === 'components') {
+                // Full per-element evaluation (20 elements x Presence/Accuracy/Position)
+                result.innerHTML = `
+                    <h2>🤖 AI Prediction Results</h2>
+                    <p style="color: #666; margin-bottom: 15px;">
+                        Model: <strong>${data.model}</strong> |
+                        Mode: <strong>Components (60 sub-labels)</strong>
+                    </p>
+                    ${renderComponentBreakdown(prediction)}
+                `;
+                result.classList.remove('error');
+                result.classList.add('show');
+                return;
+            }
+
             let metricsHtml = '';
-            
+
             if (isClassification) {
                 // Classification results with custom class name
                 metricsHtml = `

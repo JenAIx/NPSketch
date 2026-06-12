@@ -583,13 +583,15 @@ All three extractors produce identical characteristics:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/training-data/upload` | POST | Upload training data |
-| `/api/extract-training-data` | POST | Extract MAT/OCS files (web interface) |
 | `/api/training-data-evaluations` | GET | List training images |
 | `/api/training-data-image/{id}/evaluate` | POST | Run line detection |
 | `/api/training-data-image/{id}/ground-truth` | POST | Save ground truth |
+| `/api/save-drawn-image` | POST | Interactive single-image upload (drawing/test) |
 
-**Note:** Oxford dataset uses command-line scripts (`oxford_extraction/oxford_normalizer.py` + `oxford_extraction/oxford_db_populator.py`) instead of web interface.
+**Note (2026-06):** Bulk training-data import is now a single path — the consolidated base
+`templates/labels.csv` + `img/` is imported via `api/data_consolidation/import_unified.py`. The old
+bulk web endpoints (`/api/extract-training-data[-oxford]`) are **retired (HTTP 410)** and the
+per-source CLI populators were removed. Only interactive single-image upload remains in the UI.
 
 ### AI Training
 
@@ -601,12 +603,20 @@ All three extractors produce identical characteristics:
 | `/api/ai-training/custom-class-distribution/{feature}` | GET | Get custom class info |
 | `/api/ai-training/generate-classes` | POST | Generate balanced classes |
 | `/api/ai-training/recalculate-class-counts` | POST | Recalculate after boundary change |
-| `/api/ai-training/start-training` | POST | Start model training (regression or classification) |
+| `/api/ai-training/start-training` | POST | Start model training (regression / classification / components) |
 | `/api/ai-training/training-status` | GET | Get training progress |
 | `/api/ai-training/models` | GET | List trained models |
 | `/api/ai-training/models/{filename}/metadata` | GET | Get model metadata |
 | `/api/ai-training/models/test` | POST | Test model on validation set |
 | `/api/ai-training/models/predict-single` | POST | Predict single image |
+
+**`predict-single` response by `training_mode`:**
+- `regression` → `prediction.value` (+ `raw_output`, `was_clamped`)
+- `classification` → `prediction.class_name`, `confidence`, `probabilities`
+- `components` → `prediction.total_score_hard` / `total_score_soft` +
+  `prediction.elements[]` (per element: `presence`, `accuracy`, `position` probabilities +
+  `subscore_hard` 0–3). Rendered as the 20×3 breakdown by `webapp/js/component_result.js`
+  in `draw_testimage.html` and `upload.html`.
 | `/api/ai-training/models/{filename}` | DELETE | Delete model |
 
 ### Example: Train Model via API

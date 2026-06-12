@@ -164,16 +164,17 @@ docker exec -e PYTHONPATH=/app npsketch-api python3 /app/ai_training/synthetic_s
 
 Defined in `api/database.py`. The main ML table:
 
-**`training_data_images`**
+**`training_data_images`** (current contents: 7693 rows, all from the unified import — see §7)
 ```python
 id              int   PK
-patient_id      str   # "PC56", "Park_16", "C0078"
-task_type       str   # COPY | RECALL | REFERENCE
-source_format   str   # MAT | OCS | OXFORD | DRAWN | UPLOAD
+uid             str   # unique key from templates/labels.csv, e.g. "TF-2020_08_27-257-COPY"
+patient_id      str   # source-prefixed, groups COPY+RECALL: "TF-257", "ALG-PC0001", "OXF-C0078"
+task_type       str   # COPY | RECALL  (REFERENCE for templates)
+source_format   str   # TELEFRED | OXFORD | ALGORITHM | OCS_MACHINE  (legacy: MAT/OCS/DRAWN/UPLOAD)
 original_file_data    bytes   # BLOB, original
 processed_image_data  bytes   # BLOB, normalized 568×274 PNG, 2px black lines
 image_hash      str   # SHA256 of the ORIGINAL file (duplicate detection)
-features_data   str   # JSON, e.g. {"Total_Score": 45, "Custom_Class": {...}}
+features_data   str   # JSON: Total_Score + optional 60 component sub-labels (see below)
 quality_check_status  str   # valid | invalid | NULL
 quality_check_date    datetime
 uploaded_at     datetime
@@ -184,12 +185,13 @@ Other tables: `reference_images` (templates + manually-defined `lines_data` JSON
 `uploaded_images` (drawings for algorithm evaluation), `evaluation_results` (comparison output).
 Confirm exact columns in `database.py` before relying on them — this list is a summary.
 
-`features_data` example with a custom classification class:
+`features_data` shape (component sub-labels are the OCS-Plus 20 elements × Presence/Accuracy/Position;
+`components` is null for sources without them, e.g. OXFORD):
 ```json
 { "Total_Score": 45,
-  "Custom_Class": { "3": { "label": 1, "name_custom": "Fair",
-                           "name_generic": "Class_1 [44-51]", "boundaries": [0, 44, 52, 60] } } }
+  "components": { "presence": [..20..], "accuracy": [..20..], "position": [..20..] } }
 ```
+(Older rows could also carry a `Custom_Class` block for classification class definitions.)
 
 ---
 
@@ -238,11 +240,21 @@ image style, dedups by SHA256, skips blanks, writes the 60 sub-labels into `feat
 → 2px line normalize. ~6 augs/image (7× total). Mix: 50% rotation+translation, 33% warp,
 17% warp+combined. Rotation ±5°, translation ±3px, IDW local warp (9 control points, 15–20px).
 
-**Training defaults (config):** ResNet-18 (ImageNet backbone), Adam, batch 8, sigmoid output for
-regression, ReduceLROnPlateau (×0.5, patience 5, min 1e-6), differential LR (backbone ×0.1),
-dropout 0.5, weight-decay 1e-4, early stopping (patience 15). Classification adds inverse-frequency
-class weights + stratified split. Metrics: regression R²/RMSE/MAE/MAPE; classification
-accuracy/F1/precision/recall/confusion-matrix.
+**Three training modes** (selected by `target_feature` in `run_training_job`, all share the ResNet-18
+backbone + patient-level split + 284×137 input downscale + augmentation + epoch logging + best
+checkpoint):
+- **regression** (e.g. `Total_Score`): linear output + MSE, min-max target normalization,
+  WeightedRandomSampler over score bins. Metrics R²/RMSE/MAE/MAPE + per-score-decade.
+- **classification** (`Custom_Class_<N>`): softmax + CrossEntropy, inverse-frequency class weights.
+  Metrics accuracy/F1/precision/recall/confusion-matrix.
+- **components** (`Components`, 2026-06): 60 sub-labels (20 elements × Presence/Accuracy/Position),
+  `BCEWithLogitsLoss` + per-label `pos_weight`, Total_Score = sum. **TELEFRED-only** (v1). Metrics
+  per-sub-label/aspect/component F1 + derived-score R²/RMSE/MAE + per-decade. Launch:
+  `start_telefred_component_training.py`. `predict-single` returns 60 probabilities + derived score.
+
+**Shared defaults:** ResNet-18 (ImageNet backbone), Adam, batch 8, ReduceLROnPlateau (×0.5,
+patience 5, min 1e-6), differential LR (backbone ×0.1), dropout 0.5, weight-decay 1e-4, early stopping.
+(Regression uses a **linear** head now — the old sigmoid saturated on the skewed score distribution.)
 
 **Synthetic score-based images (v1.2.0):** generate images targeting scores 0–40 to fix low-score
 imbalance; added before the split and augmented like real data. See `synthetic_score_based.py`.

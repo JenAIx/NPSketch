@@ -775,7 +775,8 @@
             </div>
         </div>
     </div>
-    
+
+    <script src="/js/component_result.js"></script>
     <script>
         const canvas = document.getElementById('drawCanvas');
         const ctx = canvas.getContext('2d');
@@ -1638,15 +1639,26 @@
             const aiResultsContent = document.getElementById('aiResultsContent');
             const prediction = data.prediction;
             const isClassification = data.training_mode === 'classification';
-            
+            const isComponents = data.training_mode === 'components';
+            const modeLabel = isComponents ? 'Components (60 sub-labels)'
+                              : isClassification ? 'Classification' : 'Regression';
+
             let resultsHtml = `
                 <div style="margin-bottom: 15px; padding: 12px; background: #f8f9fa; border-radius: 6px;">
                     <strong>Model:</strong> ${data.model}<br>
                     <strong>Feature:</strong> ${data.target_feature}<br>
-                    <strong>Mode:</strong> ${isClassification ? 'Classification' : 'Regression'}
+                    <strong>Mode:</strong> ${modeLabel}
                 </div>
             `;
-            
+
+            if (isComponents) {
+                // Full per-element evaluation (20 elements x Presence/Accuracy/Position)
+                resultsHtml += renderComponentBreakdown(prediction);
+                aiResultsContent.innerHTML = resultsHtml;
+                aiResults.style.display = 'block';
+                return;
+            }
+
             if (isClassification) {
                 // Classification results
                 resultsHtml += `
