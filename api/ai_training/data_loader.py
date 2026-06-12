@@ -102,6 +102,7 @@ class TrainingDataLoader:
         all_features = set()
         feature_stats = {}
         custom_class_info = {}
+        component_count = 0
         
         # Process all rows for accurate stats
         for row in result:
@@ -120,8 +121,10 @@ class TrainingDataLoader:
                         continue
 
                     # 'components' is the component-mode target (a dict of sub-labels),
-                    # not a numeric regression feature — skip its numeric stats.
+                    # not a numeric regression feature — count it, skip numeric stats.
                     if key == "components":
+                        if value:
+                            component_count += 1
                         continue
 
                     all_features.add(key)
@@ -175,7 +178,12 @@ class TrainingDataLoader:
                 'median': 0,
                 'std': 0
             }
-        
+
+        # Component target (60 sub-labels): a third training mode, not a numeric feature
+        if component_count > 0:
+            all_features.add('Components')
+            feature_stats['Components'] = {'count': component_count, 'type': 'components'}
+
         return {
             'features': sorted(list(all_features)),
             'stats': feature_stats
