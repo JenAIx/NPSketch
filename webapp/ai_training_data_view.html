@@ -1220,6 +1220,16 @@
                                                    {isLabels: true, title: 'Total_Score (ground-truth labels)'})}
                     </div>
                 `;
+            } else {
+                componentsHtml = `
+                    <div style="margin-top: 16px;">
+                        <h4 style="margin: 0 0 8px 0; color: #444;">🧩 Component Labels</h4>
+                        <p style="color: #999; margin: 0; font-size: 0.9em;">
+                            No component labels for this image (source: ${img.source_format || 'unknown'}) — only Total_Score is available.
+                            Component labels (60 sub-labels) currently exist for TELEFRED, ALGORITHM and OCS_MACHINE sources.
+                        </p>
+                    </div>
+                `;
             }
 
             const featureEditor = `
