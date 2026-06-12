@@ -7,9 +7,14 @@
  *   total_score_hard: int, total_score_soft: float,
  *   elements: [ {element:int, presence:float, accuracy:float, position:float, subscore_hard:int}, ... 20 ]
  * }
+ * opts (optional):
+ *   isLabels: true -> values are ground-truth 0/1 (show ✓/✗ only, no %), used by the data-view
+ *   title:    override the headline caption
  * Returns an HTML string.
  */
-function renderComponentBreakdown(prediction) {
+function renderComponentBreakdown(prediction, opts) {
+  opts = opts || {};
+  const isLabels = !!opts.isLabels;
   const els = (prediction && prediction.elements) || [];
   const hard = prediction.total_score_hard;
   const soft = prediction.total_score_soft;
@@ -17,11 +22,11 @@ function renderComponentBreakdown(prediction) {
   // probability -> red->yellow->green background
   const colorFor = (p) => `hsl(${Math.round(p * 120)}, 65%, 45%)`;
   const cell = (p) => {
-    const pct = Math.round(p * 100);
     const tick = p >= 0.5 ? '✓' : '✗';
+    const label = isLabels ? tick : `${tick} ${Math.round(p * 100)}%`;
     return `<td style="padding:4px;text-align:center;">
       <div style="background:${colorFor(p)};color:#fff;border-radius:4px;padding:3px 0;font-size:.8em;font-weight:600;">
-        ${tick} ${pct}%
+        ${label}
       </div></td>`;
   };
 

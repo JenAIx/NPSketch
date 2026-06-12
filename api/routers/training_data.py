@@ -816,13 +816,11 @@ async def get_training_data_images(
             "source_format": img.source_format,
             "original_filename": img.original_filename,
             "test_name": img.test_name,
-            "width": metadata.get("width"),
-            "height": metadata.get("height"),
+            "width": metadata.get("width", 568),   # processed images are always 568×274
+            "height": metadata.get("height", 274),
             "uploaded_at": img.uploaded_at.isoformat(),
             "session_id": img.session_id,
             "has_features": has_features,
-            "ground_truth_correct": img.ground_truth_correct,
-            "ground_truth_extra": img.ground_truth_extra,
             "quality_check_status": img.quality_check_status,
             "quality_check_date": img.quality_check_date.isoformat() if img.quality_check_date else None
         })
@@ -1614,22 +1612,18 @@ async def upload_features_csv(
 async def save_drawn_image(
     file: UploadFile = File(...),
     name: str = Form(...),
-    correct_lines: int = Form(0),
-    extra_lines: int = Form(0),
     total_score: Optional[int] = Form(None),
+    components: Optional[str] = Form(None),  # JSON {presence:[20], accuracy:[20], position:[20]}
     source_format: str = Form('DRAWN'),
     task_type: str = Form('DRAWN'),
     db: Session = Depends(get_db)
 ):
     """
-    Save manually drawn image as training data.
-    
-    Ground truth fields:
-    - correct_lines: Number of correctly drawn lines (0-11)
-    - extra_lines: Number of extra/wrong lines drawn
+    Save a manually drawn / uploaded image as training data.
 
-    Optional features:
-    - total_score: Total_Score clinical feature
+    Optional evaluation (training format):
+    - total_score: Total_Score (sum of the component sub-labels)
+    - components: JSON with the 20 elements × Presence/Accuracy/Position (0/1)
     
     Source format: DRAWN (from draw tool), UPLOAD (from upload page), MAT, OCS
     Task type: DRAWN, UPLOAD, undefined, COPY, RECALL
@@ -1740,9 +1734,21 @@ async def save_drawn_image(
         # Get final dimensions
         height, width = normalized_array.shape[:2]
         
-        features_data = None
+        feats = {}
         if total_score is not None:
-            features_data = json.dumps({"Total_Score": total_score})
+            feats["Total_Score"] = total_score
+        if components:
+            try:
+                comp = json.loads(components)
+                # keep only the canonical sub-label arrays
+                feats["components"] = {
+                    "presence": [int(x) for x in comp.get("presence", [])],
+                    "accuracy": [int(x) for x in comp.get("accuracy", [])],
+                    "position": [int(x) for x in comp.get("position", [])],
+                }
+            except (ValueError, TypeError):
+                pass
+        features_data = json.dumps(feats) if feats else None
 
         # Create entry
         training_image = TrainingDataImage(
@@ -1753,8 +1759,6 @@ async def save_drawn_image(
             original_file_data=content,  # Original drawing (raw)
             processed_image_data=normalized_content,  # CNN-ready (normalized 2px lines)
             image_hash=image_hash,
-            ground_truth_correct=correct_lines if correct_lines > 0 else None,
-            ground_truth_extra=extra_lines if extra_lines > 0 else None,
             features_data=features_data,
             test_name=name,
             session_id=f'{source_format.lower()}_upload',  # e.g., 'upload_upload' or 'drawn_upload'

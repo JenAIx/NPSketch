@@ -688,34 +688,17 @@
                         </div>
                         
                         <div class="form-group">
-                            <label>Ground Truth (of <span id="totalRefLines">11</span> lines expected)</label>
-                            <div class="lines-input-row">
-                                <div style="flex: 1;">
-                                    <label style="font-size: 0.9em; color: #28a745;">✓ Correct Lines</label>
-                                    <input type="number" id="correctLines" min="0" max="11" value="0" placeholder="0" title="Number of correctly drawn lines (0-11)">
-                                </div>
-                                <div style="flex: 1; margin-left: 10px;">
-                                    <label style="font-size: 0.9em; color: #ffc107;">✗ Extra Lines</label>
-                                    <input type="number" id="extraLines" min="0" value="0" placeholder="0" title="Number of extra/wrong lines">
-                                </div>
-                            </div>
+                            <label>Evaluation — 20 elements × Presence / Accuracy / Position</label>
+                            <div id="componentEditor"></div>
                             <div class="lines-help">
                                 <span style="color: #999; font-size: 0.85em;">
-                                    Set ground truth for algorithmic evaluation
+                                    Click P / A / Pos to toggle each sub-label. Total_Score = sum
+                                    (<strong id="componentTotal">0</strong>/60). Saved as the image's
+                                    component labels (training format).
                                 </span>
                             </div>
                         </div>
 
-                        <div class="form-group">
-                            <label>Feature: Total_Score</label>
-                            <input type="number" id="totalScore" min="0" max="60" step="1" value="" placeholder="e.g., 28">
-                            <div class="lines-help">
-                                <span style="color: #999; font-size: 0.85em;">
-                                    Optional clinical score stored in the features column.
-                                </span>
-                            </div>
-                        </div>
-                        
                         <button class="save-btn" id="saveBtn" onclick="saveOrUpdateTestImage()">
                             💾 Save Test Image
                         </button>
@@ -790,9 +773,7 @@
         let loadedTestName = null;
         let currentRotation = 0;
         let originalCanvasData = null;
-        let originalCorrectLines = null;
-        let originalExtraLines = null;
-        let originalTotalScore = null;
+        let originalComponents = null;
         let hasChanges = false;
         let hasContent = false;  // Track if canvas has content
         
@@ -826,35 +807,53 @@
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         
-        // Track line changes
-        document.getElementById('correctLines').addEventListener('input', () => {
-            updateTotalScoreFromCorrectLines();
-            checkForChanges();
-        });
-        
-        document.getElementById('extraLines').addEventListener('input', () => {
-            checkForChanges();
-        });
+        // --- Component evaluation editor (20 elements × Presence/Accuracy/Position) ---
+        const ASPECTS = [['presence', 'P'], ['accuracy', 'A'], ['position', 'Pos']];
+        let componentState = { presence: Array(20).fill(0), accuracy: Array(20).fill(0), position: Array(20).fill(0) };
 
-        document.getElementById('totalScore').addEventListener('input', () => {
-            checkForChanges();
-        });
-
-        function updateTotalScoreFromCorrectLines() {
-            const correctLinesRaw = document.getElementById('correctLines').value.trim();
-            if (!correctLinesRaw) {
-                document.getElementById('totalScore').value = '';
-                return;
-            }
-
-            const correctLines = parseInt(correctLinesRaw, 10);
-            if (Number.isNaN(correctLines)) {
-                return;
-            }
-
-            document.getElementById('totalScore').value = correctLines * 3;
+        function componentTotal() {
+            return componentState.presence.reduce((a, b) => a + b, 0)
+                 + componentState.accuracy.reduce((a, b) => a + b, 0)
+                 + componentState.position.reduce((a, b) => a + b, 0);
         }
-        
+
+        function setComponentState(comp) {
+            componentState = {
+                presence: (comp && comp.presence) ? comp.presence.slice() : Array(20).fill(0),
+                accuracy: (comp && comp.accuracy) ? comp.accuracy.slice() : Array(20).fill(0),
+                position: (comp && comp.position) ? comp.position.slice() : Array(20).fill(0),
+            };
+            renderComponentEditor();
+        }
+
+        function renderComponentEditor() {
+            const host = document.getElementById('componentEditor');
+            if (!host) return;
+            let html = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px 18px;">';
+            for (let e = 0; e < 20; e++) {
+                html += `<div style="display:flex;align-items:center;gap:6px;">
+                    <span style="width:34px;color:#555;font-weight:600;font-size:.85em;">E${String(e + 1).padStart(2, '0')}</span>`;
+                for (const [asp, lbl] of ASPECTS) {
+                    const on = componentState[asp][e] === 1;
+                    html += `<button type="button" onclick="toggleComponent('${asp}',${e})"
+                        style="flex:1;padding:4px 0;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:.8em;
+                               background:${on ? '#28a745' : '#f1f1f1'};color:${on ? '#fff' : '#666'};font-weight:600;">${lbl}</button>`;
+                }
+                html += '</div>';
+            }
+            html += '</div>';
+            host.innerHTML = html;
+            const tot = document.getElementById('componentTotal');
+            if (tot) tot.textContent = componentTotal();
+        }
+
+        function toggleComponent(aspect, idx) {
+            componentState[aspect][idx] = componentState[aspect][idx] ? 0 : 1;
+            renderComponentEditor();
+            checkForChanges();
+        }
+        renderComponentEditor();
+
         // Drawing functions
         canvas.addEventListener('mousedown', startDrawing);
         canvas.addEventListener('mousemove', draw);
@@ -1073,11 +1072,8 @@
         // Save or update test image
         async function saveOrUpdateTestImage() {
             let testName = document.getElementById('testName').value.trim();
-            const correctLines = parseInt(document.getElementById('correctLines').value);
-            const extraLines = parseInt(document.getElementById('extraLines').value);
-            const totalScoreRaw = document.getElementById('totalScore').value.trim();
-            const totalScore = totalScoreRaw === '' ? null : parseInt(totalScoreRaw, 10);
-            
+            const totalScore = componentTotal();  // derived from the component grid
+
             // Generate default name if empty
             if (!testName) {
                 testName = generateDefaultName();
@@ -1098,12 +1094,9 @@
                 const formData = new FormData();
                 formData.append('file', blob, 'test_image.png');
                 formData.append('name', testName);
-                formData.append('correct_lines', correctLines);
-                formData.append('extra_lines', extraLines);
-                if (totalScore !== null && !Number.isNaN(totalScore)) {
-                    formData.append('total_score', totalScore);
-                }
-                
+                formData.append('total_score', totalScore);
+                formData.append('components', JSON.stringify(componentState));
+
                 try {
                     let response;
                     if (isUpdate) {
@@ -1144,16 +1137,12 @@
             loadedTestId = null;
             loadedTestName = null;
             originalCanvasData = null;
-            originalCorrectLines = null;
-            originalExtraLines = null;
-            originalTotalScore = null;
+            originalComponents = null;
             hasChanges = false;
             hasContent = false;
             clearCanvas();
             document.getElementById('testName').value = '';
-            document.getElementById('correctLines').value = '0';
-            document.getElementById('extraLines').value = '0';
-            document.getElementById('totalScore').value = '';
+            setComponentState(null);
             currentRotation = 0;
             updateSaveButton();
             updateDownloadButton();
@@ -1255,9 +1244,7 @@
                 const date = new Date(test.uploaded_at);
                 const dateStr = date.toLocaleDateString();
                 const testName = test.test_name || test.patient_id;
-                const correctLines = test.ground_truth_correct || 0;
-                const extraLines = test.ground_truth_extra || 0;
-                
+
                 item.innerHTML = `
                     <div class="test-item-header">
                         <span class="test-id">#${test.id} - ${testName}</span>
@@ -1267,15 +1254,15 @@
                         </div>
                     </div>
                     <div class="test-stats">
-                        <span class="stat-item">✓ ${correctLines} correct  |  ✗ ${extraLines} extra</span>
+                        <span class="stat-item">${test.has_features ? '🧩 evaluated' : 'not evaluated'}</span>
                     </div>
                 `;
-                
+
                 // Load test image on click
                 item.addEventListener('click', (e) => {
                     // Don't trigger if clicking on delete icon
                     if (!e.target.closest('.delete-icon')) {
-                        loadTestImage(test.id, testName, correctLines, extraLines);
+                        loadTestImage(test.id, testName);
                     }
                 });
                 
@@ -1284,59 +1271,47 @@
         }
         
         // Load test image into canvas
-        async function loadTestImage(testId, testName, correctLines, extraLines) {
+        async function loadTestImage(testId, testName) {
             try {
                 // Load ORIGINAL image (not processed/skeletonized) for editing
                 const response = await fetch(`/api/training-data-image/${testId}/original`);
                 const blob = await response.blob();
                 const imageUrl = URL.createObjectURL(blob);
-                
+
                 const img = new Image();
                 img.onload = () => {
-                    // Clear canvas and draw loaded image
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.fillStyle = 'white';
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(img, 0, 0);
                     URL.revokeObjectURL(imageUrl);
-                    
-                    // Set form values
+
                     loadedTestId = testId;
                     loadedTestName = testName;
                     document.getElementById('testName').value = testName;
-                    document.getElementById('correctLines').value = correctLines;
-                    document.getElementById('extraLines').value = extraLines;
-                    document.getElementById('totalScore').value = '';
-                    
-                    // Store original values
+
                     originalCanvasData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                    originalCorrectLines = correctLines;
-                    originalExtraLines = extraLines;
-                    originalTotalScore = null;
                     hasChanges = false;
-                    hasContent = true;  // Image is loaded
-                    
-                    // Update buttons
+                    hasContent = true;
                     updateSaveButton();
                     updateDownloadButton();
-                    
                     showStatusBadge('Loaded', '#d1ecf1', '#0c5460');
                 };
                 img.src = imageUrl;
 
+                // Load existing component labels into the editor (if any)
                 try {
                     const featuresResponse = await fetch(`/api/training-data-image/${testId}/features`);
                     if (featuresResponse.ok) {
                         const featuresData = await featuresResponse.json();
-                        const totalScoreValue = featuresData?.features?.Total_Score;
-                        document.getElementById('totalScore').value =
-                            totalScoreValue !== undefined && totalScoreValue !== null ? totalScoreValue : '';
-                        originalTotalScore = totalScoreValue ?? null;
+                        const comp = featuresData?.features?.components || null;
+                        setComponentState(comp);
+                        originalComponents = JSON.parse(JSON.stringify(componentState));
                     }
                 } catch (error) {
                     // Intentionally ignore feature load errors
                 }
-                
+
             } catch (error) {
                 alert('Error loading test image: ' + error.message);
             }
@@ -1356,15 +1331,9 @@
             const canvasChanged = !originalCanvasData || 
                 !compareImageData(currentCanvasData, originalCanvasData);
             
-            // Check form changes
-            const currentCorrect = parseInt(document.getElementById('correctLines').value) || 0;
-            const currentExtra = parseInt(document.getElementById('extraLines').value) || 0;
-            const currentTotalScoreRaw = document.getElementById('totalScore').value.trim();
-            const currentTotalScore = currentTotalScoreRaw === '' ? null : parseInt(currentTotalScoreRaw, 10);
-            const formChanged = currentCorrect !== originalCorrectLines || 
-                               currentExtra !== originalExtraLines ||
-                               currentTotalScore !== originalTotalScore;
-            
+            // Check component-label changes
+            const formChanged = JSON.stringify(componentState) !== JSON.stringify(originalComponents);
+
             hasChanges = canvasChanged || formChanged;
             updateSaveButton();
         }
@@ -1454,26 +1423,6 @@
                 }
             } catch (error) {
                 alert('Error: ' + error.message);
-            }
-        }
-        
-        // Load reference info to get total lines
-        async function loadReferenceInfo() {
-            try {
-                const response = await fetch('/api/references');
-                const references = await response.json();
-                
-                if (references.length > 0) {
-                    // Get features to know the number of lines
-                    const featuresResponse = await fetch(`/api/references/${references[0].id}/features`);
-                    const features = await featuresResponse.json();
-                    
-                    totalReferenceLines = features.num_lines;
-                    document.getElementById('totalRefLines').textContent = totalReferenceLines;
-                    document.getElementById('correctLines').max = totalReferenceLines;
-                }
-            } catch (error) {
-                console.error('Error loading reference info:', error);
             }
         }
         
@@ -1771,7 +1720,6 @@
         
         // Load test images and reference info on page load
         loadTestImages();
-        loadReferenceInfo();
         loadAvailableModels();
         restoreExpandableStates();
     </script>
