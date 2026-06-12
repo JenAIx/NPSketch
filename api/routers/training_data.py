@@ -804,7 +804,18 @@ async def get_training_data_images(
     for img in images:
         metadata = json.loads(img.extraction_metadata) if img.extraction_metadata else {}
         has_features = bool(img.features_data and img.features_data != '{}' and img.features_data != 'null')
-        
+
+        total_score = None
+        has_components = False
+        if has_features:
+            try:
+                fd = json.loads(img.features_data)
+                total_score = fd.get("Total_Score")
+                comp = fd.get("components")
+                has_components = bool(comp and comp.get("presence") and comp.get("accuracy") and comp.get("position"))
+            except (ValueError, AttributeError):
+                pass
+
         results.append({
             "id": img.id,
             "patient_id": img.patient_id,
@@ -817,6 +828,8 @@ async def get_training_data_images(
             "uploaded_at": img.uploaded_at.isoformat(),
             "session_id": img.session_id,
             "has_features": has_features,
+            "total_score": total_score,
+            "has_components": has_components,
             "quality_check_status": img.quality_check_status,
             "quality_check_date": img.quality_check_date.isoformat() if img.quality_check_date else None
         })

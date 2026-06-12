@@ -534,26 +534,17 @@
         
         <!-- Bulk Features Section -->
         <div class="section">
-            <h2>📊 Image and Bulk Feature Management</h2>
-            <p style="color: #666; margin-bottom: 15px;">Download template, fill in features, and upload to update multiple entries at once.</p>
+            <h2>🛠️ Image Management</h2>
             <div style="display: flex; gap: 15px; flex-wrap: wrap;">
-                <a href="/ai_training_data_upload.html" class="btn btn-small" style="white-space: nowrap;">➕ Add New Data</a>
-                <a href="/api/training-data-features-template" class="btn btn-small" download>
-                    📥 Download CSV Template
-                </a>
-                <button class="btn btn-small" onclick="document.getElementById('csvFileInput').click()" style="background: #28a745;">
-                    📤 Upload Feature Table
-                </button>
                 <div class="tooltip-wrapper" data-tooltip="Run background quality check on all images. Results are saved to DB. Use 'Quality Failed' checkbox to filter.">
                     <button class="btn btn-small" id="qualityCheckBtn" onclick="runQualityCheck()" style="background: #ff9800;">
                         🧪 Run Quality Check
                     </button>
                 </div>
-                <input type="file" id="csvFileInput" accept=".csv" style="display: none;" onchange="uploadFeatureCSV()">
             </div>
             <div id="csvUploadResult" style="margin-top: 15px;"></div>
         </div>
-        
+
         <!-- Data Table -->
         <div class="section">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; gap: 20px; flex-wrap: wrap;">
@@ -986,8 +977,7 @@
                     <div class="empty-state">
                         <div class="empty-state-icon">📭</div>
                         <h3>No training data found</h3>
-                        <p>Upload some files to get started</p>
-                        <a href="/ai_training_data_upload.html" class="btn" style="display: inline-block; margin-top: 20px;">➕ Add New Data</a>
+                        <p>Import training data via the unified import pipeline.</p>
                     </div>
                 `;
                 return;
@@ -1002,9 +992,18 @@
                     ? img.original_filename.substring(0, 27) + '...' 
                     : img.original_filename;
                 
-                const featuresBadge = img.has_features 
-                    ? '<span class="badge has-features">✓ Set</span>'
-                    : '<span class="badge missing-features">MISSING</span>';
+                let featuresBadge;
+                if (img.has_features) {
+                    const scorePart = (img.total_score !== null && img.total_score !== undefined)
+                        ? `<span class="badge has-features" title="Total_Score">Σ ${img.total_score}</span>`
+                        : '<span class="badge has-features">✓ Set</span>';
+                    const compPart = img.has_components
+                        ? ' <span class="badge has-features" style="background:#ede7f6;color:#5a3d99;" title="60 component sub-labels present">🧩 60</span>'
+                        : '';
+                    featuresBadge = scorePart + compPart;
+                } else {
+                    featuresBadge = '<span class="badge missing-features">MISSING</span>';
+                }
                 
                 return `
                     <div class="data-row" onclick="showPreview(${realIndex})">
@@ -1666,66 +1665,6 @@
             // Re-render with new page size
             renderDataTable(getPaginatedData());
             updatePagination();
-        }
-        
-        async function uploadFeatureCSV() {
-            const fileInput = document.getElementById('csvFileInput');
-            const file = fileInput.files[0];
-            
-            if (!file) return;
-            
-            const resultDiv = document.getElementById('csvUploadResult');
-            resultDiv.innerHTML = '<div style="text-align: center; padding: 20px;"><div class="spinner"></div><p>Processing CSV...</p></div>';
-            
-            try {
-                const formData = new FormData();
-                formData.append('file', file);
-                
-                const response = await fetch('/api/training-data-features-upload', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    resultDiv.innerHTML = `
-                        <div style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 15px; border-radius: 6px;">
-                            <strong>✅ Upload Successful!</strong>
-                            <p style="margin: 10px 0 0 0;">
-                                Updated: ${data.updated} | Skipped: ${data.skipped} | Total: ${data.total_rows}
-                            </p>
-                            ${data.errors.length > 0 ? `
-                                <details style="margin-top: 10px;">
-                                    <summary style="cursor: pointer;">Errors (${data.errors.length})</summary>
-                                    <ul style="margin: 10px 0 0 20px;">
-                                        ${data.errors.map(err => `<li>${err}</li>`).join('')}
-                                    </ul>
-                                </details>
-                            ` : ''}
-                        </div>
-                    `;
-                    
-                    // Reload data
-                    await loadData();
-                    
-                    // Auto-hide after 5 seconds
-                    setTimeout(() => {
-                        resultDiv.innerHTML = '';
-                    }, 8000);
-                } else {
-                    throw new Error('Upload failed');
-                }
-            } catch (error) {
-                resultDiv.innerHTML = `
-                    <div style="background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 15px; border-radius: 6px;">
-                        <strong>❌ Upload Failed</strong>
-                        <p style="margin: 10px 0 0 0;">${error.message}</p>
-                    </div>
-                `;
-            } finally {
-                fileInput.value = '';
-            }
         }
         
         function showAlert(type, message) {
