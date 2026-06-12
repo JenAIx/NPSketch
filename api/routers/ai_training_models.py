@@ -603,8 +603,31 @@ async def predict_single_image(
         # Predict
         with torch.no_grad():
             output = model(img_tensor)
-            
-            if training_mode == "classification":
+
+            if training_mode == "components":
+                # 60 sub-labels (20 elements x PRES/ACC/POS); Total_Score = sum
+                probs = torch.sigmoid(output)[0].tolist()
+                hard = [1 if p >= 0.5 else 0 for p in probs]
+                elements = []
+                for e in range(20):
+                    pr, ac, po = probs[3*e], probs[3*e+1], probs[3*e+2]
+                    elements.append({
+                        'element': e + 1,
+                        'presence': round(pr, 3), 'accuracy': round(ac, 3), 'position': round(po, 3),
+                        'subscore_hard': int(hard[3*e] + hard[3*e+1] + hard[3*e+2]),
+                    })
+                return {
+                    'success': True,
+                    'model': model_filename,
+                    'target_feature': 'Components',
+                    'training_mode': 'components',
+                    'prediction': {
+                        'total_score_hard': int(sum(hard)),
+                        'total_score_soft': round(float(sum(probs)), 2),
+                        'elements': elements,
+                    }
+                }
+            elif training_mode == "classification":
                 # Get probabilities and predicted class
                 probabilities = torch.softmax(output, dim=1)[0]
                 predicted_class = torch.argmax(probabilities).item()

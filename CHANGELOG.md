@@ -6,6 +6,28 @@ All notable changes to NPSketch will be documented in this file.
 
 ## [Unreleased] - 2026-06-12
 
+### Added - Component-score model (third training mode)
+
+A new **components** training mode predicts the 60 OCS-Plus sub-labels (20 elements ×
+Presence/Accuracy/Position); Total_Score is derived as their sum. This attacks the
+holistic regressor's weakness in the sparse low-score range by giving dense supervision
+(every image labels all 60). Additive — regression/classification are unchanged
+(everything gated on `training_mode == "components"` / `target_feature == "Components"`).
+
+- **Trainer**: `BCEWithLogitsLoss` + per-label `pos_weight`; `_calculate_component_metrics`
+  (per-sub-label macro-F1, per-aspect, per-component F1, AND the derived Total_Score
+  R²/RMSE/MAE + `per_score_bin` for direct comparison to the holistic model).
+- **Data**: 60-vector targets (augmentation-invariant) persisted as `target_vector` in the
+  augmented label JSON; `DrawingDataset`/`AugmentedDrawingDataset` return the vector;
+  patient-level split stratified by derived Total_Score; imbalance sampler skipped.
+- **Orchestration** (`run_training_job`): mode detection, **TELEFRED-only** source filter
+  (v1 — human-rated, element ordering verified consistent via Mantel test p≈0; machine
+  sources excluded due to different label calibration), `num_outputs=60`, pos_weight,
+  metadata. `predict-single` returns 60 probabilities + derived score.
+- New `start_telefred_component_training.py`; `training.components` config section.
+- Verified: component smoke run completes end-to-end (macro-F1, per-aspect/component,
+  derived score + per-decade metrics all produced); regression mode unaffected.
+
 ### Changed - Single unified DB import + full reset (component-score prep)
 
 - **One import path.** New `api/data_consolidation/import_unified.py` is now the only batch

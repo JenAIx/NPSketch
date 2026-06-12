@@ -81,7 +81,28 @@ training:
     warmup:
       enabled: true
       epochs: 3                    # 3 epochs of linear warmup
-  
+
+  # Component head: 60 sub-labels (20 elements x PRES/ACC/POS), BCEWithLogitsLoss.
+  # Total_Score is derived as the sum. pos_weight (per-label) is computed at runtime.
+  components:
+    learning_rate: 0.001
+    recommended_lr: 0.001
+    lr_scheduling:
+      enabled: true
+      strategy: "reduce_on_plateau"
+      factor: 0.5
+      patience: 5
+      min_lr: 0.000001
+      threshold: 0.001
+    regularization:
+      dropout: 0.5
+      weight_decay: 0.0001
+    early_stopping:
+      enabled: true
+      patience: 4                  # short runs: stop ~4 epochs after best
+      min_delta: 0.0001
+      min_epochs: 2
+
   # Differential learning rates (shared by both)
   differential_lr:
     enabled: true

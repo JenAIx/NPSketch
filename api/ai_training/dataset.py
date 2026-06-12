@@ -22,6 +22,25 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Sentinel target_feature that selects the 60-sub-label component model.
+COMPONENTS_TARGET = "Components"
+
+
+def components_to_vector(features: dict):
+    """
+    Flatten features_data["components"] to a 60-vector in the canonical column
+    order used everywhere: per element e (0..19) -> presence, accuracy, position.
+    Returns None if the row has no component sub-labels.
+    """
+    c = features.get("components")
+    if not c:
+        return None
+    pres, acc, pos = c["presence"], c["accuracy"], c["position"]
+    vec = []
+    for e in range(20):
+        vec.extend([float(pres[e]), float(acc[e]), float(pos[e])])
+    return vec
+
 
 class DrawingDataset(Dataset):
     """
@@ -39,7 +58,8 @@ class DrawingDataset(Dataset):
         is_classification: bool = False,
         num_classes: int = None,
         pre_shrink_enabled: bool = True,
-        pre_shrink_factor: float = 0.90
+        pre_shrink_factor: float = 0.90,
+        is_components: bool = False
     ):
         """
         Initialize dataset.
@@ -59,6 +79,7 @@ class DrawingDataset(Dataset):
         self.transform = transform
         self.normalizer = normalizer
         self.is_classification = is_classification
+        self.is_components = is_components
         self.num_classes = num_classes
         self.pre_shrink_enabled = pre_shrink_enabled
         self.pre_shrink_factor = pre_shrink_factor
@@ -80,7 +101,11 @@ class DrawingDataset(Dataset):
                     pass
             
             # Check if feature exists
-            if is_classification:
+            if is_components:
+                # Component mode: needs the 60 sub-labels
+                if features.get("components"):
+                    self.valid_indices.append(idx)
+            elif is_classification:
                 # For Custom_Class, check if classification exists
                 if "Custom_Class" in features and str(num_classes) in features.get("Custom_Class", {}):
                     self.valid_indices.append(idx)
@@ -144,8 +169,12 @@ class DrawingDataset(Dataset):
         
         # Get target value
         features = json.loads(img_data['features_data'])
-        
-        if self.is_classification:
+
+        if self.is_components:
+            # Multi-label: 60-dim float vector (BCE target), no normalization
+            vec = components_to_vector(features)
+            target_tensor = torch.tensor(vec, dtype=torch.float32)
+        elif self.is_classification:
             # Classification mode: Read Custom_Class label
             custom_class = features.get("Custom_Class", {})
             class_data = custom_class.get(str(self.num_classes))
@@ -675,10 +704,11 @@ class AugmentedDrawingDataset(Dataset):
     PyTorch Dataset for augmented training data from disk.
     """
     
-    def __init__(self, data_dir: str, split: str = 'train', transform=None, is_classification: bool = False):
+    def __init__(self, data_dir: str, split: str = 'train', transform=None, is_classification: bool = False,
+                 is_components: bool = False):
         """
         Initialize dataset from augmented data directory.
-        
+
         Args:
             data_dir: Directory containing augmented data
             split: 'train' or 'val'
@@ -688,6 +718,7 @@ class AugmentedDrawingDataset(Dataset):
         self.split = split
         self.transform = transform
         self.is_classification = is_classification
+        self.is_components = is_components
         # CNN input resolution (downscale from 568x274); None = full res
         self.model_input_size = get_model_input_size()
         
@@ -734,17 +765,18 @@ class AugmentedDrawingDataset(Dataset):
         # Load label
         with open(sample['label_path'], 'r') as f:
             label_data = json.load(f)
-        
-        target_value = float(label_data['target_value'])
-        
-        # Use explicit is_classification flag instead of heuristic
-        if self.is_classification:
+
+        # Use explicit mode flags instead of heuristics
+        if self.is_components:
+            # Multi-label: 60-dim float vector persisted by the augmenter
+            target_tensor = torch.tensor(label_data['target_vector'], dtype=torch.float32)
+        elif self.is_classification:
             # Classification: scalar long tensor
-            target_tensor = torch.tensor(int(target_value), dtype=torch.long)
+            target_tensor = torch.tensor(int(float(label_data['target_value'])), dtype=torch.long)
         else:
             # Regression: [1] float tensor
-            target_tensor = torch.tensor([target_value], dtype=torch.float32)
-        
+            target_tensor = torch.tensor([float(label_data['target_value'])], dtype=torch.float32)
+
         return img_tensor, target_tensor
 
 
@@ -753,7 +785,8 @@ def create_augmented_dataloaders(
     batch_size: int = 8,
     shuffle_train: bool = True,
     transform=None,
-    is_classification: bool = False
+    is_classification: bool = False,
+    is_components: bool = False
 ) -> Tuple[DataLoader, DataLoader, Dict]:
     """
     Create dataloaders from augmented data directory.
@@ -768,15 +801,16 @@ def create_augmented_dataloaders(
         (train_loader, val_loader, stats)
     """
     # Create datasets
-    train_dataset = AugmentedDrawingDataset(data_dir, split='train', transform=transform, is_classification=is_classification)
-    val_dataset = AugmentedDrawingDataset(data_dir, split='val', transform=transform, is_classification=is_classification)
+    train_dataset = AugmentedDrawingDataset(data_dir, split='train', transform=transform,
+                                            is_classification=is_classification, is_components=is_components)
+    val_dataset = AugmentedDrawingDataset(data_dir, split='val', transform=transform,
+                                          is_classification=is_classification, is_components=is_components)
 
-    # Optional oversampling of rare score bins (regression only).
-    # Targets on disk are already normalized; equal-width binning works on
-    # any scale, so the sampler is built directly from the stored values.
+    # Optional oversampling of rare score bins (regression only — not for
+    # classification or the multi-label component head).
     imbalance_sampler = None
     imbalance_info = {'enabled': False}
-    if not is_classification:
+    if not is_classification and not is_components:
         train_targets = []
         for sample in train_dataset.samples:
             try:

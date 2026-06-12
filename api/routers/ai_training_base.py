@@ -363,11 +363,21 @@ def run_training_job(config):
         use_augmentation = config.get('use_augmentation', True)
         target_feature = config['target_feature']
         
-        # Detect if this is classification or regression
+        # Detect mode: components / classification / regression
+        is_components = (target_feature == 'Components')
         is_classification = target_feature.startswith('Custom_Class_')
         num_classes = None  # Initialize for regression case
-        
-        if is_classification:
+
+        if is_components:
+            # Multi-label component head: 60 sub-labels (20 elements x PRES/ACC/POS).
+            # v1 trains on TELEFRED only (human-rated, internally consistent).
+            num_outputs = 60
+            training_mode = "components"
+            normalizer = None
+            training_state['progress']['training_config']['use_normalization'] = False
+            logger.info("Training mode: COMPONENTS (60 sub-labels, TELEFRED-only)")
+            logger.info(f"Output neurons: {num_outputs}")
+        elif is_classification:
             # Extract num_classes from feature name (e.g., "Custom_Class_5" -> 5)
             num_classes = int(target_feature.replace('Custom_Class_', ''))
             num_outputs = num_classes
@@ -419,14 +429,16 @@ def run_training_job(config):
                     normalizer=normalizer,
                     add_synthetic_bad_images=config.get('add_synthetic_bad_images', False),
                     synthetic_n_samples=config.get('synthetic_n_samples', 50),
-                    max_images=config.get('max_images')
+                    max_images=config.get('max_images'),
+                    source_filter=('TELEFRED' if is_components else None)
                 )
-                
+
                 train_loader, val_loader, stats = create_augmented_dataloaders(
                     data_dir=output_dir,
                     batch_size=config['batch_size'],
                     shuffle_train=True,
-                    is_classification=is_classification
+                    is_classification=is_classification,
+                    is_components=is_components
                 )
                 
                 stats['augmentation'] = {
@@ -445,9 +457,12 @@ def run_training_job(config):
             finally:
                 db.close()
         else:
+            if is_components:
+                raise NotImplementedError(
+                    "Component mode (target_feature='Components') requires use_augmentation=True.")
             from ai_training.dataset import create_dataloaders
             from config import get_config
-            
+
             # Load pre-shrink config from training_config.yaml (for consistency with augmented path)
             yaml_config = get_config()
             aug_yaml = yaml_config.get('augmentation', {})
@@ -499,6 +514,31 @@ def run_training_job(config):
                 logger.info(f"Using class weights for balanced loss calculation")
             else:
                 logger.warning("No class weights available - using unweighted loss")
+
+        # Per-label pos_weight for the component head (BCE), from TELEFRED label
+        # frequencies: pos_weight_j = clip(N_neg/N_pos, 0.1, 10) balances each of
+        # the 60 sub-labels (most elements are usually present -> imbalanced).
+        pos_weight = None
+        if is_components:
+            from database import SessionLocal as _SL
+            from ai_training.dataset import components_to_vector
+            _db = _SL()
+            try:
+                vecs = []
+                for (fd,) in _db.query(TrainingDataImage.features_data).filter(
+                        TrainingDataImage.source_format == 'TELEFRED',
+                        TrainingDataImage.features_data.isnot(None)).all():
+                    v = components_to_vector(json.loads(fd))
+                    if v is not None:
+                        vecs.append(v)
+            finally:
+                _db.close()
+            import numpy as _np
+            arr = _np.array(vecs)
+            p = arr.mean(axis=0).clip(1e-3, 1 - 1e-3)
+            pos_weight = _np.clip((1 - p) / p, 0.1, 10.0).tolist()
+            logger.info(f"Component pos_weight from {len(vecs)} TELEFRED rows "
+                        f"(min {min(pos_weight):.2f}, max {max(pos_weight):.2f})")
         
         # Load task-specific configuration (classification vs regression)
         task_config = get_task_specific_config(training_mode, config)
@@ -511,6 +551,7 @@ def run_training_job(config):
             normalizer=normalizer,
             training_mode=training_mode,
             class_weights=class_weights,
+            pos_weight=pos_weight,
             use_lr_scheduling=config.get('use_lr_scheduling', True),
             use_differential_lr=config.get('use_differential_lr', True),
             backbone_lr_multiplier=config.get('backbone_lr_multiplier', 0.1),
@@ -659,6 +700,10 @@ def run_training_job(config):
             'class_weights': {
                 'enabled': class_weights is not None,
                 'weights': class_weights if class_weights else None
+            },
+            'pos_weight': {
+                'enabled': pos_weight is not None,
+                'weights': pos_weight if pos_weight else None
             },
             'lr_scheduling': {
                 'enabled': config.get('use_lr_scheduling', True),
