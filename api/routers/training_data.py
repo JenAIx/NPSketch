@@ -791,8 +791,6 @@ async def get_training_data_images(
             TrainingDataImage.features_data,
             TrainingDataImage.uploaded_at,
             TrainingDataImage.session_id,
-            TrainingDataImage.ground_truth_correct,
-            TrainingDataImage.ground_truth_extra,
             TrainingDataImage.quality_check_status,
             TrainingDataImage.quality_check_date
         )
@@ -1250,41 +1248,6 @@ async def delete_training_data_features(image_id: int, db: Session = Depends(get
     db.commit()
     
     return {"success": True}
-
-
-@router.post("/training-data-image/{image_id}/ground-truth")
-async def update_ground_truth(
-    image_id: int,
-    data: dict,
-    db: Session = Depends(get_db)
-):
-    """
-    Update ground truth values for a training data image.
-    
-    Args:
-        image_id: Image ID
-        data: Dictionary with ground_truth_correct and ground_truth_extra
-        
-    Returns:
-        Success status and updated values
-    """
-    img = db.query(TrainingDataImage).filter(TrainingDataImage.id == image_id).first()
-    if not img:
-        raise HTTPException(status_code=404, detail="Image not found")
-    
-    # Update ground truth values
-    img.ground_truth_correct = data.get('ground_truth_correct')
-    img.ground_truth_extra = data.get('ground_truth_extra')
-    
-    db.commit()
-    db.refresh(img)
-    
-    return {
-        "success": True,
-        "image_id": img.id,
-        "ground_truth_correct": img.ground_truth_correct,
-        "ground_truth_extra": img.ground_truth_extra
-    }
 
 
 @router.post("/training-data-image/{image_id}/crop-and-reprocess")
@@ -1832,98 +1795,3 @@ def cleanup_session(session_id: str):
             logger.warning(f"Error cleaning up {directory}: {e}")
 
 
-@router.get("/training-data-evaluations")
-async def get_training_data_evaluations(
-    limit: int = 100,
-    offset: int = 0,
-    has_ground_truth: bool = None,
-    task_type: str = None,
-    source_format: str = None,
-    db: Session = Depends(get_db)
-):
-    """
-    Get list of training data images suitable for evaluation.
-    
-    Args:
-        limit: Maximum number of results
-        offset: Offset for pagination
-        has_ground_truth: Filter by presence of ground truth
-        task_type: Filter by task type
-        source_format: Filter by source format
-        db: Database session
-    
-    Returns:
-        List of training data images with ground truth status
-    """
-    from sqlalchemy import func
-    from sqlalchemy.orm import load_only
-    
-    # Build filter conditions (shared between count and fetch queries)
-    filters = []
-    
-    # Filter by ground truth presence
-    if has_ground_truth is not None:
-        if has_ground_truth:
-            filters.append(TrainingDataImage.ground_truth_correct.isnot(None))
-        else:
-            filters.append(TrainingDataImage.ground_truth_correct.is_(None))
-    
-    # Filter by task type
-    if task_type:
-        filters.append(TrainingDataImage.task_type == task_type)
-    
-    # Filter by source format
-    if source_format:
-        filters.append(TrainingDataImage.source_format == source_format)
-    
-    # Get total count using func.count (fast - doesn't load data)
-    count_query = db.query(func.count(TrainingDataImage.id))
-    for f in filters:
-        count_query = count_query.filter(f)
-    total = count_query.scalar()
-    
-    # Fetch data using load_only to exclude BLOB columns (critical for performance)
-    query = db.query(TrainingDataImage).options(
-        load_only(
-            TrainingDataImage.id,
-            TrainingDataImage.patient_id,
-            TrainingDataImage.task_type,
-            TrainingDataImage.source_format,
-            TrainingDataImage.test_name,
-            TrainingDataImage.extraction_metadata,
-            TrainingDataImage.uploaded_at,
-            TrainingDataImage.ground_truth_correct,
-            TrainingDataImage.ground_truth_extra
-        )
-    )
-    for f in filters:
-        query = query.filter(f)
-    
-    # Order by most recent first and apply pagination
-    images = query.order_by(TrainingDataImage.uploaded_at.desc()).offset(offset).limit(limit).all()
-    
-    # Prepare results
-    results = []
-    for img in images:
-        metadata = json.loads(img.extraction_metadata) if img.extraction_metadata else {}
-        
-        results.append({
-            "id": img.id,
-            "patient_id": img.patient_id,
-            "task_type": img.task_type,
-            "source_format": img.source_format,
-            "test_name": img.test_name,
-            "uploaded_at": img.uploaded_at.isoformat(),
-            "has_ground_truth": img.ground_truth_correct is not None,
-            "ground_truth_correct": img.ground_truth_correct,
-            "ground_truth_extra": img.ground_truth_extra,
-            "width": metadata.get("width"),
-            "height": metadata.get("height")
-        })
-    
-    return {
-        "total": total,
-        "offset": offset,
-        "limit": limit,
-        "evaluations": results
-    }
