@@ -118,7 +118,12 @@ class TrainingDataLoader:
                             if class_data.get('name_custom'):
                                 custom_class_info[feature_key]['names'].add(class_data['name_custom'])
                         continue
-                    
+
+                    # 'components' is the component-mode target (a dict of sub-labels),
+                    # not a numeric regression feature — skip its numeric stats.
+                    if key == "components":
+                        continue
+
                     all_features.add(key)
                     if key not in feature_stats:
                         feature_stats[key] = {'count': 0, 'min': float('inf'), 'max': float('-inf'), 'sum': 0, 'sum_sq': 0}
@@ -148,6 +153,9 @@ class TrainingDataLoader:
                 stats['std'] = std
                 stats['median'] = float(mean)  # Approximate - exact median would require storing all values
             else:
+                # No numeric values seen — avoid leaking inf/-inf (not JSON compliant)
+                stats['min'] = 0
+                stats['max'] = 0
                 stats['mean'] = 0
                 stats['std'] = 0
                 stats['median'] = 0

@@ -34,6 +34,23 @@ training_state = {
     'cancelled': False  # Flag to request cancellation
 }
 
+# Shared progress file so CLI-launched trainings (separate process) are also
+# visible in the UI — both run_training_job (any process) and the status
+# endpoint use it.
+PROGRESS_FILE = "/app/data/logs/training_progress.json"
+
+
+def _write_progress_file():
+    """Persist the current training_state to the shared progress file."""
+    try:
+        import time as _t
+        snap = dict(training_state)
+        snap['_updated_at'] = _t.time()
+        with open(PROGRESS_FILE, 'w') as f:
+            json.dump(snap, f, default=str)
+    except Exception:
+        pass
+
 
 def get_task_specific_config(training_mode: str, config_dict: dict) -> dict:
     """
@@ -338,6 +355,7 @@ def run_training_job(config):
         # Reset cancellation flag when starting new training
         training_state['cancelled'] = False
         training_state['status'] = 'training'
+        training_state['error'] = None
         training_state['progress'] = {
             'epoch': 0,
             'total_epochs': config['num_epochs'],
@@ -353,7 +371,8 @@ def run_training_job(config):
                 'use_normalization': config.get('use_normalization', True)
             }
         }
-        
+        _write_progress_file()
+
         logger.debug(f"Training state initialized: {training_state}")
         
         from ai_training.trainer import CNNTrainer
@@ -656,7 +675,8 @@ def run_training_job(config):
             training_state['progress']['val_loss'] = metrics['val_loss']
             training_state['progress']['duration_seconds'] = int(elapsed_time)
             training_state['progress']['estimated_remaining_seconds'] = int(estimated_remaining)
-        
+            _write_progress_file()  # visible to the UI even for CLI-launched runs
+
         train_metrics = trainer.evaluate_metrics(train_loader)
         val_metrics = trainer.evaluate_metrics(val_loader)
         
@@ -786,12 +806,14 @@ def run_training_job(config):
         training_state['progress']['model_path'] = model_path
         training_state['progress']['train_metrics'] = train_metrics
         training_state['progress']['val_metrics'] = val_metrics
-        
+        _write_progress_file()
+
     except Exception as e:
         training_state['status'] = 'error'
         training_state['error'] = str(e)
         import traceback
         training_state['progress']['message'] = f'Error: {str(e)}'
+        _write_progress_file()
         traceback.print_exc()
 
 
@@ -819,9 +841,29 @@ async def stop_training():
 @router.get("/training-status")
 async def get_training_status():
     """Get current training status and progress."""
-    import time
+    import time, os
     global training_state
-    
+
+    # If this process isn't the one training (e.g. a detached CLI run), fall back
+    # to the shared progress file so the UI still shows live progress.
+    if training_state['status'] != 'training' and os.path.exists(PROGRESS_FILE):
+        try:
+            with open(PROGRESS_FILE) as f:
+                file_state = json.load(f)
+            updated = file_state.pop('_updated_at', 0)
+            # Use the file only if it reports an active run updated recently (< 2h)
+            if file_state.get('status') == 'training' and (time.time() - updated) < 7200:
+                prog = file_state.get('progress', {})
+                if prog.get('start_time'):
+                    prog['duration_seconds'] = int(time.time() - prog['start_time'])
+                    ep, tot = prog.get('epoch', 0), prog.get('total_epochs', 0)
+                    if ep > 0 and tot > 0:
+                        prog['estimated_remaining_seconds'] = int(
+                            (prog['duration_seconds'] / ep) * (tot - ep))
+                return file_state
+        except Exception:
+            pass
+
     # Calculate current duration if training is in progress
     if training_state['status'] == 'training' and 'progress' in training_state:
         progress = training_state['progress']
