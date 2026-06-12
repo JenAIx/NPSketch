@@ -553,7 +553,6 @@
                             🎯 Reference
                             <span class="resolution-badge" id="referenceResolution"></span>
                         </span>
-                        <button class="overlay-btn" id="overlayBtn" onclick="toggleOverlay()">Show Overlay</button>
                     </div>
                     
                     <div class="canvas-container">
@@ -621,24 +620,10 @@
             
             <!-- Analysis Section (Full Width Below) -->
             <div class="analysis-section">
-                <h3 style="margin-top: 0; margin-bottom: 15px; color: #333;">🔬 Analysis</h3>
-                
-                <!-- Analysis Method Selection -->
+                <h3 style="margin-top: 0; margin-bottom: 15px; color: #333;">🤖 Evaluate with a Model</h3>
+
                 <div style="padding: 15px; background: #fff; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 15px;">
-                    <label style="font-weight: 600; color: #333; margin-bottom: 10px; display: block;">Analysis Method</label>
-                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; border: 2px solid #667eea; border-radius: 6px; background: #667eea; color: white;">
-                            <input type="radio" name="analysisMethod" value="ai" checked onchange="toggleAnalysisMethod()" style="display: none;">
-                            <span>🤖 AI Model</span>
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; border: 2px solid #ddd; border-radius: 6px; background: white; color: #333;">
-                            <input type="radio" name="analysisMethod" value="algorithm" onchange="toggleAnalysisMethod()" style="display: none;">
-                            <span>📐 Algorithm</span>
-                        </label>
-                    </div>
-                    
-                    <!-- AI Model Selector (visible by default since AI is default) -->
-                    <div id="aiModelSelector" style="display: block; margin-top: 10px;">
+                    <div id="aiModelSelector" style="display: block;">
                         <label style="font-size: 0.9em; color: #666;">Select trained model:</label>
                         <select id="modelSelect" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; margin-top: 5px;">
                             <option value="">Loading models...</option>
@@ -646,8 +631,8 @@
                         <div id="modelInfo" style="margin-top: 8px; font-size: 0.85em; color: #666;"></div>
                     </div>
                 </div>
-                
-                <button class="btn" id="analyzeBtn" onclick="analyzeDrawing()" style="width: 100%;">🤖 Predict with AI Model</button>
+
+                <button class="btn" id="analyzeBtn" onclick="analyzeWithAI()" style="width: 100%;">🤖 Predict with AI Model</button>
             </div>
         </div>
         
@@ -903,10 +888,11 @@
         
         // Load reference image from API
         async function loadReferenceImage() {
+            return;  // Algorithm reference overlay removed (AI-only)
             try {
                 const response = await fetch('/api/references');
                 const references = await response.json();
-                
+
                 if (references.length > 0) {
                     const refId = references[0].id;
                     const imgResponse = await fetch(`/api/references/${refId}/image`);

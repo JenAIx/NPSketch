@@ -716,6 +716,78 @@ async def predict_single_image(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/models/run-on-test-images")
+async def run_on_test_images(request: dict = Body(...), db: Session = Depends(get_db)):
+    """
+    Run a trained model over the DRAWN test images and compare predicted vs
+    expected (the "Run Tests" batch). Each DRAWN image with features is scored
+    using the same preprocessing as predict-single.
+    """
+    import os, io, torch
+    import numpy as np
+    from pathlib import Path
+    from ai_training.model import DrawingClassifier
+    from ai_training.preprocessing import preprocess_bytes_for_prediction
+
+    model_filename = request.get("model_filename")
+    if not model_filename:
+        raise HTTPException(status_code=400, detail="model_filename required")
+    model_path = Path("/app/data/models") / model_filename
+    meta_path = Path("/app/data/models") / f"{model_path.stem}_metadata.json"
+    if not model_path.exists():
+        raise HTTPException(status_code=404, detail="Model not found")
+    metadata = json.load(open(meta_path)) if meta_path.exists() else {}
+    mode = metadata.get("training_mode", "regression")
+    num_outputs = metadata.get("model", {}).get("output_neurons", 1)
+    use_sigmoid = bool(metadata.get("use_sigmoid", False))
+    norm = metadata.get("normalization", {})
+
+    model = DrawingClassifier(num_outputs=num_outputs, pretrained=False, use_sigmoid=use_sigmoid)
+    ckpt = torch.load(model_path, map_location="cpu")
+    model.load_state_dict(ckpt.get("model_state_dict", ckpt))
+    model.eval()
+
+    def expected_total(feats):
+        c = feats.get("components")
+        if c:
+            return sum(c["presence"]) + sum(c["accuracy"]) + sum(c["position"])
+        return feats.get("Total_Score")
+
+    rows = db.query(TrainingDataImage).filter(
+        TrainingDataImage.source_format == "DRAWN",
+        TrainingDataImage.features_data.isnot(None),
+    ).all()
+
+    results, diffs = [], []
+    for r in rows:
+        feats = json.loads(r.features_data)
+        exp = expected_total(feats)
+        arr = preprocess_bytes_for_prediction(r.original_file_data, metadata=metadata)
+        t = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0)
+        with torch.no_grad():
+            out = model(t)
+        if mode == "components":
+            pred = float(torch.sigmoid(out)[0].sum().item())
+        elif mode == "classification":
+            pred = int(torch.argmax(out, dim=1).item())
+        else:
+            v = out[0][0].item()
+            if norm.get("method") == "min_max":
+                mn, mx = norm.get("min_value", 0), norm.get("max_value", 60)
+                v = max(mn, min(mx, v * (mx - mn) + mn))
+            pred = round(v, 2)
+        row = {"id": r.id, "name": r.test_name or r.patient_id, "expected": exp, "predicted": pred}
+        if exp is not None and mode != "classification":
+            row["abs_error"] = round(abs(pred - exp), 2)
+            diffs.append(abs(pred - exp))
+        results.append(row)
+
+    summary = {"count": len(results), "training_mode": mode}
+    if diffs:
+        summary["mae"] = round(float(np.mean(diffs)), 2)
+    return {"success": True, "model": model_filename, "summary": summary, "results": results}
+
+
 @router.delete("/models/{model_filename}")
 async def delete_model(model_filename: str):
     """Delete a saved model and its metadata."""
