@@ -648,6 +648,9 @@
                     o.textContent = `${model.feature} (${date}) - ${model.size_mb.toFixed(1)}MB`;
                     select.appendChild(o);
                 });
+                // Preselect the most recently trained model (API sorts newest first)
+                select.value = data.models[0].filename;
+                updateModelInfo();
             } else {
                 select.innerHTML = '<option value="">No models available — train one first</option>';
                 modelInfo.innerHTML = '<span style="color:#dc3545;">⚠️ Train a model first in AI Training.</span>';
