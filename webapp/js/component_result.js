@@ -1,6 +1,6 @@
 /*
  * Renders the component-model prediction (60 OCS-Plus sub-labels) as a
- * 20-element x 3-aspect breakdown. Used by draw_testimage.html and upload.html
+ * 20-element x 3-aspect breakdown. Used by evaluate.html and ai_training_data_view.html
  * when predict-single returns training_mode === "components".
  *
  * prediction = {

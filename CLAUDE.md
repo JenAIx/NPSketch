@@ -55,7 +55,6 @@ NPSketch/
 │   │   └── *.md                      # CONTENT_PROTECTION, MODEL_METADATA, TRAINING_PIPELINE_ANALYSIS
 │   │
 │   ├── mat_extraction/ · ocs_extraction/ · oxford_extraction/ · telefred_extraction/  # legacy/scan helpers
-│   ├── image_quality_check/          # contour_quality.py — training-image quality check
 │   ├── config/                       # training_config.yaml + config_loader.py + models.py (Pydantic)
 │   ├── line_normalizer.py            # shared 2px line normalization (kept from the old pipeline)
 │   ├── migrations/                   # add_image_hash.{py,sql} (legacy)
@@ -64,11 +63,12 @@ NPSketch/
 │   └── (root-level dev/debug scripts: start_*_training.py, grid_search_quick.py,
 │        debug_cont_lines_detailed.py, analyze_latest_training.py, test_*.py — see §9)
 │
-├── webapp/                           # Frontend (static HTML/JS/CSS, served by nginx) — 13 pages
-│   ├── index.html · upload.html · reference.html · draw_testimage.html · run_test.html
+├── webapp/                           # Frontend (static HTML/JS/CSS, served by nginx)
+│   ├── index.html · evaluate.html (merged upload+draw: predict / label & save) · run_test.html
+│   ├── upload.html · draw_testimage.html   # redirect stubs → evaluate.html?input=upload|draw
 │   ├── ai_training*.html (menu, overview, train, data_view, data_upload)
-│   ├── training_evaluations.html · admin.html · docs.html
-│   └── css/ (common.css, ai_training_common.css) · js/
+│   ├── admin.html · docs.html
+│   └── css/ (common.css, ai_training_common.css) · js/ (incl. component_result.js)
 │
 ├── data/                             # Persistent volume (RW): npsketch.db, models/, visualizations/, logs/, tmp/
 ├── templates/                        # Input data volume (RO): bsp_ocsplus_202511/, training_data_oxford_*/
@@ -161,11 +161,11 @@ source_format   str   # TELEFRED | OXFORD | ALGORITHM | OCS_MACHINE  (legacy: MA
 original_file_data    bytes   # BLOB, original
 processed_image_data  bytes   # BLOB, normalized 568×274 PNG, 2px black lines
 image_hash      str   # SHA256 of the ORIGINAL file (duplicate detection)
-features_data   str   # JSON: Total_Score + optional 60 component sub-labels (see below)
-quality_check_status  str   # valid | invalid | NULL
-quality_check_date    datetime
+features_data   str   # JSON: Total_Score + optional 60 component sub-labels (see below); NULL = unlabelled
+                      #   (e.g. label_status='zero' placeholders — kept as images, excluded from training)
 uploaded_at     datetime
-# (+ ground_truth_*, session_id, extraction_metadata depending on source)
+# (+ session_id, extraction_metadata depending on source)
+# (quality_check_status/date columns were removed in 2.1.0)
 ```
 
 Other tables: `reference_images` (templates + manually-defined `lines_data` JSON),
@@ -188,10 +188,11 @@ Mounted in `api/main.py`. Full interactive list: `http://localhost/api/docs`.
 
 - **upload.py** — `/api/normalize-image`, `/api/check-duplicate` (algorithm `/api/upload` +
   `/api/register-image` were removed)
-- **training_data.py** — `/api/save-drawn-image` (accepts `components`), `/api/training-data-images`,
-  `/api/training-data-image/{id}` (GET/DELETE), `/{id}/features`, `/{id}/original`, quality-check
-  endpoints. (Bulk `/api/extract-training-data[-oxford]` return HTTP 410; ground-truth + algorithm
-  eval endpoints removed.)
+- **training_data.py** — `/api/save-drawn-image` (accepts `components`, `source_format` UPLOAD/DRAWN),
+  `/api/training-data-images` (list returns `total_score` + `has_components`; `only_missing` filter),
+  `/api/training-data-image/{id}` (GET/DELETE), `/{id}/features`, `/{id}/original`.
+  (Bulk `/api/extract-training-data[-oxford]` return HTTP 410; ground-truth, algorithm-eval,
+  quality-check, and bulk feature-CSV endpoints were removed.)
 - **ai_training_base.py** — `/api/ai-training/dataset-info`, `/available-features`,
   `/feature-distribution/{feature}`, `/start-training`, `/training-status`
 - **ai_training_classification.py** — `/api/ai-training/custom-class-distribution/{feature}`,
@@ -267,20 +268,21 @@ Things that could bite — verify against code, don't trust prose blindly:
 
 - **Router naming:** older docs/READMEs refer to a single `ai_training.py`. It is actually split
   into `ai_training_base.py`, `ai_training_classification.py`, `ai_training_models.py`.
-- **`algorithm_extraction/`** (`algorithm_db_populator.py`) and **`image_quality_check/`** exist in
-  the tree but are undocumented in README. Inspect them before assuming behaviour; the purpose of
-  `algorithm_extraction` is unclear (see §10).
+- **`algorithm_extraction/`** (`algorithm_db_populator.py`) exists in the tree but is undocumented in
+  README. Inspect it before assuming behaviour; its purpose is unclear (see §10).
+  (`image_quality_check/` was removed in 2.1.0 — the quality check had no effect on training.)
 - **Dead doc links:** earlier text referenced `DATA_IMPORT_FLOW.md` and
   `api/ai_training/LOCAL_WARPING.md`. Neither exists. The real ai_training docs are
   `CONTENT_PROTECTION.md`, `MODEL_METADATA.md`, `TRAINING_PIPELINE_ANALYSIS.md`.
 - **Two `models.py`:** `api/models.py` (FastAPI I/O schemas) vs `api/config/models.py` (config
   validation). Import the right one.
-- **Three synthetic-image generators** coexist (`synthetic_score_based.py` is current;
-  `synthetic_bad_images.py` / `generate_synthetic_images.py` are earlier). Prefer the score-based one.
-- **Upload vs Draw prediction differ:** `draw_testimage.html` sends the raw 568×274 canvas straight
-  to `/api/ai-training/models/predict-single`; `upload.html` first runs `/api/normalize-image`
-  (auto-crop + rescale + center), which can shift margins/line-scale and change the prediction.
-- **Version drift:** `README.md` header still says "v1.0" while the footer/`CHANGELOG` say 1.2.0.
+- **Synthetic images:** `synthetic_score_based.py` is the current (and only) generator; the earlier
+  `synthetic_bad_images.py` / `generate_synthetic_images.py` were deleted in the AI-only pivot.
+- **Upload vs Draw prediction differ:** upload and draw are now one page (`evaluate.html`;
+  `upload.html`/`draw_testimage.html` redirect to it). The **Draw** source sends the raw 568×274 canvas
+  straight to `/api/ai-training/models/predict-single`; the **Upload** source first runs
+  `/api/normalize-image` (auto-crop + rescale + center), which can shift margins/line-scale and change
+  the prediction. Both feed predict/label via `getActiveImageBlob()`.
 - **Root-level dev scripts** (`start_fast_training.py`, `start_full_training.py`,
   `grid_search_quick.py`, `debug_cont_lines_detailed.py`, `analyze_latest_training.py`,
   `test_*.py`) are ad-hoc helpers, not part of the served API. Treat as scratch tooling.
@@ -292,7 +294,8 @@ Things that could bite — verify against code, don't trust prose blindly:
 - What is `algorithm_extraction/` for, and is it a supported import path alongside MAT/OCS/Oxford?
 - Are the root-level `start_*` / `grid_search` / `debug_*` scripts still used, or can they be archived?
 - Is `docs/` meant to hold anything? It is currently empty.
-- Should the earlier synthetic-image generators be removed now that score-based is the standard?
+- Extend the component head beyond TELEFRED-only (v1), and label the 608 NULL-feature ("Only Missing")
+  TELEFRED images so they re-enter training?
 
 ---
 
@@ -308,4 +311,4 @@ docker exec npsketch-api python3 -c "from database import get_db; next(get_db())
 ---
 
 **Container:** `npsketch-api` · **Workdir:** `/app` · **App URL:** http://localhost ·
-**API docs:** http://localhost/api/docs · **Version:** 1.2.0
+**API docs:** http://localhost/api/docs · **Version:** 2.1.0

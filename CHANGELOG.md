@@ -4,6 +4,29 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [2.1.0] - 2026-06-14 — Component model, data integrity, merged Evaluate page
+
+- **Component-head training on clean TELEFRED**: trained the 60-sub-label model on the curated
+  dataset (5403 rows). Honest patient-level held-out: macro-F1 ≈ 0.96, derived Total_Score
+  MAE ≈ 2.7 / R² ≈ 0.76. Components target is now selectable directly in `ai_training_train.html`.
+- **Data integrity — `label_status='zero'`**: 987 TELEFRED rows are unscored placeholders (total_score
+  0, all components 0), not genuine zeros (e.g. a near-complete figure labelled 0). They poisoned
+  training. `import_unified.py` now keeps these images but imports them with `features_data = NULL`,
+  so they are excluded from training (queries filter `features_data IS NOT NULL`) yet appear under the
+  "Only Missing" filter for later labelling. DB reset + re-imported (7693 images, 608 NULL-feature,
+  min Total_Score now 1).
+- **Merged Evaluate page**: new `evaluate.html` combines upload + draw — top tabs for the image source
+  (Upload / Draw), bottom tabs for the action (Predict / Train-Label); both feed the same actions.
+  `upload.html` and `draw_testimage.html` are now redirect stubs; index nav points to `evaluate.html`.
+- **Removed the quality-check feature**: it had no effect on training (the flag was never read) and was
+  a leftover scan-artifact heuristic from the old pipeline. Dropped the button/filter/endpoints,
+  `contour_quality.py`, and the `quality_check_*` DB columns.
+- **Data-view improvements** (`ai_training_data_view.html`): components shown inside Features & Labels
+  with the add-value field on top; table shows `Σ Total_Score` + a `🧩 60` badge and sorts by score;
+  removed the bulk feature-CSV / "Add new data" controls.
+- **Fixes**: `evaluate.html`/`upload.html` no longer throw "Cannot set innerHTML of null" when switching
+  between Components and Total_Score predictions.
+
 ## [2.0.0] - 2026-06-12 — AI-only pivot
 
 Removed the classical algorithm pipeline entirely; the app is now CNN-only
@@ -882,7 +905,7 @@ Restored best model from epoch 20
 
 ---
 
-**Current Version:** 1.2.0  
-**Last Updated:** 2026-01-22  
+**Current Version:** 2.1.0  
+**Last Updated:** 2026-06-14  
 **Status:** Production Ready
 

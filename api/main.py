@@ -35,7 +35,7 @@ from routers import (
 app = FastAPI(
     title="NPSketch API",
     description="CNN-based scoring of hand-drawn neuropsychological figures",
-    version="2.0.0"
+    version="2.1.0"
 )
 
 # Enable CORS for external access (e.g., from mars.biomag.uni-jena.de)

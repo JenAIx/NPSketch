@@ -1,4 +1,4 @@
-# NPSketch v2.0
+# NPSketch v2.1
 
 **CNN-based scoring of hand-drawn neuropsychological figures**
 
@@ -100,14 +100,13 @@ npsketch/
 │   ├── js/                       # JavaScript modules
 │   │   └── ai_training_preview_target_distribution.js
 │   ├── index.html                # Landing page
-│   ├── upload.html               # Upload & analyze (Algorithm or AI)
-│   ├── reference.html            # Reference line editor
+│   ├── evaluate.html             # Upload OR draw → predict / label & save (merged)
+│   ├── upload.html · draw_testimage.html  # redirect stubs → evaluate.html
 │   ├── ai_training.html          # AI training menu
 │   ├── ai_training_overview.html # Dataset overview & models
 │   ├── ai_training_train.html    # Model training interface
 │   ├── ai_training_data_view.html # View & label data
-│   ├── ai_training_data_upload.html # Upload MAT/OCS
-│   └── training_evaluations.html # Algorithm evaluation
+│   └── ai_training_data_upload.html # Upload MAT/OCS
 ├── data/                         # Persistent data (volume)
 │   ├── npsketch.db               # SQLite database
 │   ├── models/                   # Trained CNN models
@@ -138,8 +137,9 @@ docker compose up --build -d
 
 ### Main Pages
 - **http://localhost** - Landing page with stats
-- **http://localhost/upload.html** - Upload & analyze drawings (Algorithm or AI Model)
-- **http://localhost/reference.html** - Define reference lines
+- **http://localhost/evaluate.html** - Upload or draw a figure → predict with a model, or label
+  (Total_Score + 20 components) and add it to the training data. `?input=upload|draw` preselects the
+  source tab. (Old `upload.html` / `draw_testimage.html` redirect here.)
 - **http://localhost/ai_training.html** - AI training menu
 - **http://localhost/ai_training_overview.html** - Dataset overview & trained models
 - **http://localhost/ai_training_train.html** - Train new models
@@ -220,32 +220,27 @@ docker compose up --build -d
 - **Extra Lines**: Detected lines with no match
 - **Reference Match Score**: correct_lines / total_reference_lines
 
-### 5. AI Model Prediction (Alternative to Algorithm)
+### 5. Evaluate & Label (`evaluate.html`)
 
-**Upload & Analyze with Trained Models:**
+> Note: the classical line-detection/template-matching algorithm was removed in v2.0. Scoring is
+> AI-only — the sections above describing line detection are historical (see `CLAUDE.md`).
 
-In `upload.html`, users can choose between:
+`evaluate.html` is the single page for working with one figure. It has two tab rows:
 
-**Method 1: Algorithm (Traditional)**
-- Line detection + Hungarian matching
-- Shows: Correct, Missing, Extra Lines, Similarity Score
+- **Top — image source:** **📤 Upload** (drag/drop → auto-normalize to 568×274 → scale/rotate/move
+  correction) or **🎨 Draw** (pen/eraser canvas). `?input=upload|draw` preselects the tab.
+- **Bottom — action:** **🤖 Predict** or **🏷️ Train / Label** — both operate on whichever source is active.
 
-**Method 2: AI Model (Neural Network)**
-- Select trained CNN model from dropdown
-- **Regression**: Predicts continuous score (e.g., 37.5 out of 60)
-  - Shows score visualization bar with denormalized value
-  - Displays raw model output and normalization info
-- **Classification**: Predicts score range/class (e.g., "Good [52-60]")
-  - Shows predicted class with confidence percentage
-  - Displays probability bars for all classes with custom names
-  - Highlights predicted class with checkmark
+**🤖 Predict** — pick a trained model; one renderer handles all three modes:
+- **Regression** (Total_Score): score + visualization bar, denormalized raw output.
+- **Classification** (custom class): predicted class + confidence + probability bars.
+- **Components** (60 sub-labels): full 20-element × Presence/Accuracy/Position breakdown with the
+  derived Total_Score.
 
-**Features:**
-- Model dropdown shows all available trained models
-- Displays model metadata (target feature, mode, accuracy/MAE)
-- Real-time prediction (~0.5 sec)
-- Supports both regression and classification models
-- Uses custom class names (e.g., "Poor", "Fair", "Good")
+**🏷️ Train / Label** — set the 20 components (Total_Score = their sum) and a name, then save to the
+training data via `/api/save-drawn-image`. The `source_format` is `UPLOAD` or `DRAWN` depending on the
+active source. A saved-drawings browser lets you reload a drawing (image + labels), edit and re-save,
+or delete it.
 
 ---
 
@@ -1183,8 +1178,8 @@ MIT License - feel free to use and modify for your projects.
 ## 👤 Author
 
 **Stefan Brodoehl**  
-Date: October-December 2025, January 2026  
-Version: 1.2.0
+Date: October-December 2025, January–June 2026  
+Version: 2.1.0
 
 ---
 
