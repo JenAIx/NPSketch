@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NPSketch v1.0</title>
+    <title>NPSketch</title>
     
     <!-- Global Common Styles -->
     <link rel="stylesheet" href="/css/common.css">
@@ -390,7 +390,7 @@
 <body>
     <div class="container hexagon-pattern">
         <h1>🎨 NPSketch</h1>
-        <div class="version">v. 1.0</div>
+        <div class="version" id="appVersion">v2.1.0</div>
         
         <p class="description">
             Automated Line Detection for Hand-Drawn Images<br>
@@ -509,7 +509,22 @@
             }
         }
 
+        // Show the live app version from the API (falls back to the static text)
+        async function loadVersion() {
+            try {
+                const r = await fetch('/api/health');
+                if (!r.ok) return;
+                const h = await r.json();
+                if (h.version) {
+                    const el = document.getElementById('appVersion');
+                    if (el) el.textContent = 'v' + h.version;
+                    document.title = 'NPSketch v' + h.version;
+                }
+            } catch (e) { /* keep static fallback */ }
+        }
+
         loadStats();
+        loadVersion();
     </script>
 </body>
 </html>

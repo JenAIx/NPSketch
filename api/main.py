@@ -31,11 +31,14 @@ from routers import (
     ai_training_models_router
 )
 
+# Single source of truth for the app version (also returned by /api/health)
+APP_VERSION = "2.1.0"
+
 # Initialize FastAPI app
 app = FastAPI(
     title="NPSketch API",
     description="CNN-based scoring of hand-drawn neuropsychological figures",
-    version="2.1.0"
+    version=APP_VERSION
 )
 
 # Enable CORS for external access (e.g., from mars.biomag.uni-jena.de)
@@ -76,7 +79,8 @@ async def health_check(db: Session = Depends(get_db)):
     return HealthResponse(
         status="healthy",
         database_initialized=True,
-        reference_images_count=0
+        reference_images_count=0,
+        version=APP_VERSION
     )
 
 
