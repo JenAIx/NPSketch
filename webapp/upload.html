@@ -1610,6 +1610,7 @@
             }
 
             let metricsHtml = '';
+            let visualizationHtml = '';
 
             if (isClassification) {
                 // Classification results with custom class name
@@ -1668,8 +1669,8 @@
                     }
                 }
                 probBars += '</div>';
-                
-                document.getElementById('visualization').innerHTML = probBars;
+
+                visualizationHtml = probBars;
             } else {
                 // Regression results
                 const normInfo = data.normalization || {};
@@ -1714,18 +1715,18 @@
                 }
                 
                 vizHtml += '</div>';
-                document.getElementById('visualization').innerHTML = vizHtml;
+                visualizationHtml = vizHtml;
             }
-            
+
             result.innerHTML = `
                 <h2>🤖 AI Prediction Results</h2>
                 <p style="color: #666; margin-bottom: 15px;">
-                    Model: <strong>${data.model}</strong> | 
-                    Feature: <strong>${data.target_feature}</strong> | 
+                    Model: <strong>${data.model}</strong> |
+                    Feature: <strong>${data.target_feature}</strong> |
                     Mode: <strong>${isClassification ? 'Classification' : 'Regression'}</strong>
                 </p>
                 <div class="metrics">${metricsHtml}</div>
-                <div class="visualization" id="visualization">${document.getElementById('visualization').innerHTML}</div>
+                <div class="visualization" id="visualization">${visualizationHtml}</div>
             `;
             
             result.classList.remove('error');
