@@ -648,8 +648,11 @@
                     o.textContent = `${model.feature} (${date}) - ${model.size_mb.toFixed(1)}MB`;
                     select.appendChild(o);
                 });
-                // Preselect the most recently trained model (API sorts newest first)
-                select.value = data.models[0].filename;
+                // Preselect the last-used model (remembered in localStorage); fall back to
+                // the most recently trained one (API sorts newest first).
+                const remembered = localStorage.getItem('evaluate_last_model');
+                const exists = remembered && data.models.some(m => m.filename === remembered);
+                select.value = exists ? remembered : data.models[0].filename;
                 updateModelInfo();
             } else {
                 select.innerHTML = '<option value="">No models available — train one first</option>';
@@ -659,7 +662,12 @@
             select.innerHTML = '<option value="">Error loading models</option>';
         }
     }
-    document.getElementById('modelSelect').addEventListener('change', updateModelInfo);
+    document.getElementById('modelSelect').addEventListener('change', function () {
+        // Remember the user's choice so it is restored on the next visit
+        if (this.value) localStorage.setItem('evaluate_last_model', this.value);
+        else localStorage.removeItem('evaluate_last_model');
+        updateModelInfo();
+    });
     async function updateModelInfo() {
         const select = document.getElementById('modelSelect');
         const modelInfo = document.getElementById('modelInfo');
