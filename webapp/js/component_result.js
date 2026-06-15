@@ -18,11 +18,17 @@ function renderComponentBreakdown(prediction, opts) {
   const els = (prediction && prediction.elements) || [];
   const hard = prediction.total_score_hard;
   const soft = prediction.total_score_soft;
+  // Primary number: the calibrated derived score when available, else the hard sum.
+  const primary = (prediction.total_score !== undefined && prediction.total_score !== null)
+    ? prediction.total_score : hard;
+  const calibrated = !!prediction.calibrated;
 
   // probability -> red->yellow->green background
   const colorFor = (p) => `hsl(${Math.round(p * 120)}, 65%, 45%)`;
-  const cell = (p) => {
-    const tick = p >= 0.5 ? '✓' : '✗';
+  // tick uses the per-label decision threshold when provided (else 0.5)
+  const cell = (p, thr) => {
+    const t = (typeof thr === 'number') ? thr : 0.5;
+    const tick = p >= t ? '✓' : '✗';
     const label = isLabels ? tick : `${tick} ${Math.round(p * 100)}%`;
     return `<td style="padding:4px;text-align:center;">
       <div style="background:${colorFor(p)};color:#fff;border-radius:4px;padding:3px 0;font-size:.8em;font-weight:600;">
@@ -30,8 +36,8 @@ function renderComponentBreakdown(prediction, opts) {
       </div></td>`;
   };
 
-  // per-aspect summary (count >= 0.5 of 20)
-  const cnt = (key) => els.filter(e => e[key] >= 0.5).length;
+  // per-aspect summary (count over the per-label threshold, of 20)
+  const cnt = (key) => els.filter(e => e[key] >= (e['thr_' + key] ?? 0.5)).length;
   const summary = `
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin:10px 0;color:#444;font-size:.9em;">
       <span><strong>Presence:</strong> ${cnt('presence')}/20</span>
@@ -42,15 +48,15 @@ function renderComponentBreakdown(prediction, opts) {
   const rows = els.map(e => `
     <tr style="border-bottom:1px solid #eee;">
       <td style="padding:4px 8px;font-weight:600;color:#555;">E${String(e.element).padStart(2,'0')}</td>
-      ${cell(e.presence)}${cell(e.accuracy)}${cell(e.position)}
+      ${cell(e.presence, e.thr_presence)}${cell(e.accuracy, e.thr_accuracy)}${cell(e.position, e.thr_position)}
       <td style="padding:4px;text-align:center;font-weight:700;border-left:2px solid #eee;">${e.subscore_hard}/3</td>
     </tr>`).join('');
 
   return `
     <div style="text-align:center;margin:10px 0 4px;">
-      <div style="font-size:3em;font-weight:bold;color:#667eea;line-height:1;">${hard}<span style="font-size:.4em;color:#999;">/60</span></div>
-      <div style="color:#666;font-size:.9em;">Derived Total_Score (hard sum of 60 sub-labels)</div>
-      <div style="color:#999;font-size:.85em;">soft sum: ${soft}</div>
+      <div style="font-size:3em;font-weight:bold;color:#667eea;line-height:1;">${primary}<span style="font-size:.4em;color:#999;">/60</span></div>
+      <div style="color:#666;font-size:.9em;">Derived Total_Score${calibrated ? ' (calibrated)' : ''}</div>
+      <div style="color:#999;font-size:.85em;">hard sum: ${hard} · soft sum: ${soft}</div>
     </div>
     ${summary}
     <div style="overflow-x:auto;">
@@ -75,8 +81,10 @@ function renderComponentBreakdown(prediction, opts) {
       </table>
     </div>
     <p style="color:#999;font-size:.8em;margin-top:8px;">
-      Each cell = model probability that the sub-label is satisfied (✓ at ≥50%). Element score = sum of
-      its three hard decisions (0–3). Element names are generic (no OCS-Plus legend available yet).
+      Each cell = model probability that the sub-label is satisfied (✓ at the model's per-label
+      threshold${calibrated ? '' : ', else ≥50%'}). Element score = sum of its three hard decisions (0–3).
+      ${calibrated ? 'The big number is the calibrated derived Total_Score.' : ''}
+      See the Component Map for which element is which.
     </p>`;
 }
 

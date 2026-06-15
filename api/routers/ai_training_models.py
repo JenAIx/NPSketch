@@ -553,23 +553,39 @@ async def predict_single_image(
             output = model(img_tensor)
 
             if training_mode == "components":
-                # 60 sub-labels (20 elements x PRES/ACC/POS); Total_Score = sum
+                # 60 sub-labels (20 elements x PRES/ACC/POS); Total_Score = sum.
+                # Apply post-hoc calibration if present in metadata: per-label decision
+                # thresholds + a non-negative linear readout of the 60 probabilities.
                 probs = torch.sigmoid(output)[0].tolist()
-                hard = [1 if p >= 0.5 else 0 for p in probs]
+                thr = metadata.get('thresholds')
+                if not (isinstance(thr, list) and len(thr) == 60):
+                    thr = [0.5] * 60
+                hard = [1 if probs[j] >= thr[j] else 0 for j in range(60)]
                 elements = []
                 for e in range(20):
                     pr, ac, po = probs[3*e], probs[3*e+1], probs[3*e+2]
                     elements.append({
                         'element': e + 1,
                         'presence': round(pr, 3), 'accuracy': round(ac, 3), 'position': round(po, 3),
+                        'thr_presence': round(thr[3*e], 3), 'thr_accuracy': round(thr[3*e+1], 3),
+                        'thr_position': round(thr[3*e+2], 3),
                         'subscore_hard': int(hard[3*e] + hard[3*e+1] + hard[3*e+2]),
                     })
+                sc = metadata.get('score_calibration') or {}
+                w = sc.get('weights'); bcal = sc.get('bias')
+                calibrated = None
+                if isinstance(w, list) and len(w) == 60 and bcal is not None:
+                    calibrated = round(float(sum(w[j] * probs[j] for j in range(60)) + bcal), 1)
+                    calibrated = max(0.0, min(60.0, calibrated))
+                total_score = calibrated if calibrated is not None else int(sum(hard))
                 return {
                     'success': True,
                     'model': model_filename,
                     'target_feature': 'Components',
                     'training_mode': 'components',
                     'prediction': {
+                        'total_score': total_score,
+                        'calibrated': calibrated is not None,
                         'total_score_hard': int(sum(hard)),
                         'total_score_soft': round(float(sum(probs)), 2),
                         'elements': elements,
