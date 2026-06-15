@@ -35,6 +35,14 @@
         .cell .lbl { font-size: 0.75em; font-weight: 600; margin-bottom: 3px; }
         .lbl-data { color: #1565c0; }
         .lbl-cam { color: #2e7d32; }
+        .rebuild-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #f1f3ff; border: 1px solid #dfe3ff; border-radius: 10px; padding: 12px 16px; margin-bottom: 4px; flex-wrap: wrap; }
+        .btn-rebuild { padding: 9px 16px; background: #667eea; color: #fff; border: none; border-radius: 7px; font-weight: 600; cursor: pointer; transition: background .2s; }
+        .btn-rebuild:hover:not(:disabled) { background: #5568d3; }
+        .btn-rebuild:disabled { background: #aab; cursor: not-allowed; }
+        .rebuild-status { margin-left: 10px; font-size: 0.88em; color: #555; }
+        .rebuild-meta { font-size: 0.8em; color: #888; }
+        .ref-figure { text-align: center; background: #f8f9fa; border-radius: 10px; padding: 16px; }
+        .ref-figure img { max-width: 620px; width: 100%; border: 1px solid #ddd; border-radius: 6px; background: white; }
         @media (max-width: 800px) { .composites { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -67,6 +75,19 @@
             </div>
         </div>
 
+        <div class="rebuild-bar">
+            <div>
+                <button class="btn-rebuild" id="rebuildBtn" onclick="rebuildMaps()">🔄 Rebuild maps</button>
+                <span id="rebuildStatus" class="rebuild-status"></span>
+            </div>
+            <span class="rebuild-meta" id="genMeta"></span>
+        </div>
+
+        <div class="section-label">The reference figure (OCS-Plus)</div>
+        <div class="ref-figure">
+            <img id="refImage" src="/templates/reference_image.png" alt="OCS-Plus reference figure">
+        </div>
+
         <div class="section-label">Reference figure — all 20 elements located</div>
         <div class="composites">
             <div class="composite-card">
@@ -84,23 +105,28 @@
     </div>
 
     <script>
-    (async function () {
+    async function loadMaps() {
         let manifest = null;
         try {
             const r = await fetch('/api/visualizations/element_map/manifest.json?_=' + Date.now());
             if (r.ok) manifest = await r.json();
         } catch (e) { /* not generated yet */ }
 
+        const composites = document.querySelector('.composites');
+        const grid = document.getElementById('grid');
+
         if (!manifest) {
-            document.querySelector('.composites').style.display = 'none';
-            document.getElementById('grid').innerHTML =
+            composites.style.display = 'none';
+            document.querySelectorAll('.section-label')[1].style.display = 'none';
+            grid.innerHTML =
                 `<div style="grid-column:1/-1; padding:30px; text-align:center; color:#856404; background:#fff3cd; border-radius:10px;">
-                    The component maps haven't been generated yet. Run:<br>
-                    <code style="display:inline-block; margin-top:8px; background:#fff; padding:6px 10px; border-radius:6px;">
-                    docker exec -e PYTHONPATH=/app npsketch-api python3 /app/ai_training/component_heatmaps.py</code>
+                    The component maps haven't been generated yet — click <strong>🔄 Rebuild maps</strong> above
+                    (takes ~2–3 min).
                 </div>`;
             return;
         }
+        composites.style.display = '';
+        document.querySelectorAll('.section-label')[1].style.display = '';
 
         const v = encodeURIComponent(manifest.generated_at || Date.now());  // cache-bust
         const url = (f) => `/api/visualizations/element_map/${f}?v=${v}`;
@@ -108,15 +134,15 @@
         document.getElementById('dataComposite').src = url('data_composite.png');
         document.getElementById('camComposite').src = url('cam_composite.png');
 
-        if (manifest.n_images) {
-            document.getElementById('caveat').insertAdjacentHTML('beforeend',
-                `<div style="margin-top:6px; color:#7a6a30;">Computed over ${manifest.n_images} TELEFRED images · model ${manifest.model || '?'}.</div>`);
+        if (manifest.generated_at) {
+            const when = new Date(manifest.generated_at).toLocaleString();
+            document.getElementById('genMeta').textContent =
+                `Generated ${when} · ${manifest.n_images || '?'} TELEFRED images · model ${manifest.model || '?'}`;
         }
 
         const byEl = {};
         (manifest.elements || []).forEach(el => { byEl[el.element] = el; });
 
-        const grid = document.getElementById('grid');
         let html = '';
         for (let e = 1; e <= 20; e++) {
             const id = String(e).padStart(2, '0');
@@ -135,7 +161,42 @@
                 </div>`;
         }
         grid.innerHTML = html;
-    })();
+    }
+
+    let pollTimer = null;
+    function setRebuilding(on, msg) {
+        document.getElementById('rebuildBtn').disabled = on;
+        document.getElementById('rebuildStatus').textContent = msg || '';
+    }
+    async function rebuildMaps() {
+        setRebuilding(true, '⏳ Starting…');
+        try {
+            const r = await fetch('/api/ai-training/component-map/rebuild', { method: 'POST' });
+            const d = await r.json();
+            if (!d.success && !(d.status && d.status.running)) throw new Error(d.message || 'Failed to start');
+            setRebuilding(true, '⏳ Rebuilding (data pass + Grad-CAM, ~2–3 min)…');
+            pollStatus();
+        } catch (e) {
+            setRebuilding(false, '❌ ' + e.message);
+        }
+    }
+    function pollStatus() {
+        clearTimeout(pollTimer);
+        pollTimer = setTimeout(async () => {
+            try {
+                const s = await (await fetch('/api/ai-training/component-map/status')).json();
+                if (s.running) { pollStatus(); return; }
+                if (s.error) { setRebuilding(false, '❌ ' + s.error); return; }
+                setRebuilding(false, '✅ Done');
+                await loadMaps();
+                setTimeout(() => setRebuilding(false, ''), 4000);
+            } catch (e) {
+                setRebuilding(false, '❌ ' + e.message);
+            }
+        }, 3000);
+    }
+
+    loadMaps();
     </script>
 </body>
 </html>

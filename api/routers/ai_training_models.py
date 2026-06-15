@@ -885,3 +885,48 @@ async def cleanup_orphaned_metadata():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+# --------------------------------------------------------------------------
+# Component Map (explainability) — rebuild the per-element heatmaps
+# --------------------------------------------------------------------------
+import threading as _threading
+from datetime import datetime as _dt
+
+_component_map_job = {
+    "running": False,
+    "started_at": None,
+    "finished_at": None,
+    "error": None,
+}
+
+
+def _run_component_map_build():
+    global _component_map_job
+    _component_map_job.update(running=True, error=None,
+                              started_at=_dt.now().isoformat(), finished_at=None)
+    try:
+        from ai_training.component_heatmaps import main as _gen
+        _gen()
+        _component_map_job["finished_at"] = _dt.now().isoformat()
+        logger.info("Component map rebuild complete")
+    except Exception as e:
+        logger.error(f"Component map rebuild failed: {e}", exc_info=True)
+        _component_map_job["error"] = str(e)
+    finally:
+        _component_map_job["running"] = False
+
+
+@router.post("/component-map/rebuild")
+async def rebuild_component_map():
+    """Regenerate the 20 per-element heatmaps (data-driven + Grad-CAM) in the background."""
+    if _component_map_job["running"]:
+        return {"success": False, "message": "Rebuild already running", "status": _component_map_job}
+    _threading.Thread(target=_run_component_map_build, daemon=True).start()
+    return {"success": True, "message": "Component map rebuild started"}
+
+
+@router.get("/component-map/status")
+async def component_map_status():
+    """Current status of the component-map rebuild job."""
+    return _component_map_job
