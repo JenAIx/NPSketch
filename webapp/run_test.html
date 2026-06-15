@@ -20,6 +20,16 @@
         .intro { background:#eef1ff; border:1px solid #dfe3ff; border-radius:8px; padding:12px 15px; font-size:.9em; color:#444; line-height:1.5; }
         .model-info { margin-top:8px; font-size:.85em; color:#666; }
         .note { font-size:.82em; color:#a06800; background:#fff8e6; border-radius:6px; padding:6px 10px; margin-top:8px; display:none; }
+        tbody tr { cursor: pointer; }
+        tbody tr:hover { background:#f1f3ff; }
+        .modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:1000; align-items:center; justify-content:center; }
+        .modal.show { display:flex; }
+        .modal-card { background:#fff; border-radius:12px; padding:20px; max-width:680px; width:92%; }
+        .modal-card h3 { margin-bottom:6px; color:#333; }
+        .modal-card img { width:100%; border:1px solid #ddd; border-radius:8px; background:#fff; margin-top:10px; }
+        .modal-card .meta { color:#666; font-size:.9em; }
+        .modal-card .close { float:right; cursor:pointer; font-size:1.4em; color:#999; line-height:1; }
+        .modal-card .legend { font-size:.8em; color:#888; margin-top:8px; }
     </style>
 </head>
 <body>
@@ -60,6 +70,16 @@
 
         <div id="summary"></div>
         <div id="results"></div>
+    </div>
+
+    <div class="modal" id="camModal" onclick="if(event.target===this)closeCam()">
+        <div class="modal-card">
+            <span class="close" onclick="closeCam()">×</span>
+            <h3 id="camTitle">—</h3>
+            <div class="meta" id="camMeta"></div>
+            <img id="camImg" alt="Grad-CAM overlay">
+            <div class="legend">🔴 = where the model looks to produce its score (Grad-CAM, layer3), over the drawing with the reference figure faded behind.</div>
+        </div>
     </div>
 
     <script>
@@ -148,13 +168,26 @@
                 <table>
                     <thead><tr><th>#</th><th>Name</th><th>Expected</th><th>Predicted</th><th>Abs. error</th></tr></thead>
                     <tbody>${rows.map(r => `
-                        <tr>
+                        <tr onclick="showCam(${r.id}, ${JSON.stringify(r.name)}, ${r.expected ?? 'null'}, ${r.predicted})">
                             <td>${r.id}</td><td>${r.name}</td>
                             <td>${r.expected ?? '—'}</td><td>${r.predicted}</td>
                             <td class="${cls(r.abs_error)}">${r.abs_error ?? '—'}</td>
                         </tr>`).join('')}</tbody>
                 </table>`;
         }
+
+        function showCam(id, name, expected, predicted) {
+            if (!modelSel.value) return;
+            document.getElementById('camTitle').textContent = `#${id} · ${name}`;
+            document.getElementById('camMeta').textContent =
+                `Expected ${expected ?? '—'} · Predicted ${predicted}`;
+            const img = document.getElementById('camImg');
+            img.src = '';  // reset
+            img.src = `/api/ai-training/models/${modelSel.value}/gradcam/${id}?t=${Date.now()}`;
+            document.getElementById('camModal').classList.add('show');
+        }
+        function closeCam() { document.getElementById('camModal').classList.remove('show'); }
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCam(); });
 
         loadModels();
     </script>

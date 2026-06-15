@@ -780,6 +780,76 @@ async def run_on_test_images(request: dict = Body(...), db: Session = Depends(ge
     return {"success": True, "model": model_filename, "summary": summary, "results": results}
 
 
+@router.get("/models/{model_filename}/gradcam/{image_id}")
+async def gradcam_overlay(model_filename: str, image_id: int, db: Session = Depends(get_db)):
+    """Grad-CAM (XAI) overlay for one image + model: where the model looks to produce
+    its score, drawn over the figure with the reference faded behind. Returns a PNG."""
+    import io
+    import torch
+    import numpy as np
+    import cv2
+    from pathlib import Path
+    from fastapi.responses import StreamingResponse
+    from ai_training.model import DrawingClassifier
+    from ai_training.preprocessing import preprocess_bytes_for_prediction
+
+    W, H = 568, 274
+    model_path = Path("/app/data/models") / model_filename
+    meta_path = Path("/app/data/models") / f"{model_path.stem}_metadata.json"
+    if not model_path.exists():
+        raise HTTPException(status_code=404, detail="Model not found")
+    metadata = json.load(open(meta_path)) if meta_path.exists() else {}
+    mode = metadata.get("training_mode", "regression")
+    num_outputs = metadata.get("model", {}).get("output_neurons", 1)
+    use_sigmoid = bool(metadata.get("use_sigmoid", False))
+
+    row = db.query(TrainingDataImage).filter(TrainingDataImage.id == image_id).first()
+    if not row or not row.processed_image_data:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    model = DrawingClassifier(num_outputs=num_outputs, pretrained=False, use_sigmoid=use_sigmoid)
+    ck = torch.load(model_path, map_location="cpu")
+    model.load_state_dict(ck.get("model_state_dict", ck) if isinstance(ck, dict) else ck)
+    model.eval()
+
+    arr = preprocess_bytes_for_prediction(row.processed_image_data, metadata=metadata, debug=False)
+    x = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0).float()
+    acts = {}
+    handle = model.backbone.layer3.register_forward_hook(lambda m, i, o: acts.__setitem__("a", o))
+    out = model(x)
+    A = acts["a"]
+    # scalar target that drives the reported score
+    if mode == "components":
+        sc = metadata.get("score_calibration") or {}
+        w = sc.get("weights")
+        probs = torch.sigmoid(out[0])
+        target = (torch.tensor(w, dtype=torch.float32) * probs).sum() if (isinstance(w, list) and len(w) == 60) else probs.sum()
+    elif mode == "classification":
+        target = out[0, int(torch.argmax(out[0]).item())]
+    else:
+        target = out[0, 0]
+    g = torch.autograd.grad(target, A)[0]
+    cam = torch.relu((g.mean(dim=(2, 3), keepdim=True) * A).sum(dim=1)).squeeze(0).detach().numpy()
+    handle.remove()
+    cam = cv2.resize(cam, (W, H))
+    m = cam.max()
+    cam = (cam / m) ** 1.3 if m > 0 else cam
+
+    draw = cv2.resize((arr * 255).clip(0, 255).astype(np.uint8), (W, H)).astype(np.float32)
+    ref_arr = preprocess_bytes_for_prediction(open("/app/templates/reference_image.png", "rb").read(),
+                                              metadata=metadata, debug=False)
+    ref = cv2.resize((ref_arr * 255).clip(0, 255).astype(np.uint8), (W, H)).astype(np.float32)
+    base = 255 - (255 - ref) * 0.20            # reference faded to ~20% darkness
+    base = np.minimum(base, draw)              # the actual drawing on top, full strength
+    bg = cv2.cvtColor(base.astype(np.uint8), cv2.COLOR_GRAY2BGR).astype(np.float32)
+    heat = cv2.applyColorMap((cam * 255).astype(np.uint8), cv2.COLORMAP_JET).astype(np.float32)
+    a = (cam[..., None] * 0.6)
+    out_img = (bg * (1 - a) + heat * a).clip(0, 255).astype(np.uint8)
+
+    ok, buf = cv2.imencode(".png", out_img)
+    return StreamingResponse(io.BytesIO(buf.tobytes()), media_type="image/png")
+
+
 @router.delete("/models/{model_filename}")
 async def delete_model(model_filename: str):
     """Delete a saved model and its metadata."""
