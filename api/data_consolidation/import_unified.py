@@ -286,6 +286,23 @@ def main():
     if len(mismatches) > 10:
         print(f"    ... +{len(mismatches) - 10} more")
 
+    # --- automatic alignment QA (skipped on dry-run; needs the inserted rows) ---
+    if not args.dry_run:
+        try:
+            from check_alignment import audit, print_report
+            db2 = SessionLocal()
+            try:
+                summary = audit(db2.query(TrainingDataImage).all())
+            finally:
+                db2.close()
+            print("\n" + "=" * 60)
+            print("ALIGNMENT QA  (clip=ink at edge · loose=cropped too small · offc=off-center)")
+            print("=" * 60)
+            print_report(summary, list_outliers=True)
+            print("\nReview the flagged ids in ai_training_data_view.html (search by ID).")
+        except Exception as e:
+            print(f"\n(alignment QA skipped: {e})")
+
 
 if __name__ == "__main__":
     main()

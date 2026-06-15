@@ -41,13 +41,8 @@ def pct(a):
     return f"min={a.min():.0f} p10={np.percentile(a,10):.0f} med={np.median(a):.0f} p90={np.percentile(a,90):.0f} max={a.max():.0f}"
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--list-outliers", action="store_true")
-    args = ap.parse_args()
-
-    db = next(get_db())
-    rows = db.query(TrainingDataImage).all()
+def audit(rows):
+    """Compute per-source alignment stats + flagged id lists for the given DB rows."""
     by_src = defaultdict(lambda: {"L": [], "R": [], "T": [], "B": [], "fill": [],
                                   "clipped": [], "loose": [], "offc": [], "blank": 0, "n": 0})
     for r in rows:
@@ -67,8 +62,10 @@ def main():
             s["loose"].append(r.id)
         if abs(L - R) > OFF_X or abs(T - B) > OFF_Y:
             s["offc"].append(r.id)
-    db.close()
+    return by_src
 
+
+def print_report(by_src, list_outliers=False):
     print(f"{'source':12} {'n':>5} {'blank':>5} {'clip':>5} {'loose':>5} {'offc':>5}   margins / fill")
     for src in sorted(by_src):
         s = by_src[src]
@@ -80,10 +77,20 @@ def main():
         print(f"             T[{pct(s['T'])}]")
         print(f"             B[{pct(s['B'])}]")
         print(f"             fill[min={min(s['fill']):.2f} med={np.median(s['fill']):.2f} max={max(s['fill']):.2f}]")
-        if args.list_outliers:
+        if list_outliers:
             print(f"             clipped ids: {s['clipped'][:15]}")
             print(f"             loose ids:   {s['loose'][:15]}")
             print(f"             off-center:  {s['offc'][:15]}")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--list-outliers", action="store_true")
+    args = ap.parse_args()
+    db = next(get_db())
+    rows = db.query(TrainingDataImage).all()
+    db.close()
+    print_report(audit(rows), list_outliers=args.list_outliers)
 
 
 if __name__ == "__main__":
