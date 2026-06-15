@@ -27,6 +27,10 @@ body {
     box-shadow: 0 20px 60px rgba(0,0,0,0.3);
 }
 
+/* Width modifiers — use these instead of redefining .container per page */
+.container.narrow { max-width: 1000px; }
+.container.wide   { max-width: 1600px; }
+
 /* Hexagon Honeycomb Pattern - AI/Tesseract Style Background */
 /* Apply by adding class "hexagon-pattern" to container */
 .container.hexagon-pattern {
