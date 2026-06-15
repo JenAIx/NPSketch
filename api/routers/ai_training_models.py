@@ -731,7 +731,18 @@ async def run_on_test_images(request: dict = Body(...), db: Session = Depends(ge
         with torch.no_grad():
             out = model(t)
         if mode == "components":
-            pred = float(torch.sigmoid(out)[0].sum().item())
+            # Mirror predict-single: calibrated readout if available, else
+            # per-label-threshold hard sum, else naive soft sum.
+            probs = torch.sigmoid(out)[0].numpy()
+            sc = metadata.get("score_calibration") or {}
+            w = sc.get("weights"); bcal = sc.get("bias")
+            thr = metadata.get("thresholds")
+            if isinstance(w, list) and len(w) == 60 and bcal is not None:
+                pred = round(max(0.0, min(60.0, float(np.dot(probs, w) + bcal))), 2)
+            elif isinstance(thr, list) and len(thr) == 60:
+                pred = int(sum(1 for j in range(60) if probs[j] >= thr[j]))
+            else:
+                pred = int(round(float(probs.sum())))
         elif mode == "classification":
             pred = int(torch.argmax(out, dim=1).item())
         else:
