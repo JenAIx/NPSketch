@@ -343,12 +343,16 @@
             metadata.training_mode = trainingMode;
             metadata.num_classes = numClasses;
             
+            const modeBadge = metadata.training_mode === 'classification' ? { t: '🏷️ Classification', c: '#28a745' }
+                            : metadata.training_mode === 'components' ? { t: '🧩 Components', c: '#764ba2' }
+                            : { t: '📊 Regression', c: '#667eea' };
+
             metadataDiv.innerHTML = `
-                <div style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid ${metadata.training_mode === 'classification' ? '#28a745' : '#667eea'}; color: #333;">
+                <div style="background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid ${modeBadge.c}; color: #333;">
                     <div style="font-size: 0.9em; color: #666; margin-bottom: 8px; font-weight: 600;">
                         🧠 Model Architecture
-                        <span style="float: right; background: ${metadata.training_mode === 'classification' ? '#28a745' : '#667eea'}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 0.85em;">
-                            ${metadata.training_mode === 'classification' ? '🏷️ Classification' : '📊 Regression'}
+                        <span style="float: right; background: ${modeBadge.c}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 0.85em;">
+                            ${modeBadge.t}
                         </span>
                     </div>
                     ${metadata.display_label ? `
@@ -370,8 +374,8 @@
                             <strong>${modelInfo.backbone || 'ImageNet'}</strong>
                         </div>
                         <div>
-                            <span style="color: #666;">Input:</span> 
-                            <strong>${modelInfo.input_size || '568×274×1'}</strong>
+                            <span style="color: #666;">Input:</span>
+                            <strong>${modelInfo.input_size || '284×137×1'}</strong>
                         </div>
                         <div>
                             <span style="color: #666;">Parameters:</span> 
@@ -441,15 +445,9 @@
                             📈 Training Loss History
                         </div>
                         
-                        <!-- Loss Plot Image -->
+                        <!-- Loss Plot (rendered client-side from training_history) -->
                         <div style="text-align: center; margin-bottom: 15px;">
-                            <img src="/api/ai-training/models/${filename}/loss-plot" 
-                                 alt="Loss Plot" 
-                                 style="width: 100%; max-width: 800px; border-radius: 8px; border: 1px solid #dee2e6;"
-                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                            <div style="display: none; padding: 20px; background: #f8f9fa; border-radius: 8px; color: #666;">
-                                📊 Loss plot not available (training history may be missing)
-                            </div>
+                            ${lossPlotSvg(trainingHistory.train_loss, trainingHistory.val_loss)}
                         </div>
                         
                         <!-- Loss Statistics -->
@@ -943,6 +941,40 @@
             }
         }
         
+        // Inline SVG loss-history chart (train vs val) — rendered from metadata,
+        // no backend/matplotlib dependency.
+        function lossPlotSvg(train, val) {
+            if (!Array.isArray(train) || !Array.isArray(val) || train.length === 0) {
+                return '<div style="padding:20px; background:#f8f9fa; border-radius:8px; color:#666;">No loss history</div>';
+            }
+            const W = 800, H = 260, padL = 52, padR = 70, padT = 14, padB = 28;
+            const n = train.length;
+            const nums = train.concat(val).filter(v => typeof v === 'number');
+            let lo = Math.min(...nums), hi = Math.max(...nums);
+            if (lo === hi) hi = lo + 1;
+            const m = (hi - lo) * 0.08; lo -= m; hi += m;
+            const X = i => padL + (n <= 1 ? 0 : (i / (n - 1)) * (W - padL - padR));
+            const Y = v => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+            const pathOf = a => a.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+            let grid = '';
+            for (let t = 0; t <= 4; t++) {
+                const vv = lo + (hi - lo) * t / 4, yy = Y(vv);
+                grid += `<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W - padR}" y2="${yy.toFixed(1)}" stroke="#eee"/>`
+                      + `<text x="${padL - 6}" y="${(yy + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="#999">${vv.toFixed(3)}</text>`;
+            }
+            const bi = val.indexOf(Math.min(...val));
+            return `<svg viewBox="0 0 ${W} ${H}" style="width:100%; max-width:800px; background:white; border:1px solid #dee2e6; border-radius:8px;">
+                ${grid}
+                <path d="${pathOf(train)}" fill="none" stroke="#667eea" stroke-width="2"/>
+                <path d="${pathOf(val)}" fill="none" stroke="#e8830c" stroke-width="2"/>
+                <circle cx="${X(bi).toFixed(1)}" cy="${Y(val[bi]).toFixed(1)}" r="4" fill="#28a745"/>
+                <text x="${X(bi).toFixed(1)}" y="${(Y(val[bi]) - 8).toFixed(1)}" text-anchor="middle" font-size="9" fill="#28a745">best</text>
+                <rect x="${W - padR + 6}" y="${padT}" width="10" height="3" fill="#667eea"/><text x="${W - padR + 20}" y="${padT + 4}" font-size="10" fill="#667eea">train</text>
+                <rect x="${W - padR + 6}" y="${padT + 14}" width="10" height="3" fill="#e8830c"/><text x="${W - padR + 20}" y="${padT + 18}" font-size="10" fill="#e8830c">val</text>
+                <text x="${((padL + W - padR) / 2).toFixed(0)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="#999">epoch →</text>
+            </svg>`;
+        }
+
         loadDatasetInfo();
         loadFeatures();
         loadModels();

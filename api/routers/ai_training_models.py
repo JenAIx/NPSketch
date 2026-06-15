@@ -173,58 +173,6 @@ async def get_model_metadata(model_filename: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/models/{model_filename}/loss-plot")
-async def get_loss_plot(model_filename: str):
-    """
-    Generate and return loss plot for a trained model.
-    
-    Shows training and validation loss over epochs with best epoch marker.
-    """
-    from pathlib import Path
-    from fastapi.responses import StreamingResponse
-    
-    try:
-        # Load metadata
-        model_stem = model_filename.replace('.pth', '')
-        metadata_file = Path("/app/data/models") / f"{model_stem}_metadata.json"
-        
-        if not metadata_file.exists():
-            raise HTTPException(status_code=404, detail="Metadata not found")
-        
-        with open(metadata_file, 'r') as f:
-            metadata = json.load(f)
-        
-        # Get training history
-        history = metadata.get('training_history', {})
-        train_loss = history.get('train_loss', [])
-        val_loss = history.get('val_loss', [])
-        
-        if not train_loss or not val_loss:
-            raise HTTPException(status_code=404, detail="No training history available")
-        
-        # Generate plot
-        from ai_training.visualization import generate_loss_plot
-        
-        target_feature = metadata.get('target_feature', 'Unknown')
-        title = f"Training Loss History - {target_feature}"
-        
-        plot_buffer = generate_loss_plot(train_loss, val_loss, title=title)
-        
-        logger.info(f"Generated loss plot for {model_filename}: {len(train_loss)} epochs")
-        
-        return StreamingResponse(
-            plot_buffer,
-            media_type="image/png",
-            headers={"Cache-Control": "public, max-age=3600"}
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to generate loss plot: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to generate loss plot: {str(e)}")
-
-
 @router.post("/models/test")
 async def test_model(
     request: dict = Body(...),
