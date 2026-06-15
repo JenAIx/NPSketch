@@ -113,6 +113,9 @@ def main():
 
     overlays = []
     for i, r in enumerate(picks):
+        # also dump the raw original scan (e.g. red ink for TELEFRED) at native size
+        orig = np.array(Image.open(io.BytesIO(r.original_file_data)).convert("RGB"))
+        cv2.imwrite(f"{OUT}/ex_{i:02d}_id{r.id}_original.png", cv2.cvtColor(orig, cv2.COLOR_RGB2BGR))
         d = gray(r.processed_image_data)
         al = align(d, ref)
         ob, oa = overlap(ink(d), rink), overlap(ink(al), rink)
