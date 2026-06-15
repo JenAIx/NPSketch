@@ -782,7 +782,7 @@ class TrainingDataLoader:
             num_augmentations=default_config['num_augmentations'],
             # NEW: Pre-shrink settings
             pre_shrink_enabled=default_config.get('pre_shrink', {}).get('enabled', True),
-            pre_shrink_factor=default_config.get('pre_shrink', {}).get('factor', 0.95),
+            pre_shrink_factor=default_config.get('pre_shrink', {}).get('factor', 0.90),
             # NEW: Diversity control
             diversity_control_enabled=default_config.get('diversity_control', {}).get('enabled', True),
             similarity_to_original_max=default_config.get('diversity_control', {}).get('similarity_to_original_max', 0.95),

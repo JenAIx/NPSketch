@@ -227,9 +227,9 @@ class ImageAugmentor:
         scale_range: Tuple[float, float] = (0.95, 1.05),
         num_augmentations: int = 6,
         safety_margin: int = 15,
-        # NEW: Pre-shrink settings
+        # NEW: Pre-shrink settings (default mirrors config/training_config.yaml: 0.90)
         pre_shrink_enabled: bool = True,
-        pre_shrink_factor: float = 0.95,
+        pre_shrink_factor: float = 0.90,
         # NEW: Diversity control settings
         diversity_control_enabled: bool = True,
         similarity_to_original_max: float = 0.95,
@@ -1138,7 +1138,12 @@ class AugmentedDatasetBuilder:
         
         with open(self.output_dir / "metadata.json", 'w') as f:
             json.dump(metadata, f, indent=2)
-        
+
+        # Expose the augmentation config (incl. pre_shrink) to the caller so it lands in
+        # the MODEL metadata — inference reads pre_shrink/factor from there to reproduce
+        # the exact training preprocessing.
+        stats['augmentation_config'] = metadata['augmentation_config']
+
         logger.info(f"Augmented dataset created in {self.output_dir}")
         logger.info(f"Train: {stats['train']['total']} images ({stats['train']['original']} original + {stats['train']['augmented']} augmented)")
         logger.info(f"Val:   {stats['val']['total']} images ({stats['val']['original']} original + {stats['val']['augmented']} augmented)")

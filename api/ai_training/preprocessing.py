@@ -352,6 +352,22 @@ def get_preprocessing_config_from_metadata(metadata: Dict) -> Dict:
         if pre_shrink:
             config['pre_shrink_enabled'] = pre_shrink.get('enabled', False)
             config['pre_shrink_factor'] = pre_shrink.get('factor', 0.90)
+        else:
+            # Metadata says augmentation was on but didn't record pre_shrink (older
+            # models / incomplete metadata). Training applies pre_shrink by default, so
+            # falling back to "off" would silently mismatch the model. Read the live
+            # training config instead and log it.
+            try:
+                from config import get_config
+                ps = get_config().get('augmentation.pre_shrink', {}) or {}
+                config['pre_shrink_enabled'] = bool(ps.get('enabled', True))
+                config['pre_shrink_factor'] = float(ps.get('factor', 0.90))
+                logger.warning(
+                    "Model metadata lacks augmentation.config.pre_shrink; falling back to "
+                    f"live config (enabled={config['pre_shrink_enabled']}, "
+                    f"factor={config['pre_shrink_factor']}). Re-train or patch metadata to make it self-describing.")
+            except Exception as e:
+                logger.warning(f"pre_shrink config missing in metadata and live-config fallback failed: {e}")
 
     # CNN input resolution used at training time (recorded in metadata)
     mi = metadata.get('model_input')
