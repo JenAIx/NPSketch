@@ -80,9 +80,17 @@ def fit_margin(g, m=12):
     return cv2.warpAffine(g, M, (W, H), flags=cv2.INTER_LINEAR, borderValue=255)
 
 
-def align(d, ref, mode=StackReg.AFFINE):
+def align(d, ref, mode=StackReg.RIGID_BODY):
     """bbox-fill prealign (drawing bbox -> reference bbox) + StackReg refine.
-    Keep the refine unless it loses ink off-frame; then guarantee an even margin."""
+
+    The prealign is anisotropic scale + translate (no shear) and already matches
+    scale, so the refine is RIGID_BODY (rotation + translation, scale == 1): any
+    mode with scale < 1 bilinearly downsamples the 2px lines below threshold, so
+    thin near-vertical edges (the rectangle's right side in id122) fragment and
+    vanish. Rigid keeps every straight line intact.
+
+    Gate: keep the refine only if it doesn't lose ink off-frame, else fall back
+    to the prealign (can't clip); then guarantee an even margin."""
     A1 = bbox_affine(d, ref)
     if A1 is None:
         return d

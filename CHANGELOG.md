@@ -4,6 +4,37 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [Unreleased] (branch `feature/coreg`) — Drawing→reference coregistration (experimental)
+
+Aligns every normalized drawing to the OCS-Plus reference figure so the CNN sees a
+consistently framed/oriented figure. **Experimental** — under A/B evaluation (component
+model trained on coregistered vs. current data) before any decision to adopt.
+
+- **`coregistration.py`** (shared core): anisotropic **bbox prealign** (drawing ink-bbox →
+  reference ink-bbox, no shear) → **overlap-gated `RIGID_BODY`** pystackreg refine →
+  recenter+margin → re-binarize@175 + 2px line-renormalize. Two hard-won constraints:
+  - **RIGID_BODY only (no scaling).** Any StackReg mode with scale < 1 bilinearly resamples
+    the 2px lines and *spatially spreads* thin near-vertical edges until they fragment and
+    vanish (e.g. the rectangle's right side in id122). A higher overlap score does **not**
+    imply the line survived, so overlap cannot police scaling — scaling is simply forbidden;
+    the bbox prealign already matches scale.
+  - **Overlap-gate.** StackReg readily invents a spurious 1–2° rotation that *lowers* the true
+    ink-overlap (it over-fits internal structure). The rigid refine is kept only when symmetric
+    ink-overlap actually improves vs. the prealign; otherwise the prealign stands.
+  - `fit_margin` now **always recenters** (not only when shrinking): a wide figure that already
+    "fits" could still sit flush against an edge and be clipped (fixed id4932's right-edge clip).
+- **`import_unified.py --coregister`**: optional step that coregisters each rendered image to the
+  reference before storing (all sources draw the same OCS-Plus figure — one reference fits all).
+- **Tooling**: `coreg_id122.py` (single-image, from-scratch demo: red-extract → content → align →
+  overlay, with numeric verification) and `coreg_batch.py` (50 random per source → original +
+  blue/red overlay + contact sheet for human review). Random review-batch overlap improved
+  consistently ≈ **+0.10** across all four sources.
+- **Known limitation (pre-existing, not caused by coreg):** thick / overdrawn strokes skeletonize
+  into loops/"circles" in `normalize_line_thickness` (visible in id4932). Affects the current
+  dataset too; flagged as a follow-up to the line-normalizer.
+
+---
+
 ## [2.2.0] - 2026-06-15 — Calibration, preprocessing consistency, explainability
 
 - **Post-hoc calibration of the component model** (`component_calibration.py`, no retraining):
