@@ -54,16 +54,26 @@ def bbox_affine(src_g, dst_g, m=14):
     return np.hstack([A, t.reshape(2, 1)]).astype(np.float32)
 
 
-def stackreg(d, r, mode, bbox_prealign=False):
-    src = d
-    if bbox_prealign:
-        M = bbox_affine(d, r)
-        if M is not None:
-            src = warp_aff(d, M)
+def _touches_border(g, b=2):
+    return (g[:b, :].min() < 128 or g[-b:, :].min() < 128 or
+            g[:, :b].min() < 128 or g[:, -b:].min() < 128)
+
+
+def align(d, ref, mode=StackReg.AFFINE, m=14):
+    """bbox-fill prealign (edge-safe, fills the margin box) + StackReg affine refine.
+    The refinement is kept only if it doesn't push ink off the frame or lose ink;
+    otherwise we fall back to the prealign, which cannot clip by construction."""
+    A1 = bbox_affine(d, d, m)
+    if A1 is None:
+        return d
+    pre = warp_aff(d, A1)                                  # fills [m..W-m], no clipping
     sr = StackReg(mode)
-    sr.register(blur(r), blur(src))
-    aligned = sr.transform((255 - src).astype(float) / 255.0)
-    return (255 - np.clip(aligned, 0, 1) * 255).astype(np.uint8)
+    sr.register(blur(ref), blur(pre))
+    out = sr.transform((255 - pre).astype(float) / 255.0)
+    out = (255 - np.clip(out, 0, 1) * 255).astype(np.uint8)
+    if _touches_border(out) or ink(out).sum() < 0.92 * ink(pre).sum():
+        return pre                                         # refinement clipped → keep prealign
+    return out
 
 
 def label(img_gray, txt):
@@ -101,18 +111,17 @@ def main():
     rink = ink(refg)
     for i, r in enumerate(picks):
         d = gray(r.processed_image_data)
-        aff = stackreg(d, refg, StackReg.AFFINE)
-        bbx = stackreg(d, refg, StackReg.AFFINE, bbox_prealign=True)   # affine preserves straight lines
-        ob, oa, obx = overlap(ink(d), rink), overlap(ink(aff), rink), overlap(ink(bbx), rink)
+        al = align(d, refg)                              # bbox-fill + affine + fit-inside
+        ob, oal = overlap(ink(d), rink), overlap(ink(al), rink)
+        retain = ink(al).sum() / max(ink(d).sum(), 1)
         strip = np.hstack([
             label(d, f"drawing (score {sc(r)})  overlap {ob:.2f}"),
-            label(aff, f"stackreg affine  {oa:.2f}"),
-            label(bbx, f"bbox-fill + affine  {obx:.2f}"),
+            label(al, f"aligned (bbox+affine+fit)  {oal:.2f}  ink {retain:.0%}"),
             label(refg, "reference"),
-            overlay_on_ref(bbx, refg),
+            overlay_on_ref(al, refg),
         ])
         cv2.imwrite(f"{OUT}/ex_{i:02d}_id{r.id}.png", strip)
-        print(f"ex_{i:02d}_id{r.id}: score {sc(r)} | drawing {ob:.2f} → affine {oa:.2f} → bbox+affine {obx:.2f}", flush=True)
+        print(f"ex_{i:02d}_id{r.id}: score {sc(r)} | overlap {ob:.2f} → {oal:.2f} | ink retained {retain:.0%}", flush=True)
     print(f"\nwrote {len(picks)} strips to {OUT}")
 
 
