@@ -12,7 +12,7 @@ Date: October 2025
 Version: 1.0
 """
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -82,6 +82,16 @@ async def health_check(db: Session = Depends(get_db)):
         reference_images_count=0,
         version=APP_VERSION
     )
+
+
+@app.get("/api/reference-image")
+async def reference_image():
+    """Serve the canonical OCS-Plus reference figure (templates/ is not on the nginx root)."""
+    from fastapi.responses import FileResponse
+    path = "/app/templates/reference_image.png"
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Reference image not found")
+    return FileResponse(path, media_type="image/png")
 
 
 if __name__ == "__main__":
