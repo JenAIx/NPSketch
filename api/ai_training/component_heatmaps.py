@@ -180,32 +180,56 @@ def grad_cam():
     model.load_state_dict(ck.get("model_state_dict", ck) if isinstance(ck, dict) else ck)
     model.eval()
 
-    ref_bytes = open(REF_PATH, "rb").read()
-    # img_array is the *model input* (auto-cropped + resized reference). Grad-CAM lives
-    # in this frame, so the overlay background must be this same image — NOT the raw
-    # reference — otherwise the heatmap is shifted relative to the lines.
-    img_array = preprocess_bytes_for_prediction(ref_bytes, metadata=metadata, debug=False)
-    bg = cv2.resize((img_array * 255).clip(0, 255).astype(np.uint8), (W, H))
-    x = torch.from_numpy(img_array).unsqueeze(0).unsqueeze(0).float()
+    # Grad-CAM on the single *complete* reference figure is degenerate: every element
+    # is present, so the presence logits are saturated, gradients are tiny and many
+    # elements collapse onto the same dominant activation. Instead we AVERAGE Grad-CAM
+    # over a sample of real TELEFRED images (varied presence) — like the data-driven
+    # map, but seen through the model. Background = mean of those preprocessed inputs.
+    db = next(get_db())
+    rows = (db.query(TrainingDataImage)
+            .filter(TrainingDataImage.source_format == "TELEFRED",
+                    TrainingDataImage.features_data.isnot(None))
+            .all())
+    db.close()
+    rows = [r for r in rows if r.processed_image_data]
+    sample = rows[::max(1, len(rows) // 250)][:250]   # ~250 evenly-spaced images
 
     acts = {}
     # layer3 (stride 16) is ~2× finer spatially than layer4 (stride 32) → sharper CAM.
     handle = model.backbone.layer3.register_forward_hook(
         lambda m, i, o: acts.__setitem__("a", o))
-    out = model(x)                      # [1, 60] logits
-    A = acts["a"]                       # [1, 256, h, w]
 
+    cam_sum = [np.zeros((H, W), np.float64) for _ in range(20)]
+    n = 0
+    for r in sample:
+        arr = preprocess_bytes_for_prediction(r.processed_image_data, metadata=metadata, debug=False)
+        x = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0).float()
+        out = model(x)
+        A = acts["a"]
+        for e in range(20):
+            g = torch.autograd.grad(out[0, e * 3], A, retain_graph=True)[0]
+            weights = g.mean(dim=(2, 3), keepdim=True)
+            cam = torch.relu((weights * A).sum(dim=1)).squeeze(0).detach().numpy()
+            cam = cv2.resize(cam, (W, H))
+            m = cam.max()
+            if m > 0:                    # per-image normalize so no single image dominates
+                cam_sum[e] += cam / m
+        n += 1
+        if n % 50 == 0:
+            print(f"  grad-cam: {n}/{len(sample)} images…", flush=True)
+    handle.remove()
+
+    # Background: the model's preprocessed view of the clean reference (same model-input
+    # frame as the averaged CAMs) — clean lines for orientation, properly aligned.
+    ref_arr = preprocess_bytes_for_prediction(open(REF_PATH, "rb").read(), metadata=metadata, debug=False)
+    bg = cv2.resize((ref_arr * 255).clip(0, 255).astype(np.uint8), (W, H))
     heats = []
     for e in range(20):
-        idx = e * 3                     # presence logit for element e
-        g = torch.autograd.grad(out[0, idx], A, retain_graph=True)[0]
-        weights = g.mean(dim=(2, 3), keepdim=True)         # [1,256,1,1]
-        cam = torch.relu((weights * A).sum(dim=1)).squeeze(0).detach().numpy()
-        cam = cv2.resize(cam, (W, H))
-        m = cam.max()
-        heats.append((cam / m).astype(np.float32) if m > 0 else cam.astype(np.float32))
-    handle.remove()
-    print(f"  grad-cam done from {os.path.basename(model_path)} (layer3)", flush=True)
+        h = cam_sum[e]
+        m = h.max()
+        heats.append((h / m).astype(np.float32) if m > 0 else h.astype(np.float32))
+    print(f"  grad-cam done from {os.path.basename(model_path)} "
+          f"(layer3, averaged over {n} real images)", flush=True)
     return heats, os.path.basename(model_path), bg
 
 

@@ -63,8 +63,11 @@
             </div>
             <div class="method">
                 <span class="tag tag-cam">Grad-CAM</span>
-                attention of the trained component CNN's <em>presence</em> logit on the reference figure —
-                i.e. where the network looks to decide that sub-label (explainable AI).
+                attention of the trained component CNN's <em>presence</em> logit, <strong>averaged over
+                ~250 real TELEFRED drawings</strong> (layer3) — i.e. where the network looks to decide
+                that sub-label (explainable AI). Averaging over real images avoids the saturation
+                artifact of running Grad-CAM on the single complete reference (where every element is
+                present, so the maps degenerate). Shown over the model's preprocessed view of the figure.
             </div>
             <div class="caveat" id="caveat">
                 ℹ️ The bright peak is the element's location; the faint halo is residual from slight
