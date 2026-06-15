@@ -37,21 +37,20 @@ def warp_aff(g, M):
     return cv2.warpAffine(g, M, (W, H), flags=cv2.INTER_LINEAR, borderValue=255)
 
 
-def bbox_affine(src_g, dst_g, m=10):
-    """non-uniform scale + translate so the src ink bbox fills the dst ink bbox."""
+def bbox_affine(src_g, dst_g, m=14):
+    """non-uniform scale + translate so the src ink bbox fills a canonical target box
+    with a guaranteed `m`-px margin (so edge lines can't be clipped by the warp)."""
     def bb(g):
         ys, xs = np.where(ink(g) > 0)
         return (xs.min(), ys.min(), xs.max(), ys.max()) if len(xs) else None
-    s, d = bb(src_g), bb(dst_g)
-    if not s or not d:
+    s = bb(src_g)
+    if not s:
         return None
     sw, sh = s[2] - s[0] + 1, s[3] - s[1] + 1
-    dw, dh = d[2] - d[0] + 1, d[3] - d[1] + 1
-    sx, sy = dw / sw, dh / sh
-    A = np.array([[sx, 0], [0, sy]], np.float32)
+    tw, th = (W - 2 * m), (H - 2 * m)            # canonical target box with margin
+    A = np.array([[tw / sw, 0], [0, th / sh]], np.float32)
     scx, scy = (s[0] + s[2]) / 2, (s[1] + s[3]) / 2
-    dcx, dcy = (d[0] + d[2]) / 2, (d[1] + d[3]) / 2
-    t = np.array([dcx, dcy]) - A @ np.array([scx, scy])
+    t = np.array([W / 2.0, H / 2.0]) - A @ np.array([scx, scy])
     return np.hstack([A, t.reshape(2, 1)]).astype(np.float32)
 
 
@@ -85,8 +84,11 @@ def overlay_on_ref(aligned, ref):
 
 
 def main():
-    refg = cv2.resize((preprocess_bytes_for_prediction(open("/app/templates/reference_image.png", "rb").read(),
-                       metadata={}) * 255).astype(np.uint8), (W, H))
+    refg0 = cv2.resize((preprocess_bytes_for_prediction(open("/app/templates/reference_image.png", "rb").read(),
+                        metadata={}) * 255).astype(np.uint8), (W, H))
+    # margined reference: inset the figure so alignment lives in [m..W-m] and edge lines
+    # can never be clipped (StackReg aligns drawings to THIS, not the edge-touching original).
+    refg = warp_aff(refg0, bbox_affine(refg0, refg0))
     db = next(get_db())
     rows = db.query(TrainingDataImage).filter(
         TrainingDataImage.source_format == "TELEFRED", TrainingDataImage.features_data.isnot(None)).all()
