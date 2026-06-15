@@ -747,7 +747,7 @@ async def run_on_test_images(request: dict = Body(...), db: Session = Depends(ge
             w = sc.get("weights"); bcal = sc.get("bias")
             thr = metadata.get("thresholds")
             if isinstance(w, list) and len(w) == 60 and bcal is not None:
-                pred = round(max(0.0, min(60.0, float(np.dot(probs, w) + bcal))), 2)
+                pred = round(max(0.0, min(60.0, float(np.dot(probs, w) + bcal))), 1)  # 1dp = matches the modal breakdown
             elif isinstance(thr, list) and len(thr) == 60:
                 pred = int(sum(1 for j in range(60) if probs[j] >= thr[j]))
             else:

@@ -55,8 +55,11 @@ function renderComponentBreakdown(prediction, opts) {
   return `
     <div style="text-align:center;margin:10px 0 4px;">
       <div style="font-size:3em;font-weight:bold;color:#667eea;line-height:1;">${primary}<span style="font-size:.4em;color:#999;">/60</span></div>
-      <div style="color:#666;font-size:.9em;">Derived Total_Score${calibrated ? ' (calibrated)' : ''}</div>
-      <div style="color:#999;font-size:.85em;">hard sum: ${hard} · soft sum: ${soft}</div>
+      <div style="color:#666;font-size:.9em;">${isLabels
+        ? 'Total_Score (ground-truth label)'
+        : (calibrated ? '★ Predicted Total_Score (calibrated) — this is the model\'s score'
+                      : 'Derived Total_Score')}</div>
+      ${isLabels ? '' : `<div style="color:#aaa;font-size:.8em;margin-top:2px;">raw internals: ${hard}/60 sub-labels above threshold · prob-sum ${soft}${calibrated ? ' → calibrated to ' + primary : ''}</div>`}
     </div>
     ${summary}
     <div style="overflow-x:auto;">
