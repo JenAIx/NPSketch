@@ -79,7 +79,7 @@ def overlay_on_ref(aligned, ref):
     am = ink(aligned).astype(bool)
     bgr[am] = (0, 0, 230)  # aligned drawing in red
     cv2.rectangle(bgr, (0, 0), (W, 22), (245, 245, 245), -1)
-    cv2.putText(bgr, "bbox+stackreg (red) over reference", (6, 16),
+    cv2.putText(bgr, "bbox+affine (red) over reference", (6, 16),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (60, 60, 60), 1, cv2.LINE_AA)
     return bgr.astype(np.uint8)
 
@@ -99,18 +99,18 @@ def main():
     rink = ink(refg)
     for i, r in enumerate(picks):
         d = gray(r.processed_image_data)
-        bil = stackreg(d, refg, StackReg.BILINEAR)
-        bbx = stackreg(d, refg, StackReg.BILINEAR, bbox_prealign=True)
-        ob, obl, obx = overlap(ink(d), rink), overlap(ink(bil), rink), overlap(ink(bbx), rink)
+        aff = stackreg(d, refg, StackReg.AFFINE)
+        bbx = stackreg(d, refg, StackReg.AFFINE, bbox_prealign=True)   # affine preserves straight lines
+        ob, oa, obx = overlap(ink(d), rink), overlap(ink(aff), rink), overlap(ink(bbx), rink)
         strip = np.hstack([
             label(d, f"drawing (score {sc(r)})  overlap {ob:.2f}"),
-            label(bil, f"stackreg bilinear  {obl:.2f}"),
-            label(bbx, f"bbox-fill + stackreg  {obx:.2f}"),
+            label(aff, f"stackreg affine  {oa:.2f}"),
+            label(bbx, f"bbox-fill + affine  {obx:.2f}"),
             label(refg, "reference"),
             overlay_on_ref(bbx, refg),
         ])
         cv2.imwrite(f"{OUT}/ex_{i:02d}_id{r.id}.png", strip)
-        print(f"ex_{i:02d}_id{r.id}: score {sc(r)} | drawing {ob:.2f} → bilinear {obl:.2f} → bbox+stackreg {obx:.2f}", flush=True)
+        print(f"ex_{i:02d}_id{r.id}: score {sc(r)} | drawing {ob:.2f} → affine {oa:.2f} → bbox+affine {obx:.2f}", flush=True)
     print(f"\nwrote {len(picks)} strips to {OUT}")
 
 
