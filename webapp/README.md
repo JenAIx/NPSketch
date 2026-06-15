@@ -52,7 +52,8 @@ logs) · `./templates → /app/templates` (RO: source data) · `./webapp → ngi
   or Components) directly from the UI; live progress.
 - **`/ai_training_data_view.html`** — browse training images; per-item Total_Score + 🧩 component
   labels; sort by score; the *Only Missing* filter surfaces unlabelled images.
-- **`/ai_training_data_upload.html`** — import source data.
+  (Bulk import is CLI-only via `import_unified.py`; the old `ai_training_data_upload.html`
+  redirects here.)
 - **`/component_map.html`** — explainability: where each of the 20 elements sits on the reference
   figure (data-driven heatmaps **and** the component model's Grad-CAM attention). See below.
 - **`/run_test.html`** — batch-evaluate a model over the drawn test images (predicted vs expected).
