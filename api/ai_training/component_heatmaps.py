@@ -181,27 +181,32 @@ def grad_cam():
     model.eval()
 
     ref_bytes = open(REF_PATH, "rb").read()
+    # img_array is the *model input* (auto-cropped + resized reference). Grad-CAM lives
+    # in this frame, so the overlay background must be this same image — NOT the raw
+    # reference — otherwise the heatmap is shifted relative to the lines.
     img_array = preprocess_bytes_for_prediction(ref_bytes, metadata=metadata, debug=False)
+    bg = cv2.resize((img_array * 255).clip(0, 255).astype(np.uint8), (W, H))
     x = torch.from_numpy(img_array).unsqueeze(0).unsqueeze(0).float()
 
     acts = {}
-    handle = model.backbone.layer4.register_forward_hook(
+    # layer3 (stride 16) is ~2× finer spatially than layer4 (stride 32) → sharper CAM.
+    handle = model.backbone.layer3.register_forward_hook(
         lambda m, i, o: acts.__setitem__("a", o))
     out = model(x)                      # [1, 60] logits
-    A = acts["a"]                       # [1, 512, h, w]
+    A = acts["a"]                       # [1, 256, h, w]
 
     heats = []
     for e in range(20):
         idx = e * 3                     # presence logit for element e
         g = torch.autograd.grad(out[0, idx], A, retain_graph=True)[0]
-        weights = g.mean(dim=(2, 3), keepdim=True)         # [1,512,1,1]
+        weights = g.mean(dim=(2, 3), keepdim=True)         # [1,256,1,1]
         cam = torch.relu((weights * A).sum(dim=1)).squeeze(0).detach().numpy()
         cam = cv2.resize(cam, (W, H))
         m = cam.max()
         heats.append((cam / m).astype(np.float32) if m > 0 else cam.astype(np.float32))
     handle.remove()
-    print(f"  grad-cam done from {os.path.basename(model_path)}", flush=True)
-    return heats, os.path.basename(model_path)
+    print(f"  grad-cam done from {os.path.basename(model_path)} (layer3)", flush=True)
+    return heats, os.path.basename(model_path), bg
 
 
 # --------------------------------------------------------------------------- main
@@ -212,7 +217,7 @@ def main():
     print("Computing data-driven heatmaps...", flush=True)
     data_heats, n_p, n_a, used = data_driven()
     print("Computing Grad-CAM heatmaps...", flush=True)
-    cam_heats, model_name = grad_cam()
+    cam_heats, model_name, cam_bg = grad_cam()  # cam_bg = the model's preprocessed view of the figure
 
     elements = []
     data_centroids, cam_centroids = [], []
@@ -220,7 +225,7 @@ def main():
         dh = refine(data_heats[e], gamma=2.2)   # data-driven: strong noise suppression
         ch = refine(cam_heats[e], gamma=1.3)     # grad-cam: light cleanup
         cv2.imwrite(os.path.join(OUT_DIR, f"data_e{e+1:02d}.png"), overlay(ref, dh))
-        cv2.imwrite(os.path.join(OUT_DIR, f"cam_e{e+1:02d}.png"), overlay(ref, ch))
+        cv2.imwrite(os.path.join(OUT_DIR, f"cam_e{e+1:02d}.png"), overlay(cam_bg, ch))
         dc = peak_centroid(dh)
         cc = peak_centroid(ch)
         data_centroids.append(dc)
@@ -234,7 +239,7 @@ def main():
         })
 
     cv2.imwrite(os.path.join(OUT_DIR, "data_composite.png"), composite(ref, data_centroids))
-    cv2.imwrite(os.path.join(OUT_DIR, "cam_composite.png"), composite(ref, cam_centroids))
+    cv2.imwrite(os.path.join(OUT_DIR, "cam_composite.png"), composite(cam_bg, cam_centroids))
 
     manifest = {
         "generated_at": datetime.utcnow().isoformat() + "Z",
