@@ -166,16 +166,50 @@ def m_minarea(d, r, fill=False):
     return warp_aff(d, np.hstack([A, t.reshape(2, 1)]).astype(np.float32))
 
 
+def m_imregdft(d, r):
+    """imreg_dft: FFT log-polar similarity (scale+rotation+translation), no init."""
+    import imreg_dft as ird
+    res = ird.similarity(blur(r) * 255, blur(d) * 255, numiter=3, order=1)
+    return ird.transform_img(d.astype(float), scale=res["scale"], angle=res["angle"],
+                             tvec=res["tvec"], bgval=255).clip(0, 255).astype(np.uint8)
+
+
+def m_stackreg(d, r, mode):
+    """pystackreg (ImageJ StackReg/TurboReg): intensity registration."""
+    from pystackreg import StackReg
+    sr = StackReg(mode)
+    sr.register(blur(r), blur(d))
+    aligned = sr.transform((255 - d).astype(float) / 255.0)   # ink-bright, 0=bg
+    return (255 - np.clip(aligned, 0, 1) * 255).astype(np.uint8)
+
+
+def m_tvl1(d, r):
+    """skimage TV-L1 dense optical flow (nonlinear), moment pre-align."""
+    from skimage.registration import optical_flow_tvl1
+    from skimage.transform import warp
+    pre = m_moments(d, r) or d
+    v, u = optical_flow_tvl1(blur(r), blur(pre))
+    rr, cc = np.meshgrid(np.arange(H), np.arange(W), indexing="ij")
+    g = warp((255 - pre).astype(float) / 255.0, np.array([rr + v, cc + u]), mode="constant", cval=0)
+    return (255 - np.clip(g, 0, 1) * 255).astype(np.uint8)
+
+
+def _sr_mode(name):
+    from pystackreg import StackReg
+    return {"affine": StackReg.AFFINE, "bilinear": StackReg.BILINEAR}[name]
+
+
 METHODS = {
     "baseline":     lambda d, r: d,
-    "moments":      m_moments,
     "ecc_affine":   lambda d, r: m_ecc(d, r, cv2.MOTION_AFFINE),
-    "minarea":      lambda d, r: m_minarea(d, r, fill=False),
     "minarea_fill": lambda d, r: m_minarea(d, r, fill=True),
-    "rect_persp":   m_rect,
+    "imregdft":     m_imregdft,
+    "stackreg_aff": lambda d, r: m_stackreg(d, r, _sr_mode("affine")),
+    "stackreg_bil": lambda d, r: m_stackreg(d, r, _sr_mode("bilinear")),
+    "tvl1_flow":    m_tvl1,
 }
 # candidates considered by the gated cascade (keep best overlap, fall back to baseline)
-GATED_CANDIDATES = ["moments", "ecc_affine", "minarea", "minarea_fill", "rect_persp"]
+GATED_CANDIDATES = ["ecc_affine", "minarea_fill", "imregdft", "stackreg_aff", "stackreg_bil", "tvl1_flow"]
 
 
 def main():
