@@ -149,21 +149,22 @@ def per_bin(pred, true):
     return out
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--write", action="store_true", help="persist thresholds + calibration into metadata")
-    ap.add_argument("--model", default=None, help="model .pth path (default: latest)")
-    args = ap.parse_args()
+def calibrate_model(model_path, write=False, verbose=True):
+    """Fit per-label thresholds + NNLS score readout on the model's stored train ids,
+    evaluate on val ids. If write=True, persist into the model metadata. Returns a dict
+    with the comparison metrics (and applies thresholds/calibration in-place into metadata)."""
+    def log(*a):
+        if verbose:
+            print(*a, flush=True)
 
-    model_path = args.model or latest_model()[0]
     meta_path = model_path.replace(".pth", "_metadata.json")
     metadata = json.load(open(meta_path))
-    print(f"Model: {os.path.basename(model_path)}")
+    log(f"Model: {os.path.basename(model_path)}")
 
     train_ids = metadata.get("train_image_ids") or []
     val_ids = metadata.get("val_image_ids") or []
     if not train_ids or not val_ids:
-        sys.exit("Metadata lacks train_image_ids / val_image_ids.")
+        raise ValueError("Metadata lacks train_image_ids / val_image_ids.")
 
     db = next(get_db())
     by_id = {r.id: r for r in db.query(TrainingDataImage)
@@ -171,12 +172,12 @@ def main():
     db.close()
     tr_rows = [by_id[i] for i in train_ids if i in by_id]
     va_rows = [by_id[i] for i in val_ids if i in by_id]
-    print(f"Loaded {len(tr_rows)} train / {len(va_rows)} val images")
+    log(f"Loaded {len(tr_rows)} train / {len(va_rows)} val images")
 
     model = load_model(model_path, metadata)
-    print("Running inference (train)…", flush=True)
+    log("Running inference (train)…")
     ptr, ytr = infer(model, tr_rows, metadata)
-    print("Running inference (val)…", flush=True)
+    log("Running inference (val)…")
     pva, yva = infer(model, va_rows, metadata)
 
     thr = fit_thresholds(ptr, ytr)
@@ -189,30 +190,44 @@ def main():
         "soft-sum":   pva.sum(1),
         "calibrated": (pva @ w + b),
     }
+    result = {name: score_metrics(pred, true_va) for name, pred in derived.items()}
+    result["macro_f1_0.5"] = round(macro_f1(pva, yva, 0.5), 4)
+    result["macro_f1_thr"] = round(macro_f1(pva, yva, thr), 4)
+    result["per_bin_calibrated"] = per_bin(derived["calibrated"], true_va)
 
-    print("\n=== Derived Total_Score on VAL (held-out) ===")
-    for name, pred in derived.items():
-        print(f"  {name:11s} {score_metrics(pred, true_va)}")
+    if verbose:
+        print("\n=== Derived Total_Score on VAL (held-out) ===")
+        for name, pred in derived.items():
+            print(f"  {name:11s} {score_metrics(pred, true_va)}")
+        print(f"\n=== Macro-F1 (60 sub-labels, VAL) ===")
+        print(f"  fixed 0.5 : {result['macro_f1_0.5']:.4f}")
+        print(f"  per-label : {result['macro_f1_thr']:.4f}")
+        print("\n=== per-score-bin (calibrated) ===")
+        for k, v in result["per_bin_calibrated"].items():
+            print(f"  {k:6s} {v}")
 
-    print(f"\n=== Macro-F1 (60 sub-labels, VAL) ===")
-    print(f"  fixed 0.5 : {macro_f1(pva, yva, 0.5):.4f}")
-    print(f"  per-label : {macro_f1(pva, yva, thr):.4f}")
-
-    print("\n=== per-score-bin (calibrated) ===")
-    for k, v in per_bin(derived["calibrated"], true_va).items():
-        print(f"  {k:6s} {v}")
-
-    if args.write:
+    if write:
         metadata["thresholds"] = [round(float(t), 3) for t in thr]
         metadata["score_calibration"] = {
             "weights": [round(float(x), 5) for x in w],
             "bias": round(b, 5),
             "fit_on": "train_image_ids", "method": "nnls",
         }
+        metadata["calibration_metrics"] = result
         with open(meta_path, "w") as f:
             json.dump(metadata, f, indent=2)
-        print(f"\nWrote thresholds + score_calibration into {os.path.basename(meta_path)}")
-    else:
+        log(f"\nWrote thresholds + score_calibration into {os.path.basename(meta_path)}")
+    return result
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--write", action="store_true", help="persist thresholds + calibration into metadata")
+    ap.add_argument("--model", default=None, help="model .pth path (default: latest)")
+    args = ap.parse_args()
+    model_path = args.model or latest_model()[0]
+    calibrate_model(model_path, write=args.write, verbose=True)
+    if not args.write:
         print("\n(measure-only; re-run with --write to persist into metadata)")
 
 

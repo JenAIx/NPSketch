@@ -794,6 +794,21 @@ def run_training_job(config):
         
         model_path = trainer.save_model(f"model_{config['target_feature']}", metadata=metadata)
 
+        # Components: auto-calibrate (per-label thresholds + NNLS score readout) and
+        # persist into the model metadata, so predict-single returns the calibrated
+        # derived Total_Score without any manual step.
+        if is_components:
+            try:
+                training_state['progress']['message'] = 'Calibrating component model…'
+                _write_progress_file()
+                from ai_training.component_calibration import calibrate_model
+                cal = calibrate_model(model_path, write=True, verbose=False)
+                logger.info(f"Component calibration: hard@0.5 {cal.get('hard@0.5')} -> "
+                            f"calibrated {cal.get('calibrated')}, macro-F1 "
+                            f"{cal.get('macro_f1_0.5')} -> {cal.get('macro_f1_thr')}")
+            except Exception as e:
+                logger.warning(f"Component auto-calibration skipped: {e}")
+
         # Final model saved - remove the crash-safe checkpoint
         try:
             if os.path.exists(checkpoint_path):
