@@ -8,41 +8,100 @@
     <style>
         table { width: 100%; border-collapse: collapse; margin-top: 16px; }
         th, td { padding: 8px 10px; border-bottom: 1px solid #eee; text-align: left; font-size: .92em; }
-        th { background: #f8f9fa; }
-        .err-ok { color: #28a745; } .err-mid { color: #ffc107; } .err-bad { color: #dc3545; }
-        .summary { margin-top: 14px; padding: 12px 16px; background: #f8f9fa; border-radius: 8px; }
-        select, button { padding: 10px; border: 2px solid #ddd; border-radius: 6px; }
+        th { background: #f8f9fa; cursor: default; }
+        .err-ok { color: #28a745; font-weight: 600; } .err-mid { color: #d39e00; font-weight: 600; } .err-bad { color: #dc3545; font-weight: 600; }
+        .summary { margin-top: 16px; padding: 14px 16px; background: #f8f9fa; border-radius: 8px; }
+        .summary .big { display:flex; gap:22px; flex-wrap:wrap; margin-bottom:6px; }
+        .summary .big div { font-size:1.4em; font-weight:700; color:#667eea; }
+        .summary .big span { display:block; font-size:.5em; font-weight:400; color:#888; }
+        select, input, button { padding: 9px 11px; border: 2px solid #ddd; border-radius: 6px; font-size:.95em; }
+        .controls { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-top:6px; }
+        .controls label { display:flex; flex-direction:column; gap:4px; font-size:.85em; color:#555; }
+        .intro { background:#eef1ff; border:1px solid #dfe3ff; border-radius:8px; padding:12px 15px; font-size:.9em; color:#444; line-height:1.5; }
+        .model-info { margin-top:8px; font-size:.85em; color:#666; }
+        .note { font-size:.82em; color:#a06800; background:#fff8e6; border-radius:6px; padding:6px 10px; margin-top:8px; display:none; }
     </style>
 </head>
 <body>
     <div class="container hexagon-pattern narrow">
         <a href="/index.html" class="back-link">← Main</a>
         <h1>🧪 Run Tests</h1>
-        <p class="subtitle">Batch-evaluate a trained model over your drawn test images (predicted vs. expected score).</p>
+        <p class="subtitle">Batch-evaluate a trained model and compare its prediction to the stored label.</p>
 
-        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-            <select id="modelSelect" style="min-width:320px;"><option value="">Loading models…</option></select>
-            <button class="btn" id="runBtn" onclick="runTests()">▶ Run</button>
+        <div class="intro">
+            Runs the selected model over a set of labelled images (the same preprocessing &amp; calibration
+            as a single prediction) and reports predicted vs. expected <strong>Total_Score</strong> per image
+            plus aggregate error. <strong>Drawn</strong> / <strong>Uploaded</strong> images are your own test
+            set (not used in training); the training sources are shown for reference but are optimistic
+            (the model has seen them).
         </div>
+
+        <div class="controls">
+            <label>Model
+                <select id="modelSelect" style="min-width:300px;"><option value="">Loading models…</option></select>
+            </label>
+            <label>Test on
+                <select id="sourceSelect">
+                    <option value="DRAWN">🎨 Drawn (your test images)</option>
+                    <option value="UPLOAD">📤 Uploaded</option>
+                    <option value="TELEFRED">TELEFRED (training)</option>
+                    <option value="OXFORD">OXFORD (training)</option>
+                    <option value="ALGORITHM">ALGORITHM (training)</option>
+                    <option value="OCS_MACHINE">OCS_MACHINE (training)</option>
+                </select>
+            </label>
+            <label>Max images
+                <input type="number" id="limitInput" value="300" min="1" max="2000" style="width:90px;">
+            </label>
+            <button class="btn" id="runBtn" onclick="runTests()" style="width:auto;">▶ Run</button>
+        </div>
+        <div class="model-info" id="modelInfo"></div>
+        <div class="note" id="trainNote">⚠️ This source was used for training — these numbers are optimistic, not held-out performance.</div>
 
         <div id="summary"></div>
         <div id="results"></div>
     </div>
 
     <script>
+        const modelSel = document.getElementById('modelSelect');
+        const sourceSel = document.getElementById('sourceSelect');
+
         async function loadModels() {
-            const sel = document.getElementById('modelSelect');
             try {
                 const data = await (await fetch('/api/ai-training/models')).json();
                 const models = data.models || [];
-                if (!models.length) { sel.innerHTML = '<option value="">No models trained yet</option>'; return; }
-                sel.innerHTML = models.map(m => `<option value="${m.filename}">${m.feature} — ${new Date(m.created_at).toLocaleDateString()}</option>`).join('');
-            } catch (e) { sel.innerHTML = '<option value="">Error loading models</option>'; }
+                if (!models.length) { modelSel.innerHTML = '<option value="">No models trained yet</option>'; return; }
+                modelSel.innerHTML = models.map(m => `<option value="${m.filename}">${m.feature} — ${new Date(m.created_at * 1000).toLocaleDateString()}</option>`).join('');
+                updateModelInfo();
+            } catch (e) { modelSel.innerHTML = '<option value="">Error loading models</option>'; }
         }
 
+        async function updateModelInfo() {
+            const info = document.getElementById('modelInfo');
+            if (!modelSel.value) { info.innerHTML = ''; return; }
+            try {
+                const m = await (await fetch(`/api/ai-training/models/${modelSel.value}/metadata`)).json();
+                const feat = m.target_feature || 'Unknown';
+                const mode = feat === 'Components' ? 'Components' : (feat.startsWith('Custom_Class_') ? 'Classification' : 'Regression');
+                let s = `Target: <strong>${feat}</strong> · Mode: <strong>${mode}</strong>`;
+                const v = m.val_metrics || {};
+                if (v.macro_f1 !== undefined) s += ` · val macro-F1 ${(v.macro_f1*100).toFixed(1)}%`;
+                if (v.r2_score !== undefined) s += ` · val R² ${(v.r2_score*100).toFixed(1)}% · MAE ${v.mae?.toFixed?.(2) ?? v.mae}`;
+                if (v.accuracy !== undefined) s += ` · val acc ${(v.accuracy*100).toFixed(1)}%`;
+                info.innerHTML = s;
+            } catch (e) { info.innerHTML = ''; }
+        }
+
+        function onSourceChange() {
+            document.getElementById('trainNote').style.display =
+                ['TELEFRED','OXFORD','ALGORITHM','OCS_MACHINE'].includes(sourceSel.value) ? 'block' : 'none';
+        }
+
+        modelSel.addEventListener('change', updateModelInfo);
+        sourceSel.addEventListener('change', onSourceChange);
+
         async function runTests() {
-            const model = document.getElementById('modelSelect').value;
-            if (!model) { alert('Select a model first'); return; }
+            if (!modelSel.value) { alert('Select a model first'); return; }
             const btn = document.getElementById('runBtn');
             btn.disabled = true; btn.textContent = '⏳ Running…';
             document.getElementById('summary').innerHTML = '';
@@ -50,7 +109,11 @@
             try {
                 const data = await (await fetch('/api/ai-training/models/run-on-test-images', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ model_filename: model })
+                    body: JSON.stringify({
+                        model_filename: modelSel.value,
+                        source_format: sourceSel.value,
+                        limit: parseInt(document.getElementById('limitInput').value) || 300
+                    })
                 })).json();
                 renderResults(data);
             } catch (e) {
@@ -60,18 +123,28 @@
 
         function renderResults(data) {
             const s = data.summary || {};
-            let html = `<div class="summary"><strong>${s.count || 0}</strong> test images · mode: <strong>${s.training_mode}</strong>`;
-            if (s.mae !== undefined) html += ` · <strong>MAE ${s.mae}</strong>`;
-            html += '</div>';
-            document.getElementById('summary').innerHTML = html;
-
             const rows = data.results || [];
+            const metric = (v, lbl) => v === undefined ? '' : `<div>${v}<span>${lbl}</span></div>`;
+            document.getElementById('summary').innerHTML = `
+                <div class="summary">
+                    <div class="big">
+                        ${metric(s.count ?? 0, 'images')}
+                        ${metric(s.mae, 'MAE')}
+                        ${metric(s.rmse, 'RMSE')}
+                        ${metric(s.bias !== undefined ? (s.bias>0?'+':'')+s.bias : undefined, 'bias (pred−exp)')}
+                        ${metric(s.within_3 !== undefined ? s.within_3+'%' : undefined, '±3 pts')}
+                        ${metric(s.within_5 !== undefined ? s.within_5+'%' : undefined, '±5 pts')}
+                    </div>
+                    <div style="color:#666;font-size:.88em;">Source: <strong>${s.source_format}</strong> · mode: <strong>${s.training_mode}</strong>${s.training_mode==='components'?' · expected = sum of component labels':''}</div>
+                </div>`;
+
             if (!rows.length) {
-                document.getElementById('results').innerHTML = '<p style="color:#999;margin-top:16px;">No drawn test images yet — create some on the “Draw &amp; Evaluate” page.</p>';
+                document.getElementById('results').innerHTML = `<p style="color:#999;margin-top:16px;">No labelled images for source “${s.source_format}”. Drawn/Uploaded test images are created on the <a href="/evaluate.html">Evaluate &amp; Label</a> page.</p>`;
                 return;
             }
-            const cls = (e) => e === undefined ? '' : (e <= 3 ? 'err-ok' : e <= 8 ? 'err-mid' : 'err-bad');
+            const cls = (e) => e === undefined || e === null ? '' : (e <= 3 ? 'err-ok' : e <= 8 ? 'err-mid' : 'err-bad');
             document.getElementById('results').innerHTML = `
+                <p style="color:#999;font-size:.82em;margin:10px 0 0;">Sorted worst-error first.</p>
                 <table>
                     <thead><tr><th>#</th><th>Name</th><th>Expected</th><th>Predicted</th><th>Abs. error</th></tr></thead>
                     <tbody>${rows.map(r => `

@@ -696,6 +696,13 @@ async def run_on_test_images(request: dict = Body(...), db: Session = Depends(ge
     model_filename = request.get("model_filename")
     if not model_filename:
         raise HTTPException(status_code=400, detail="model_filename required")
+    # Which images to evaluate on, and how many. DRAWN/UPLOAD are genuine test images
+    # (not in the TELEFRED training set); the training sources are optimistic.
+    source_format = request.get("source_format", "DRAWN")
+    try:
+        limit = max(1, min(int(request.get("limit", 300)), 2000))
+    except (TypeError, ValueError):
+        limit = 300
     model_path = Path("/app/data/models") / model_filename
     meta_path = Path("/app/data/models") / f"{model_path.stem}_metadata.json"
     if not model_path.exists():
@@ -718,9 +725,9 @@ async def run_on_test_images(request: dict = Body(...), db: Session = Depends(ge
         return feats.get("Total_Score")
 
     rows = db.query(TrainingDataImage).filter(
-        TrainingDataImage.source_format == "DRAWN",
+        TrainingDataImage.source_format == source_format,
         TrainingDataImage.features_data.isnot(None),
-    ).all()
+    ).limit(limit).all()
 
     results, diffs = [], []
     for r in rows:
@@ -757,9 +764,19 @@ async def run_on_test_images(request: dict = Body(...), db: Session = Depends(ge
             diffs.append(abs(pred - exp))
         results.append(row)
 
-    summary = {"count": len(results), "training_mode": mode}
+    # sort worst-error first so problem cases are visible at the top
+    results.sort(key=lambda r: r.get("abs_error", -1), reverse=True)
+
+    summary = {"count": len(results), "training_mode": mode, "source_format": source_format}
     if diffs:
-        summary["mae"] = round(float(np.mean(diffs)), 2)
+        d = np.array(diffs, dtype=float)
+        preds = np.array([r["predicted"] for r in results if r.get("abs_error") is not None], dtype=float)
+        exps = np.array([r["expected"] for r in results if r.get("abs_error") is not None], dtype=float)
+        summary["mae"] = round(float(d.mean()), 2)
+        summary["rmse"] = round(float(np.sqrt((d ** 2).mean())), 2)
+        summary["bias"] = round(float((preds - exps).mean()), 2)   # +→ over-predicts
+        summary["within_3"] = round(float((d <= 3).mean()) * 100, 1)
+        summary["within_5"] = round(float((d <= 5).mean()) * 100, 1)
     return {"success": True, "model": model_filename, "summary": summary, "results": results}
 
 
