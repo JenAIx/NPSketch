@@ -1,4 +1,4 @@
-# NPSketch v2.1
+# NPSketch v2.2
 
 **CNN-based scoring of hand-drawn neuropsychological figures**
 
@@ -1179,7 +1179,7 @@ MIT License - feel free to use and modify for your projects.
 
 **Stefan Brodoehl**  
 Date: October-December 2025, January–June 2026  
-Version: 2.1.0
+Version: 2.2.0
 
 ---
 

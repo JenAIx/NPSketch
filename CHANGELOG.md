@@ -4,6 +4,33 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [2.2.0] - 2026-06-15 — Calibration, preprocessing consistency, explainability
+
+- **Post-hoc calibration of the component model** (`component_calibration.py`, no retraining):
+  per-label decision thresholds (argmax-F1) + a non-negative least-squares readout
+  `score = Σ wⱼ·pⱼ + b` fit on train, evaluated on held-out val. Derived Total_Score
+  **R² 0.70 → 0.93, RMSE 5.2 → 2.6, MAE → 1.55, macro-F1 0.957 → 0.974**. Thresholds +
+  calibration persisted in the model metadata; `predict-single` and `component_result.js` use
+  them (calibrated score + per-label ✓/✗). Auto-runs at the end of every component training.
+- **Fixed train/inference preprocessing mismatch (pre-shrink)**: augmented-path models recorded an
+  empty `augmentation.config`, so inference silently skipped the pre-shrink that training applied
+  (~10 % scale mismatch on every prediction; hard@0.5 R² 0.70 vs 0.77 corrected). Now the augmentation
+  config (incl. `pre_shrink` factor 0.90) is recorded in metadata, with a live-config fallback for
+  older models; existing component model patched + re-calibrated.
+- **Component Map / Explainability** (`component_map.html`): locates the 20 elements on the reference
+  figure two ways — score-stratified data-driven difference heatmaps (pixel-accurate) and Grad-CAM
+  attention averaged over ~250 real drawings (layer3, model frame). Labeled composites + per-element
+  gallery, in-page rebuild button (`/api/ai-training/component-map/rebuild`), served from
+  `/api/visualizations/element_map/`; reference figure via new `/api/reference-image`. Linked from the
+  AI Training menu.
+- **Alignment QA**: `check_alignment.py` audits per-source bbox margins/fill/centering and flags
+  outliers (clipped/loose/off-center/blank); integrated into the unified-import report.
+- **UI / robustness**: `evaluate.html` remembers the last-used model and preselects it; `admin.html`
+  rebuilt around real endpoints (DB overview, tmp cleanup, guarded DB reset); overview loss-history
+  rendered client-side as inline SVG (dropped the matplotlib endpoint) and components shown as
+  "🧩 Components" with the correct 284×137 input; "Available Features" no longer renders empty;
+  landing-page version read live from `/api/health`; AI-only landing copy.
+
 ## [2.1.0] - 2026-06-14 — Component model, data integrity, merged Evaluate page
 
 - **Component-head training on clean TELEFRED**: trained the 60-sub-label model on the curated
@@ -905,7 +932,7 @@ Restored best model from epoch 20
 
 ---
 
-**Current Version:** 2.1.0  
+**Current Version:** 2.2.0  
 **Last Updated:** 2026-06-14  
 **Status:** Production Ready
 

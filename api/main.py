@@ -32,7 +32,7 @@ from routers import (
 )
 
 # Single source of truth for the app version (also returned by /api/health)
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 
 # Initialize FastAPI app
 app = FastAPI(
