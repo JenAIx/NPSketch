@@ -141,9 +141,11 @@
             } finally { btn.disabled = false; btn.textContent = '▶ Run'; }
         }
 
+        let lastRows = [];
         function renderResults(data) {
             const s = data.summary || {};
             const rows = data.results || [];
+            lastRows = rows;
             const metric = (v, lbl) => v === undefined ? '' : `<div>${v}<span>${lbl}</span></div>`;
             document.getElementById('summary').innerHTML = `
                 <div class="summary">
@@ -168,7 +170,7 @@
                 <table>
                     <thead><tr><th>#</th><th>Name</th><th>Expected</th><th>Predicted</th><th>Abs. error</th></tr></thead>
                     <tbody>${rows.map(r => `
-                        <tr onclick="showCam(${r.id}, ${JSON.stringify(r.name)}, ${r.expected ?? 'null'}, ${r.predicted})">
+                        <tr onclick="showCam(${r.id})">
                             <td>${r.id}</td><td>${r.name}</td>
                             <td>${r.expected ?? '—'}</td><td>${r.predicted}</td>
                             <td class="${cls(r.abs_error)}">${r.abs_error ?? '—'}</td>
@@ -176,11 +178,12 @@
                 </table>`;
         }
 
-        function showCam(id, name, expected, predicted) {
+        function showCam(id) {
             if (!modelSel.value) return;
-            document.getElementById('camTitle').textContent = `#${id} · ${name}`;
+            const r = lastRows.find(x => x.id === id) || {};
+            document.getElementById('camTitle').textContent = `#${id} · ${r.name ?? ''}`;
             document.getElementById('camMeta').textContent =
-                `Expected ${expected ?? '—'} · Predicted ${predicted}`;
+                `Expected ${r.expected ?? '—'} · Predicted ${r.predicted ?? '—'}`;
             const img = document.getElementById('camImg');
             img.src = '';  // reset
             img.src = `/api/ai-training/models/${modelSel.value}/gradcam/${id}?t=${Date.now()}`;
