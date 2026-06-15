@@ -733,7 +733,9 @@ async def run_on_test_images(request: dict = Body(...), db: Session = Depends(ge
     for r in rows:
         feats = json.loads(r.features_data)
         exp = expected_total(feats)
-        arr = preprocess_bytes_for_prediction(r.original_file_data, metadata=metadata)
+        # use the normalized stored image (consistent with predict-single / calibration;
+        # original_file_data is raw red ink for TELEFRED and would be mis-read)
+        arr = preprocess_bytes_for_prediction(r.processed_image_data, metadata=metadata)
         t = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0)
         with torch.no_grad():
             out = model(t)
@@ -780,10 +782,80 @@ async def run_on_test_images(request: dict = Body(...), db: Session = Depends(ge
     return {"success": True, "model": model_filename, "summary": summary, "results": results}
 
 
+@router.get("/models/{model_filename}/predict/{image_id}")
+async def predict_by_id(model_filename: str, image_id: int, db: Session = Depends(get_db)):
+    """Run a model on a stored DB image and return the prediction (same shape as
+    predict-single) — used to show the per-element breakdown alongside the Grad-CAM."""
+    import torch
+    from pathlib import Path
+    from ai_training.model import DrawingClassifier
+    from ai_training.preprocessing import preprocess_bytes_for_prediction
+
+    model_path = Path("/app/data/models") / model_filename
+    meta_path = Path("/app/data/models") / f"{model_path.stem}_metadata.json"
+    if not model_path.exists():
+        raise HTTPException(status_code=404, detail="Model not found")
+    metadata = json.load(open(meta_path)) if meta_path.exists() else {}
+    mode = metadata.get("training_mode", "regression")
+    num_outputs = metadata.get("model", {}).get("output_neurons", 1)
+    use_sigmoid = bool(metadata.get("use_sigmoid", False))
+
+    row = db.query(TrainingDataImage).filter(TrainingDataImage.id == image_id).first()
+    if not row or not row.processed_image_data:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    model = DrawingClassifier(num_outputs=num_outputs, pretrained=False, use_sigmoid=use_sigmoid)
+    ck = torch.load(model_path, map_location="cpu")
+    model.load_state_dict(ck.get("model_state_dict", ck) if isinstance(ck, dict) else ck)
+    model.eval()
+    arr = preprocess_bytes_for_prediction(row.processed_image_data, metadata=metadata, debug=False)
+    t = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0).float()
+    with torch.no_grad():
+        out = model(t)
+
+    if mode == "components":
+        probs = torch.sigmoid(out)[0].tolist()
+        thr = metadata.get("thresholds")
+        if not (isinstance(thr, list) and len(thr) == 60):
+            thr = [0.5] * 60
+        hard = [1 if probs[j] >= thr[j] else 0 for j in range(60)]
+        elements = [{
+            "element": e + 1,
+            "presence": round(probs[3*e], 3), "accuracy": round(probs[3*e+1], 3), "position": round(probs[3*e+2], 3),
+            "thr_presence": round(thr[3*e], 3), "thr_accuracy": round(thr[3*e+1], 3), "thr_position": round(thr[3*e+2], 3),
+            "subscore_hard": int(hard[3*e] + hard[3*e+1] + hard[3*e+2]),
+        } for e in range(20)]
+        sc = metadata.get("score_calibration") or {}
+        w = sc.get("weights"); bcal = sc.get("bias")
+        calibrated = None
+        if isinstance(w, list) and len(w) == 60 and bcal is not None:
+            calibrated = round(max(0.0, min(60.0, float(sum(w[j]*probs[j] for j in range(60)) + bcal))), 1)
+        return {"success": True, "training_mode": "components", "prediction": {
+            "total_score": calibrated if calibrated is not None else int(sum(hard)),
+            "calibrated": calibrated is not None,
+            "total_score_hard": int(sum(hard)), "total_score_soft": round(float(sum(probs)), 2),
+            "elements": elements}}
+    elif mode == "classification":
+        probs = torch.softmax(out, dim=1)[0]
+        return {"success": True, "training_mode": "classification",
+                "prediction": {"class": int(torch.argmax(probs).item()),
+                               "confidence": round(float(probs.max().item()) * 100, 1)}}
+    else:
+        v = out[0, 0].item()
+        norm = metadata.get("normalization", {})
+        if norm.get("method") == "min_max":
+            mn, mx = norm.get("min_value", 0), norm.get("max_value", 60)
+            v = max(mn, min(mx, v * (mx - mn) + mn))
+        return {"success": True, "training_mode": "regression",
+                "prediction": {"value": round(v, 2)}}
+
+
 @router.get("/models/{model_filename}/gradcam/{image_id}")
-async def gradcam_overlay(model_filename: str, image_id: int, db: Session = Depends(get_db)):
+async def gradcam_overlay(model_filename: str, image_id: int, element: int = None,
+                          db: Session = Depends(get_db)):
     """Grad-CAM (XAI) overlay for one image + model: where the model looks to produce
-    its score, drawn over the figure with the reference faded behind. Returns a PNG."""
+    its score (default), or for a single element E1..E20 if `element` is given.
+    Drawn over the figure with the reference faded behind. Returns a PNG."""
     import io
     import torch
     import numpy as np
@@ -820,10 +892,14 @@ async def gradcam_overlay(model_filename: str, image_id: int, db: Session = Depe
     A = acts["a"]
     # scalar target that drives the reported score
     if mode == "components":
-        sc = metadata.get("score_calibration") or {}
-        w = sc.get("weights")
-        probs = torch.sigmoid(out[0])
-        target = (torch.tensor(w, dtype=torch.float32) * probs).sum() if (isinstance(w, list) and len(w) == 60) else probs.sum()
+        if element and 1 <= int(element) <= 20:
+            e = int(element) - 1                       # this element's 3 sub-label logits
+            target = out[0, 3 * e] + out[0, 3 * e + 1] + out[0, 3 * e + 2]
+        else:
+            sc = metadata.get("score_calibration") or {}
+            w = sc.get("weights")
+            probs = torch.sigmoid(out[0])
+            target = (torch.tensor(w, dtype=torch.float32) * probs).sum() if (isinstance(w, list) and len(w) == 60) else probs.sum()
     elif mode == "classification":
         target = out[0, int(torch.argmax(out[0]).item())]
     else:

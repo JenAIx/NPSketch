@@ -24,7 +24,9 @@
         tbody tr:hover { background:#f1f3ff; }
         .modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:1000; align-items:center; justify-content:center; }
         .modal.show { display:flex; }
-        .modal-card { background:#fff; border-radius:12px; padding:20px; max-width:680px; width:92%; }
+        .modal-card { background:#fff; border-radius:12px; padding:20px; max-width:900px; width:94%; max-height:92vh; overflow-y:auto; }
+        .modal-card .cam-controls { margin-top:10px; font-size:.9em; color:#555; }
+        .modal-card .cam-controls select { padding:6px 8px; }
         .modal-card h3 { margin-bottom:6px; color:#333; }
         .modal-card img { width:100%; border:1px solid #ddd; border-radius:8px; background:#fff; margin-top:10px; }
         .modal-card .meta { color:#666; font-size:.9em; }
@@ -77,11 +79,19 @@
             <span class="close" onclick="closeCam()">×</span>
             <h3 id="camTitle">—</h3>
             <div class="meta" id="camMeta"></div>
+            <div class="cam-controls">
+                Grad-CAM focus:
+                <select id="camElement" onchange="updateCamImg()">
+                    <option value="">All (overall score)</option>
+                </select>
+            </div>
             <img id="camImg" alt="Grad-CAM overlay">
-            <div class="legend">🔴 = where the model looks to produce its score (Grad-CAM, layer3), over the drawing with the reference figure faded behind.</div>
+            <div class="legend">🔴 = where the model looks (Grad-CAM, layer3), over the drawing with the reference faded behind. Below: the model's full 20-element prediction.</div>
+            <div id="camBreakdown" style="margin-top:14px;"></div>
         </div>
     </div>
 
+    <script src="/js/component_result.js?v=2"></script>
     <script>
         const modelSel = document.getElementById('modelSelect');
         const sourceSel = document.getElementById('sourceSelect');
@@ -178,19 +188,47 @@
                 </table>`;
         }
 
-        function showCam(id) {
+        let camId = null;
+        function updateCamImg() {
+            if (camId == null) return;
+            const el = document.getElementById('camElement').value;
+            const q = (el ? `element=${el}&` : '') + 't=' + Date.now();
+            document.getElementById('camImg').src = `/api/ai-training/models/${modelSel.value}/gradcam/${camId}?${q}`;
+        }
+        async function showCam(id) {
             if (!modelSel.value) return;
+            camId = id;
             const r = lastRows.find(x => x.id === id) || {};
             document.getElementById('camTitle').textContent = `#${id} · ${r.name ?? ''}`;
-            document.getElementById('camMeta').textContent =
-                `Expected ${r.expected ?? '—'} · Predicted ${r.predicted ?? '—'}`;
-            const img = document.getElementById('camImg');
-            img.src = '';  // reset
-            img.src = `/api/ai-training/models/${modelSel.value}/gradcam/${id}?t=${Date.now()}`;
+            document.getElementById('camMeta').textContent = `Expected ${r.expected ?? '—'} · Predicted ${r.predicted ?? '—'}`;
+            document.getElementById('camElement').value = '';
+            updateCamImg();
             document.getElementById('camModal').classList.add('show');
+            const bd = document.getElementById('camBreakdown');
+            bd.innerHTML = '<p style="color:#999;">Loading prediction…</p>';
+            try {
+                const d = await (await fetch(`/api/ai-training/models/${modelSel.value}/predict/${id}`)).json();
+                if (d.training_mode === 'components' && window.renderComponentBreakdown) {
+                    bd.innerHTML = renderComponentBreakdown(d.prediction);
+                } else if (d.training_mode === 'regression') {
+                    bd.innerHTML = `<div style="font-size:1.1em;">Predicted Total_Score: <strong>${d.prediction.value}</strong></div>`;
+                } else if (d.training_mode === 'classification') {
+                    bd.innerHTML = `<div style="font-size:1.1em;">Predicted class <strong>${d.prediction.class}</strong> (${d.prediction.confidence}%)</div>`;
+                } else { bd.innerHTML = ''; }
+            } catch (e) { bd.innerHTML = `<p style="color:#dc3545;">Prediction failed: ${e.message}</p>`; }
         }
         function closeCam() { document.getElementById('camModal').classList.remove('show'); }
         document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCam(); });
+
+        // populate per-element Grad-CAM focus options E01..E20
+        (function () {
+            const sel = document.getElementById('camElement');
+            for (let e = 1; e <= 20; e++) {
+                const o = document.createElement('option');
+                o.value = e; o.textContent = 'E' + String(e).padStart(2, '0');
+                sel.appendChild(o);
+            }
+        })();
 
         loadModels();
     </script>
