@@ -64,10 +64,25 @@ def bbox_affine(src_g, dst_g):
     return np.hstack([A, t.reshape(2, 1)])
 
 
+def fit_margin(g, m=12):
+    """uniformly shrink+recenter so the ink has at least m px margin on all sides
+    (StackReg can push a line flush against the border; this guarantees breathing room)."""
+    ys, xs = np.where(ink(g) > 0)
+    if len(xs) == 0:
+        return g
+    x0, y0, x1, y1 = xs.min(), ys.min(), xs.max(), ys.max()
+    bw, bh = x1 - x0 + 1, y1 - y0 + 1
+    s = min(1.0, (W - 2 * m) / bw, (H - 2 * m) / bh)
+    if s > 0.999:
+        return g
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    M = np.array([[s, 0, W / 2.0 - s * cx], [0, s, H / 2.0 - s * cy]], np.float32)
+    return cv2.warpAffine(g, M, (W, H), flags=cv2.INTER_LINEAR, borderValue=255)
+
+
 def align(d, ref, mode=StackReg.AFFINE):
     """bbox-fill prealign (drawing bbox -> reference bbox) + StackReg refine.
-    Keep the refine unless it loses ink off-frame (a whole line clipped); lines
-    sitting AT the border are fine, so we gate on ink retention only."""
+    Keep the refine unless it loses ink off-frame; then guarantee an even margin."""
     A1 = bbox_affine(d, ref)
     if A1 is None:
         return d
@@ -76,7 +91,8 @@ def align(d, ref, mode=StackReg.AFFINE):
     sr.register(blur(ref), blur(pre))
     out = sr.transform((255 - pre).astype(float) / 255.0)
     out = (255 - np.clip(out, 0, 1) * 255).astype(np.uint8)
-    return pre if ink(out).sum() < 0.93 * ink(pre).sum() else out
+    chosen = pre if ink(out).sum() < 0.93 * ink(pre).sum() else out
+    return fit_margin(chosen)
 
 
 def label(img, txt):
