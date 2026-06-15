@@ -978,11 +978,14 @@
             container.innerHTML = featuresInfo.features.map(feature => {
                 const stats = featuresInfo.stats[feature];
                 
-                // Check if this is a Custom_Class feature
+                // Check feature type
                 const isCustomClass = feature.startsWith('Custom_Class_');
-                
+                const isComponents = feature === 'Components';
+
                 let statsDisplay;
-                if (isCustomClass) {
+                if (isComponents) {
+                    statsDisplay = '60 sub-labels — 20 elements × Presence/Accuracy/Position (TELEFRED)';
+                } else if (isCustomClass) {
                     // Display for Custom_Class
                     const numClasses = stats.num_classes || '?';
                     const classNames = stats.class_names || 'N/A';
@@ -991,17 +994,17 @@
                     // Display for regular numeric features
                     statsDisplay = `Mean: ${stats.mean.toFixed(3)} | Std: ${stats.std.toFixed(3)} | Range: [${stats.min.toFixed(2)}, ${stats.max.toFixed(2)}]`;
                 }
-                
+
                 return `
                     <div class="feature-card" onclick="selectFeature('${feature}')">
                         <div class="feature-card-header">
-                            <div class="feature-name">${isCustomClass ? '🏷️ ' : ''}${feature}</div>
+                            <div class="feature-name">${isComponents ? '🧩 ' : isCustomClass ? '🏷️ ' : ''}${feature}</div>
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <div class="feature-count">${stats.count} samples</div>
-                                <button class="preview-icon-btn" onclick="event.stopPropagation(); DistributionPreview.showPreview('${feature}', event);" 
+                                ${isComponents ? '' : `<button class="preview-icon-btn" onclick="event.stopPropagation(); DistributionPreview.showPreview('${feature}', event);"
                                         title="View distribution preview">
                                     👁️
-                                </button>
+                                </button>`}
                             </div>
                         </div>
                         <div class="feature-stats">
@@ -1014,30 +1017,52 @@
         
         async function selectFeature(feature) {
             selectedFeature = feature;
-            
-            // Detect if this is classification or regression
+
+            // Detect mode
             const isClassification = feature.startsWith('Custom_Class_');
-            
+            const isComponents = feature === 'Components';
+
             // Update UI
             document.querySelectorAll('.feature-card').forEach(card => {
                 card.classList.remove('selected');
             });
             event.target.closest('.feature-card').classList.add('selected');
-            
+
             // Update learning rate based on task type
             const learningRateInput = document.getElementById('learningRate');
             const learningRateRecommended = document.getElementById('learningRateRecommended');
-            
+
             if (isClassification) {
                 learningRateInput.value = '0.0005';
                 learningRateRecommended.textContent = '(✅ Recommended for Classification)';
                 learningRateRecommended.style.color = '#28a745';
             } else {
                 learningRateInput.value = '0.001';
-                learningRateRecommended.textContent = '(✅ Recommended for Regression)';
+                learningRateRecommended.textContent = isComponents ? '(✅ Recommended for Components)' : '(✅ Recommended for Regression)';
                 learningRateRecommended.style.color = '#667eea';
             }
-            
+
+            // Component mode requires augmentation; normalization + synthetic don't apply
+            const augCb = document.getElementById('enableAugmentation');
+            const synthCb = document.getElementById('enableSyntheticBad');
+            if (isComponents) {
+                if (augCb) { augCb.checked = true; augCb.disabled = true; }
+                if (synthCb) { synthCb.checked = false; synthCb.disabled = true; }
+            } else {
+                if (augCb) augCb.disabled = false;
+                if (synthCb) synthCb.disabled = false;
+            }
+
+            // Components: show the dedicated path, then return
+            if (isComponents) {
+                const normSection = document.getElementById('normalizationSection');
+                if (normSection) normSection.style.display = 'none';
+                document.getElementById('modelInfo').style.display = 'block';
+                document.getElementById('trainingConfig').style.display = 'block';
+                showAlert('info', 'Selected: Components (60 sub-labels) — trains on TELEFRED with augmentation. Configure epochs/batch below.');
+                return;
+            }
+
             // Load and show model info
             if (isClassification) {
                 const numClasses = parseInt(feature.replace('Custom_Class_', ''));
@@ -1377,6 +1402,8 @@
                 return;
             }
             
+            const isComponents = selectedFeature === 'Components';
+
             // Get config
             const config = {
                 target_feature: selectedFeature,
@@ -1384,9 +1411,10 @@
                 num_epochs: parseInt(document.getElementById('numEpochs').value),
                 learning_rate: parseFloat(document.getElementById('learningRate').value),
                 batch_size: parseInt(document.getElementById('batchSize').value),
-                use_augmentation: document.getElementById('enableAugmentation').checked,
-                use_normalization: document.getElementById('enableNormalization').checked,
-                add_synthetic_bad_images: document.getElementById('enableSyntheticBad').checked,
+                // Component mode requires augmentation; normalization/synthetic don't apply
+                use_augmentation: isComponents ? true : document.getElementById('enableAugmentation').checked,
+                use_normalization: isComponents ? false : document.getElementById('enableNormalization').checked,
+                add_synthetic_bad_images: isComponents ? false : document.getElementById('enableSyntheticBad').checked,
                 synthetic_n_samples: parseInt(document.getElementById('syntheticBadSamples').value)
             };
             

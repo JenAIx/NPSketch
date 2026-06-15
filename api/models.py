@@ -82,6 +82,7 @@ class HealthResponse(BaseModel):
     status: str
     database_initialized: bool
     reference_images_count: int
+    version: str = ""
 
 
 class FeatureStats(BaseModel):

@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPSketch - Evaluate & Label</title>
+
+    <link rel="stylesheet" href="/css/common.css">
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .back-link { display: inline-block; margin-bottom: 20px; color: #667eea; text-decoration: none; font-size: 14px; }
+        .back-link:hover { text-decoration: underline; }
+        h1 { color: #333; margin-bottom: 8px; }
+        .subtitle { color: #666; margin-bottom: 25px; }
+
+        /* Tabs */
+        .tab-bar { display: flex; gap: 8px; border-bottom: 2px solid #e9ecef; margin-bottom: 20px; }
+        .tab-btn {
+            padding: 12px 24px; border: none; background: transparent; color: #666;
+            font-size: 1.05em; font-weight: 600; cursor: pointer; border-bottom: 3px solid transparent;
+            margin-bottom: -2px; transition: all 0.2s;
+        }
+        .tab-btn:hover { color: #667eea; }
+        .tab-btn.active { color: #667eea; border-bottom-color: #667eea; }
+        .section-label { font-size: 0.8em; text-transform: uppercase; letter-spacing: 1px; color: #999; margin: 10px 0 6px; font-weight: 600; }
+
+        /* Upload area */
+        .upload-area {
+            border: 3px dashed #667eea; border-radius: 10px; padding: 50px 40px; text-align: center;
+            background: #f8f9fa; transition: all 0.3s; cursor: pointer;
+        }
+        .upload-area:hover { background: #e9ecef; border-color: #5568d3; }
+        .upload-area.dragover { background: #667eea22; border-color: #667eea; }
+        .upload-icon { font-size: 3.5em; margin-bottom: 15px; }
+        input[type="file"] { display: none; }
+
+        #fileInfoBar { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 8px 15px; margin-bottom: 15px; font-size: 0.85em; color: #555; }
+
+        /* Workspace (upload) */
+        .work-grid { display: grid; grid-template-columns: 60% 40%; gap: 30px; }
+        .panel { background: #f8f9fa; border-radius: 10px; padding: 20px; }
+        .panel-title { font-size: 1.1em; font-weight: bold; color: #333; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
+        .resolution-badge { font-size: 0.7em; color: #999; font-weight: normal; margin-left: 8px; }
+        .canvas-container { position: relative; background: white; border: 2px solid #ddd; border-radius: 8px; overflow: hidden; aspect-ratio: 568 / 274; }
+        .canvas-container canvas { width: 100%; height: 100%; display: block; }
+        .canvas-overlay { position: absolute; inset: 0; background: rgba(255,255,255,0.95); display: none; align-items: center; justify-content: center; flex-direction: column; z-index: 100; }
+        .canvas-overlay.show { display: flex; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin-bottom: 12px; }
+        .spinner-text { color: #667eea; font-weight: 600; font-size: 0.9em; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .controls { margin-top: 20px; }
+        .control-group { margin-bottom: 15px; }
+        .control-group > label { display: block; margin-bottom: 5px; font-size: 0.9em; color: #666; }
+        .control-row { display: flex; gap: 10px; align-items: center; }
+        .control-row input[type="range"] { flex: 1; }
+        .btn-group { display: flex; gap: 5px; }
+        .btn-small { padding: 8px 12px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9em; transition: all 0.2s; }
+        .btn-small:hover { background: #5568d3; }
+        .btn-small:disabled { background: #ccc; cursor: not-allowed; }
+
+        .dup-warning { display: none; margin-top: 15px; padding: 12px; background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; font-size: 0.88em; color: #856404; }
+        .dup-warning.training { background: #f8d7da; border-color: #dc3545; color: #721c24; }
+
+        /* Draw canvas */
+        .canvas-wrapper { display: flex; justify-content: center; align-items: center; margin-bottom: 20px; gap: 15px; position: relative; touch-action: none; }
+        .canvas-wrapper > div { touch-action: none; user-select: none; }
+        .rotate-btn { width: 50px; height: 50px; border: 2px solid #667eea; background: white; color: #667eea; border-radius: 50%; cursor: pointer; font-size: 24px; font-weight: bold; transition: all 0.3s; display: flex; align-items: center; justify-content: center; user-select: none; }
+        .rotate-btn:hover { background: #667eea; color: white; transform: scale(1.1); }
+        .rotation-display { position: absolute; top: -25px; left: 50%; transform: translateX(-50%); background: #667eea; color: white; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; opacity: 0; transition: opacity 0.3s; }
+        .rotation-display.show { opacity: 1; }
+        #drawCanvas { border: 2px solid #333; cursor: crosshair; background: white; image-rendering: pixelated; max-width: 100%; height: auto; display: block; }
+        .tools { display: flex; gap: 10px; justify-content: center; margin-bottom: 18px; flex-wrap: wrap; }
+        .tool-btn { padding: 12px 24px; border: 2px solid #667eea; background: white; color: #667eea; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.3s; display: flex; align-items: center; gap: 8px; }
+        .tool-btn:hover { background: #f0f0f0; }
+        .tool-btn.active { background: #667eea; color: white; }
+        .brush-size { display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 18px; }
+        .brush-size label { font-weight: 500; color: #333; }
+        .brush-size input { width: 150px; }
+        .brush-preview { width: 30px; height: 30px; border: 2px solid #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+        .brush-dot { background: black; border-radius: 50%; }
+
+        /* Forms / buttons */
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-weight: 500; color: #333; margin-bottom: 5px; }
+        .form-group input[type="text"] { width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 15px; }
+        .form-group input[type="text"]:focus { outline: none; border-color: #667eea; }
+        select { width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 1em; }
+        .btn { width: 100%; padding: 15px; background: #667eea; color: white; border: none; border-radius: 8px; font-size: 1.05em; cursor: pointer; transition: all 0.3s; }
+        .btn:hover:not(:disabled) { background: #5568d3; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(102,126,234,0.4); }
+        .btn:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+        .save-btn { width: 100%; padding: 15px; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; border: none; border-radius: 8px; font-size: 1.05em; font-weight: 600; cursor: pointer; transition: transform 0.2s; }
+        .save-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(40,167,69,0.4); }
+        .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Predict results */
+        .results-box { display: none; margin-top: 20px; padding: 20px; background: white; border-radius: 8px; border: 2px solid #28a745; }
+
+        /* Train grid */
+        .train-grid { display: grid; grid-template-columns: 1fr 360px; gap: 25px; }
+        .saved-list { background: #f8f9fa; padding: 18px; border-radius: 10px; display: flex; flex-direction: column; max-height: 520px; }
+        .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #dee2e6; }
+        .list-title { font-size: 16px; font-weight: bold; color: #333; }
+        .image-counter { background: #667eea; color: white; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; }
+        .status-badge { background: #d4edda; color: #155724; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; display: none; }
+        .virtual-list-container { flex: 1; overflow-y: auto; position: relative; }
+        .virtual-list-content { position: relative; }
+        .test-item { background: white; padding: 12px; border-radius: 6px; margin-bottom: 10px; border-left: 4px solid #667eea; cursor: pointer; transition: all 0.3s; }
+        .test-item:hover { background: #f1f3ff; transform: translateX(4px); }
+        .test-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+        .test-id { font-weight: bold; color: #333; flex: 1; font-size: 14px; }
+        .test-meta { display: flex; align-items: center; gap: 10px; }
+        .delete-icon { cursor: pointer; font-size: 16px; padding: 4px 8px; border-radius: 4px; transition: all 0.2s; opacity: 0.6; }
+        .delete-icon:hover { opacity: 1; background: #ffebee; transform: scale(1.2); }
+        .test-stats { display: flex; gap: 10px; font-size: 13px; color: #666; }
+        .empty-list { text-align: center; padding: 40px 20px; color: #999; }
+
+        @media (max-width: 1024px) {
+            .work-grid, .train-grid { grid-template-columns: 1fr; }
+            .saved-list { max-height: 360px; }
+        }
+        @media (max-width: 768px) {
+            .container { padding: 20px; }
+            .canvas-wrapper { flex-direction: column; }
+            .tool-btn { flex: 1; min-width: calc(50% - 5px); padding: 10px 14px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container hexagon-pattern">
+        <a href="/index.html" class="back-link">← Main</a>
+        <h1>🔬 Evaluate &amp; Label Drawing</h1>
+        <p class="subtitle">Upload or draw an image, then predict it with a model or add it to the training data with the correct label.</p>
+
+        <!-- ========== TOP: INPUT SOURCE ========== -->
+        <div class="section-label">1. Image source</div>
+        <div class="tab-bar">
+            <button class="tab-btn active" id="tabUpload" onclick="switchInput('upload')">📤 Upload</button>
+            <button class="tab-btn" id="tabDraw" onclick="switchInput('draw')">🎨 Draw</button>
+        </div>
+
+        <!-- Upload panel -->
+        <div id="uploadPanel">
+            <div id="fileInfoBar" style="display:none;"><span id="fileInfoText"></span></div>
+
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📁</div>
+                <h3>Click to upload or drag &amp; drop</h3>
+                <p style="color:#666; margin-top:8px;">PNG, JPG, or any image — auto-normalized to 568×274</p>
+                <input type="file" id="fileInput" accept="image/*">
+            </div>
+
+            <div class="work-grid" id="uploadWorkspace" style="display:none;">
+                <div class="panel">
+                    <div class="panel-title">
+                        <span>📷 Your Drawing <span class="resolution-badge" id="uploadResolution"></span></span>
+                        <button class="btn-small" onclick="clearUpload()" style="background:#dc3545;">🗑️ Clear</button>
+                    </div>
+                    <div class="canvas-container">
+                        <canvas id="uploadCanvas" width="568" height="274"></canvas>
+                        <div class="canvas-overlay" id="canvasLoading">
+                            <div class="spinner"></div>
+                            <div class="spinner-text" id="spinnerText">Processing...</div>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <div class="panel">
+                        <div class="panel-title"><span>🛠️ Correction</span></div>
+                        <div class="controls">
+                            <div class="control-group">
+                                <label>🔍 Scale: <span id="scaleValue">100%</span></label>
+                                <div class="control-row">
+                                    <input type="range" id="scaleSlider" min="50" max="300" value="100" step="5">
+                                    <button class="btn-small" onclick="resetScale()">Reset</button>
+                                </div>
+                            </div>
+                            <div class="control-group">
+                                <label>🔄 Rotation: <span id="rotationValue">0°</span></label>
+                                <div class="control-row">
+                                    <button class="btn-small" onclick="uploadRotate(-10)">↶ -10°</button>
+                                    <input type="range" id="rotationSlider" min="-180" max="180" value="0" step="1">
+                                    <button class="btn-small" onclick="uploadRotate(10)">↷ +10°</button>
+                                </div>
+                            </div>
+                            <div class="control-group">
+                                <label>↔️ Position</label>
+                                <div class="btn-group" style="justify-content:center; margin-bottom:5px;">
+                                    <button class="btn-small" onclick="moveImage(0,-10)">▲</button>
+                                </div>
+                                <div class="btn-group" style="justify-content:center;">
+                                    <button class="btn-small" onclick="moveImage(-10,0)">◀</button>
+                                    <button class="btn-small" onclick="resetPosition()">⊙ Reset</button>
+                                    <button class="btn-small" onclick="moveImage(10,0)">▶</button>
+                                </div>
+                                <div class="btn-group" style="justify-content:center; margin-top:5px;">
+                                    <button class="btn-small" onclick="moveImage(0,10)">▼</button>
+                                </div>
+                                <div style="text-align:center; margin-top:8px; font-size:0.85em; color:#666;">
+                                    X: <span id="translateX">0</span>px, Y: <span id="translateY">0</span>px
+                                </div>
+                            </div>
+                        </div>
+                        <div class="dup-warning" id="dupWarning"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Draw panel -->
+        <div id="drawPanel" style="display:none;">
+            <div class="panel">
+                <div class="canvas-wrapper">
+                    <button class="rotate-btn" onclick="rotateCanvas(-10)" title="Rotate 10° left">↶</button>
+                    <div style="position:relative;">
+                        <canvas id="drawCanvas" width="568" height="274"></canvas>
+                        <div class="rotation-display" id="rotationDisplay">0°</div>
+                    </div>
+                    <button class="rotate-btn" onclick="rotateCanvas(10)" title="Rotate 10° right">↷</button>
+                </div>
+                <div class="brush-size">
+                    <label>Brush Size:</label>
+                    <input type="range" id="brushSize" min="1" max="10" value="3">
+                    <div class="brush-preview"><div class="brush-dot" id="brushPreview"></div></div>
+                </div>
+                <div class="tools">
+                    <button class="tool-btn active" id="drawBtn" onclick="setMode('draw')">✏️ Draw</button>
+                    <button class="tool-btn" id="eraseBtn" onclick="setMode('erase')">🧹 Erase</button>
+                    <button class="tool-btn" onclick="clearCanvas()">🗑️ Clear All</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== BOTTOM: ACTION ========== -->
+        <div class="section-label" style="margin-top:30px;">2. Action</div>
+        <div class="tab-bar">
+            <button class="tab-btn active" id="tabPredict" onclick="switchAction('predict')">🤖 Predict</button>
+            <button class="tab-btn" id="tabTrain" onclick="switchAction('train')">🏷️ Train / Label</button>
+        </div>
+
+        <!-- Predict panel -->
+        <div id="predictPanel" class="panel">
+            <div class="form-group">
+                <label>Select trained model</label>
+                <select id="modelSelect"><option value="">Loading models...</option></select>
+                <div id="modelInfo" style="margin-top:8px; font-size:0.85em; color:#666;"></div>
+            </div>
+            <button class="btn" id="predictBtn" onclick="predictWithAI()">🤖 Predict with AI Model</button>
+            <div class="results-box" id="aiResults">
+                <div id="aiResultsContent"></div>
+            </div>
+        </div>
+
+        <!-- Train / Label panel -->
+        <div id="trainPanel" class="panel" style="display:none;">
+            <div class="train-grid">
+                <div>
+                    <div class="form-group">
+                        <label>Name <span id="editingHint" style="color:#856404; font-size:0.85em;"></span></label>
+                        <input type="text" id="testName" placeholder="e.g., Patient_42 or auto-generated">
+                    </div>
+                    <div class="form-group">
+                        <label>Evaluation — 20 elements × Presence / Accuracy / Position</label>
+                        <div id="componentEditor"></div>
+                        <div style="margin-top:6px; color:#999; font-size:0.85em;">
+                            Click P / A / Pos to toggle each sub-label. Total_Score = sum
+                            (<strong id="componentTotal">0</strong>/60). Saved as the image's component labels.
+                        </div>
+                    </div>
+                    <button class="save-btn" id="saveBtn" onclick="saveLabelled()">💾 Save to Training Database</button>
+                    <p style="margin-top:8px; font-size:0.82em; color:#888;">
+                        Source: saved as <strong id="saveSourceHint">UPLOAD</strong> (matches the active image source above).
+                    </p>
+                </div>
+                <div class="saved-list">
+                    <div class="list-header">
+                        <div class="list-title">📋 Saved drawings</div>
+                        <div class="status-badge" id="savedBadge">Saved</div>
+                        <div class="image-counter" id="imageCounter">0</div>
+                    </div>
+                    <div class="virtual-list-container" id="virtualListContainer">
+                        <div class="virtual-list-content" id="virtualListContent">
+                            <div id="testImagesList"><div class="empty-list">Loading...</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/component_result.js?v=2"></script>
+    <script>
+    /* ============================================================= STATE */
+    let inputMode = 'upload';     // 'upload' | 'draw'
+    let actionMode = 'predict';   // 'predict' | 'train'
+
+    // Upload state
+    const uploadCanvas = document.getElementById('uploadCanvas');
+    const uploadCtx = uploadCanvas.getContext('2d');
+    const uploadArea = document.getElementById('uploadArea');
+    const uploadWorkspace = document.getElementById('uploadWorkspace');
+    const fileInput = document.getElementById('fileInput');
+    const canvasLoading = document.getElementById('canvasLoading');
+    const spinnerText = document.getElementById('spinnerText');
+    let uploadedImage = null;
+    let originalFileBlob = null;
+    let originalFileName = null;
+    let uploadScale = 1.0, uploadRotation = 0, uploadTX = 0, uploadTY = 0;
+
+    // Draw state
+    const drawCanvas = document.getElementById('drawCanvas');
+    const ctx = drawCanvas.getContext('2d');
+    let isDrawing = false, currentMode = 'draw', brushSize = 3;
+    let lastX = 0, lastY = 0, drawRotation = 0, hasContent = false;
+
+    // Train state
+    let loadedTestId = null, loadedTestName = null;
+
+    /* ============================================================= TABS */
+    function switchInput(mode) {
+        inputMode = mode;
+        document.getElementById('tabUpload').classList.toggle('active', mode === 'upload');
+        document.getElementById('tabDraw').classList.toggle('active', mode === 'draw');
+        document.getElementById('uploadPanel').style.display = mode === 'upload' ? 'block' : 'none';
+        document.getElementById('drawPanel').style.display = mode === 'draw' ? 'block' : 'none';
+        document.getElementById('saveSourceHint').textContent = mode === 'upload' ? 'UPLOAD' : 'DRAWN';
+    }
+    function switchAction(mode) {
+        actionMode = mode;
+        document.getElementById('tabPredict').classList.toggle('active', mode === 'predict');
+        document.getElementById('tabTrain').classList.toggle('active', mode === 'train');
+        document.getElementById('predictPanel').style.display = mode === 'predict' ? 'block' : 'none';
+        document.getElementById('trainPanel').style.display = mode === 'train' ? 'block' : 'none';
+    }
+
+    // Returns a Promise<Blob> of the currently active 568×274 input canvas
+    function getActiveImageBlob() {
+        const cv = inputMode === 'upload' ? uploadCanvas : drawCanvas;
+        return new Promise(res => cv.toBlob(res, 'image/png'));
+    }
+    function activeHasContent() {
+        return inputMode === 'upload' ? !!uploadedImage : hasContent;
+    }
+
+    /* ============================================================= UPLOAD */
+    uploadArea.addEventListener('click', () => fileInput.click());
+    uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+    uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault(); uploadArea.classList.remove('dragover');
+        if (e.dataTransfer.files.length) handleFileUpload(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => { if (e.target.files.length) handleFileUpload(e.target.files[0]); });
+
+    async function handleFileUpload(file) {
+        try {
+            originalFileBlob = file;
+            originalFileName = file.name || 'drawing.png';
+            updateFileInfoBar(file, null);
+
+            const fd = new FormData();
+            fd.append('file', file);
+            const response = await fetch('/api/normalize-image', { method: 'POST', body: fd });
+            if (!response.ok) throw new Error(`Normalize error: ${response.status}`);
+            const blob = await response.blob();
+            const imageUrl = URL.createObjectURL(blob);
+
+            // Duplicate check (informational only)
+            try {
+                const dfd = new FormData();
+                dfd.append('file', blob, 'normalized.png');
+                dfd.append('original_file', file, file.name || 'original.png');
+                const dr = await fetch('/api/check-duplicate', { method: 'POST', body: dfd });
+                if (dr.ok) showDuplicate(await dr.json());
+            } catch (e) { /* ignore */ }
+
+            uploadedImage = new Image();
+            uploadedImage.onload = () => {
+                document.getElementById('uploadResolution').textContent = `(${uploadedImage.width}×${uploadedImage.height}px)`;
+                updateFileInfoBar(originalFileBlob, uploadedImage);
+                uploadScale = 1.0; uploadRotation = 0; uploadTX = 0; uploadTY = 0;
+                resetUploadControls();
+                renderUploadCanvas();
+                uploadArea.style.display = 'none';
+                uploadWorkspace.style.display = 'grid';
+            };
+            uploadedImage.src = imageUrl;
+        } catch (error) {
+            alert('❌ ' + error.message);
+        }
+    }
+
+    function showDuplicate(d) {
+        const w = document.getElementById('dupWarning');
+        if (!d || !d.is_duplicate) { w.style.display = 'none'; w.classList.remove('training'); return; }
+        if (d.source === 'training_data') {
+            w.classList.add('training');
+            w.innerHTML = `🚫 <strong>Already in training data</strong> — Source ${d.source_format||'?'}, Patient ${d.patient_id||'?'}, ID ${d.existing_id||'?'}. You can still predict it.`;
+        } else {
+            w.classList.remove('training');
+            w.innerHTML = `⚠️ <strong>Duplicate</strong> — this image already exists (ID ${d.existing_id||'?'}). Saving it again will be rejected.`;
+        }
+        w.style.display = 'block';
+    }
+
+    function renderUploadCanvas() {
+        if (!uploadedImage) return;
+        const W = 568, H = 274;
+        uploadCtx.save();
+        uploadCtx.fillStyle = 'white';
+        uploadCtx.fillRect(0, 0, W, H);
+        uploadCtx.translate(W / 2, H / 2);
+        uploadCtx.translate(uploadTX, uploadTY);
+        uploadCtx.rotate(uploadRotation * Math.PI / 180);
+        uploadCtx.scale(uploadScale, uploadScale);
+        uploadCtx.drawImage(uploadedImage, -uploadedImage.width / 2, -uploadedImage.height / 2, uploadedImage.width, uploadedImage.height);
+        uploadCtx.restore();
+    }
+    function uploadRotate(deg) {
+        uploadRotation += deg;
+        document.getElementById('rotationSlider').value = uploadRotation;
+        document.getElementById('rotationValue').textContent = uploadRotation + '°';
+        renderUploadCanvas();
+    }
+    function moveImage(dx, dy) {
+        uploadTX += dx; uploadTY += dy;
+        document.getElementById('translateX').textContent = uploadTX;
+        document.getElementById('translateY').textContent = uploadTY;
+        renderUploadCanvas();
+    }
+    function resetScale() {
+        uploadScale = 1.0;
+        document.getElementById('scaleSlider').value = 100;
+        document.getElementById('scaleValue').textContent = '100%';
+        renderUploadCanvas();
+    }
+    function resetPosition() {
+        uploadTX = 0; uploadTY = 0;
+        document.getElementById('translateX').textContent = 0;
+        document.getElementById('translateY').textContent = 0;
+        renderUploadCanvas();
+    }
+    function resetUploadControls() {
+        document.getElementById('scaleSlider').value = 100;
+        document.getElementById('scaleValue').textContent = '100%';
+        document.getElementById('rotationSlider').value = 0;
+        document.getElementById('rotationValue').textContent = '0°';
+        document.getElementById('translateX').textContent = 0;
+        document.getElementById('translateY').textContent = 0;
+    }
+    document.getElementById('scaleSlider').addEventListener('input', (e) => {
+        uploadScale = parseFloat(e.target.value) / 100;
+        document.getElementById('scaleValue').textContent = e.target.value + '%';
+        renderUploadCanvas();
+    });
+    document.getElementById('rotationSlider').addEventListener('input', (e) => {
+        uploadRotation = parseFloat(e.target.value);
+        document.getElementById('rotationValue').textContent = e.target.value + '°';
+        renderUploadCanvas();
+    });
+    function clearUpload() {
+        uploadedImage = null; originalFileBlob = null; originalFileName = null;
+        uploadScale = 1.0; uploadRotation = 0; uploadTX = 0; uploadTY = 0;
+        resetUploadControls();
+        document.getElementById('uploadResolution').textContent = '';
+        document.getElementById('fileInfoBar').style.display = 'none';
+        document.getElementById('dupWarning').style.display = 'none';
+        uploadCtx.clearRect(0, 0, 568, 274);
+        fileInput.value = '';
+        uploadWorkspace.style.display = 'none';
+        uploadArea.style.display = 'block';
+    }
+    function updateFileInfoBar(file, image) {
+        const bar = document.getElementById('fileInfoBar');
+        const txt = document.getElementById('fileInfoText');
+        if (!file) { bar.style.display = 'none'; return; }
+        const sizeStr = file.size > 1024 * 1024 ? (file.size / 1048576).toFixed(2) + ' MB' : (file.size / 1024).toFixed(1) + ' KB';
+        let info = `📁 <strong>${file.name}</strong> | ${sizeStr}`;
+        if (image) {
+            const mode = detectColorMode(image);
+            const icon = mode === 'BW' ? '⬛' : (mode === 'Gray' ? '🔘' : '🎨');
+            info += ` | ${image.width}×${image.height}px | ${icon} ${mode}`;
+        }
+        txt.innerHTML = info;
+        bar.style.display = 'block';
+    }
+    function detectColorMode(image) {
+        const c = document.createElement('canvas');
+        const cc = c.getContext('2d');
+        c.width = Math.min(100, image.width); c.height = Math.min(100, image.height);
+        cc.drawImage(image, 0, 0, c.width, c.height);
+        const data = cc.getImageData(0, 0, c.width, c.height).data;
+        let isGray = true, isBW = true;
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i], g = data[i+1], b = data[i+2];
+            if (r !== g || g !== b) { isGray = false; isBW = false; break; }
+            if (r !== 0 && r !== 255) isBW = false;
+        }
+        return isBW ? 'BW' : (isGray ? 'Gray' : 'Color');
+    }
+
+    /* ============================================================= DRAW */
+    ctx.fillStyle = 'white'; ctx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    drawCanvas.addEventListener('mousedown', startDrawing);
+    drawCanvas.addEventListener('mousemove', draw);
+    drawCanvas.addEventListener('mouseup', stopDrawing);
+    drawCanvas.addEventListener('mouseout', stopDrawing);
+    drawCanvas.addEventListener('touchstart', handleTouch);
+    drawCanvas.addEventListener('touchmove', handleTouch);
+    drawCanvas.addEventListener('touchend', stopDrawing);
+
+    function startDrawing(e) { isDrawing = true; const p = getMousePos(e); lastX = p.x; lastY = p.y; }
+    function draw(e) {
+        if (!isDrawing) return;
+        const p = getMousePos(e);
+        ctx.strokeStyle = currentMode === 'draw' ? 'black' : 'white';
+        ctx.lineWidth = brushSize * 2;
+        ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.stroke();
+        lastX = p.x; lastY = p.y;
+        hasContent = true;
+    }
+    function stopDrawing() { isDrawing = false; }
+    function handleTouch(e) {
+        e.preventDefault(); e.stopPropagation();
+        const t = e.touches[0] || e.changedTouches[0];
+        if (!t) return;
+        const type = e.type === 'touchstart' ? 'mousedown' : (e.type === 'touchmove' ? 'mousemove' : 'mouseup');
+        drawCanvas.dispatchEvent(new MouseEvent(type, { clientX: t.clientX, clientY: t.clientY, bubbles: true, cancelable: true }));
+    }
+    function getMousePos(e) {
+        const rect = drawCanvas.getBoundingClientRect();
+        return { x: (e.clientX - rect.left) * (drawCanvas.width / rect.width), y: (e.clientY - rect.top) * (drawCanvas.height / rect.height) };
+    }
+    function setMode(m) {
+        currentMode = m;
+        document.getElementById('drawBtn').classList.toggle('active', m === 'draw');
+        document.getElementById('eraseBtn').classList.toggle('active', m === 'erase');
+    }
+    function clearCanvas() {
+        ctx.fillStyle = 'white'; ctx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
+        drawRotation = 0; hasContent = false;
+        loadedTestId = null; loadedTestName = null;
+        document.getElementById('testName').value = '';
+        document.getElementById('editingHint').textContent = '';
+        setComponentState(null);
+        updateRotationDisplay();
+    }
+    function rotateCanvas(deg) {
+        const tmp = document.createElement('canvas');
+        tmp.width = drawCanvas.width; tmp.height = drawCanvas.height;
+        tmp.getContext('2d').drawImage(drawCanvas, 0, 0);
+        drawRotation += deg;
+        ctx.fillStyle = 'white'; ctx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
+        ctx.save();
+        ctx.translate(drawCanvas.width / 2, drawCanvas.height / 2);
+        ctx.rotate(deg * Math.PI / 180);
+        ctx.translate(-drawCanvas.width / 2, -drawCanvas.height / 2);
+        ctx.drawImage(tmp, 0, 0);
+        ctx.restore();
+        updateRotationDisplay();
+    }
+    function updateRotationDisplay() {
+        const d = document.getElementById('rotationDisplay');
+        d.textContent = `${((drawRotation % 360) + 360) % 360}°`;
+        d.classList.add('show');
+        setTimeout(() => d.classList.remove('show'), 1500);
+    }
+    document.getElementById('brushSize').addEventListener('input', (e) => { brushSize = parseInt(e.target.value); updateBrushPreview(); });
+    function updateBrushPreview() {
+        const p = document.getElementById('brushPreview');
+        p.style.width = (brushSize * 2) + 'px'; p.style.height = (brushSize * 2) + 'px';
+    }
+
+    /* ============================================ COMPONENT EDITOR (shared) */
+    const ASPECTS = [['presence', 'P'], ['accuracy', 'A'], ['position', 'Pos']];
+    let componentState = { presence: Array(20).fill(0), accuracy: Array(20).fill(0), position: Array(20).fill(0) };
+    function componentTotal() {
+        return componentState.presence.reduce((a, b) => a + b, 0)
+             + componentState.accuracy.reduce((a, b) => a + b, 0)
+             + componentState.position.reduce((a, b) => a + b, 0);
+    }
+    function setComponentState(comp) {
+        componentState = {
+            presence: (comp && comp.presence) ? comp.presence.slice() : Array(20).fill(0),
+            accuracy: (comp && comp.accuracy) ? comp.accuracy.slice() : Array(20).fill(0),
+            position: (comp && comp.position) ? comp.position.slice() : Array(20).fill(0),
+        };
+        renderComponentEditor();
+    }
+    function renderComponentEditor() {
+        const host = document.getElementById('componentEditor');
+        if (!host) return;
+        let html = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px 18px;">';
+        for (let e = 0; e < 20; e++) {
+            html += `<div style="display:flex;align-items:center;gap:6px;">
+                <span style="width:34px;color:#555;font-weight:600;font-size:.85em;">E${String(e + 1).padStart(2, '0')}</span>`;
+            for (const [asp, lbl] of ASPECTS) {
+                const on = componentState[asp][e] === 1;
+                html += `<button type="button" onclick="toggleComponent('${asp}',${e})"
+                    style="flex:1;padding:4px 0;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:.8em;
+                           background:${on ? '#28a745' : '#f1f1f1'};color:${on ? '#fff' : '#666'};font-weight:600;">${lbl}</button>`;
+            }
+            html += '</div>';
+        }
+        html += '</div>';
+        host.innerHTML = html;
+        const tot = document.getElementById('componentTotal');
+        if (tot) tot.textContent = componentTotal();
+    }
+    function toggleComponent(aspect, idx) {
+        componentState[aspect][idx] = componentState[aspect][idx] ? 0 : 1;
+        renderComponentEditor();
+    }
+
+    /* ============================================================= MODELS */
+    async function loadAvailableModels() {
+        const select = document.getElementById('modelSelect');
+        const modelInfo = document.getElementById('modelInfo');
+        try {
+            const response = await fetch('/api/ai-training/models');
+            const data = await response.json();
+            select.innerHTML = '';
+            if (data.models && data.models.length > 0) {
+                const ph = document.createElement('option');
+                ph.value = ''; ph.textContent = 'Select a model...';
+                select.appendChild(ph);
+                data.models.forEach(model => {
+                    const o = document.createElement('option');
+                    o.value = model.filename;
+                    const date = new Date(model.created_at * 1000).toLocaleDateString();
+                    o.textContent = `${model.feature} (${date}) - ${model.size_mb.toFixed(1)}MB`;
+                    select.appendChild(o);
+                });
+                // Preselect the last-used model (remembered in localStorage); fall back to
+                // the most recently trained one (API sorts newest first).
+                const remembered = localStorage.getItem('evaluate_last_model');
+                const exists = remembered && data.models.some(m => m.filename === remembered);
+                select.value = exists ? remembered : data.models[0].filename;
+                updateModelInfo();
+            } else {
+                select.innerHTML = '<option value="">No models available — train one first</option>';
+                modelInfo.innerHTML = '<span style="color:#dc3545;">⚠️ Train a model first in AI Training.</span>';
+            }
+        } catch (e) {
+            select.innerHTML = '<option value="">Error loading models</option>';
+        }
+    }
+    document.getElementById('modelSelect').addEventListener('change', function () {
+        // Remember the user's choice so it is restored on the next visit
+        if (this.value) localStorage.setItem('evaluate_last_model', this.value);
+        else localStorage.removeItem('evaluate_last_model');
+        updateModelInfo();
+    });
+    async function updateModelInfo() {
+        const select = document.getElementById('modelSelect');
+        const modelInfo = document.getElementById('modelInfo');
+        if (!select.value) { modelInfo.innerHTML = ''; return; }
+        try {
+            const r = await fetch(`/api/ai-training/models/${select.value}/metadata`);
+            if (!r.ok) { modelInfo.innerHTML = '<span style="color:#999;">No metadata available</span>'; return; }
+            const m = await r.json();
+            const feature = m.target_feature || 'Unknown';
+            const mode = feature === 'Components' ? 'Components' : (feature.startsWith('Custom_Class_') ? 'Classification' : 'Regression');
+            let html = `<strong>Target:</strong> ${feature} &nbsp;|&nbsp; <strong>Mode:</strong> ${mode}`;
+            if (m.val_metrics) {
+                if (mode === 'Classification') {
+                    html += ` &nbsp;|&nbsp; <strong>Val Acc:</strong> ${(m.val_metrics.accuracy * 100).toFixed(1)}%`;
+                } else if (m.val_metrics.mae !== undefined) {
+                    const r2 = m.val_metrics.r2_score !== undefined ? (m.val_metrics.r2_score * 100).toFixed(1) + '%' : 'N/A';
+                    const f1 = m.val_metrics.macro_f1 !== undefined ? ` &nbsp;|&nbsp; <strong>F1:</strong> ${(m.val_metrics.macro_f1 * 100).toFixed(1)}%` : '';
+                    html += ` &nbsp;|&nbsp; <strong>Val MAE:</strong> ${m.val_metrics.mae.toFixed(2)} &nbsp;|&nbsp; <strong>R²:</strong> ${r2}${f1}`;
+                }
+            }
+            modelInfo.innerHTML = html;
+        } catch (e) { modelInfo.innerHTML = ''; }
+    }
+
+    /* ============================================================= PREDICT */
+    async function predictWithAI() {
+        const select = document.getElementById('modelSelect');
+        const predictBtn = document.getElementById('predictBtn');
+        if (!select.value) { alert('Please select an AI model first!'); return; }
+        if (!activeHasContent()) {
+            alert(inputMode === 'upload' ? 'Please upload an image first!' : 'Please draw something first!');
+            return;
+        }
+        predictBtn.disabled = true; predictBtn.textContent = '⏳ Predicting...';
+        document.getElementById('aiResults').style.display = 'none';
+        try {
+            const blob = await getActiveImageBlob();
+            const fd = new FormData();
+            fd.append('file', blob, 'drawing.png');
+            fd.append('model_filename', select.value);
+            const r = await fetch('/api/ai-training/models/predict-single', { method: 'POST', body: fd });
+            const data = await r.json();
+            if (data.success) displayAIResults(data);
+            else throw new Error(data.detail || 'AI prediction failed');
+        } catch (e) {
+            alert('❌ Error: ' + e.message);
+        } finally {
+            predictBtn.disabled = false; predictBtn.textContent = '🤖 Predict with AI Model';
+        }
+    }
+    function displayAIResults(data) {
+        const box = document.getElementById('aiResults');
+        const content = document.getElementById('aiResultsContent');
+        const prediction = data.prediction;
+        const isClassification = data.training_mode === 'classification';
+        const isComponents = data.training_mode === 'components';
+        const modeLabel = isComponents ? 'Components (60 sub-labels)' : (isClassification ? 'Classification' : 'Regression');
+
+        let html = `<h4 style="color:#28a745; margin-bottom:12px;">🤖 AI Prediction Results</h4>
+            <div style="margin-bottom:15px; padding:12px; background:#f8f9fa; border-radius:6px;">
+                <strong>Model:</strong> ${data.model}<br>
+                <strong>Feature:</strong> ${data.target_feature}<br>
+                <strong>Mode:</strong> ${modeLabel}
+            </div>`;
+
+        if (isComponents) {
+            html += renderComponentBreakdown(prediction);
+            content.innerHTML = html; box.style.display = 'block'; return;
+        }
+        if (isClassification) {
+            html += `<div style="text-align:center; margin:20px 0;">
+                <div style="font-size:2.5em; font-weight:bold; color:#28a745;">${prediction.class_name}</div>
+                <div style="color:#666; font-size:0.9em;">Predicted Class</div>
+                <div style="font-size:1.5em; font-weight:bold; color:#667eea; margin-top:10px;">${prediction.confidence}%</div>
+                <div style="color:#666; font-size:0.9em;">Confidence</div></div>
+                <div style="margin-top:20px;"><h4 style="margin-bottom:10px;">Class Probabilities</h4>`;
+            const details = prediction.class_details || [];
+            if (details.length) {
+                details.forEach(cls => {
+                    const sel = cls.label === prediction.class;
+                    const color = sel ? '#28a745' : '#667eea';
+                    const ls = sel ? 'font-weight:bold;color:#28a745;' : '';
+                    html += `<div style="margin:10px 0; ${sel ? 'background:#e8f5e9;padding:8px;border-radius:6px;' : ''}">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                            <span style="${ls}">${sel ? '✓ ' : ''}${cls.name}${cls.range ? ` <span style="color:#999;font-size:0.85em;font-weight:normal;">${cls.range}</span>` : ''}</span>
+                            <span style="${ls}">${cls.probability}%</span></div>
+                        <div style="background:#e9ecef;border-radius:4px;overflow:hidden;"><div style="width:${cls.probability}%;height:20px;background:${color};"></div></div></div>`;
+                });
+            } else {
+                for (const [name, prob] of Object.entries(prediction.probabilities || {})) {
+                    const sel = name === prediction.class_name;
+                    const color = sel ? '#28a745' : '#667eea';
+                    html += `<div style="margin:8px 0;"><div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span>${sel ? '✓ ' : ''}${name}</span><span>${prob}%</span></div>
+                        <div style="background:#e9ecef;border-radius:4px;overflow:hidden;"><div style="width:${prob}%;height:18px;background:${color};"></div></div></div>`;
+                }
+            }
+            html += '</div>';
+        } else {
+            const norm = data.normalization || {};
+            const minScore = norm.min || 0, maxScore = norm.max || 60;
+            const pct = Math.min(100, Math.max(0, ((prediction.value - minScore) / (maxScore - minScore)) * 100));
+            html += `<div style="text-align:center; margin:20px 0;">
+                <div style="font-size:3em; font-weight:bold; color:#667eea;">${prediction.value}</div>
+                <div style="color:#666; font-size:0.9em;">Predicted ${data.target_feature}</div></div>
+                <div style="margin-top:20px;"><h4 style="margin-bottom:10px;">Score Visualization</h4>
+                <div style="background:#e9ecef;border-radius:8px;overflow:hidden;position:relative;height:30px;">
+                    <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#dc3545,#ffc107,#28a745);"></div>
+                    <div style="position:absolute;top:50%;left:${pct}%;transform:translate(-50%,-50%);background:white;padding:2px 8px;border-radius:4px;font-weight:bold;font-size:0.9em;box-shadow:0 1px 3px rgba(0,0,0,0.2);">${prediction.value}</div>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-top:5px;color:#666;font-size:0.9em;"><span>${minScore}</span><span>${maxScore}</span></div></div>`;
+            if (norm.applied) {
+                html += `<div style="margin-top:15px;padding:10px;background:#f8f9fa;border-radius:6px;font-size:0.85em;color:#666;">
+                    <strong>ℹ️ Denormalized:</strong> Raw output ${prediction.raw_output} → Score ${prediction.value} <span style="color:#999;">(range [${minScore}, ${maxScore}])</span></div>`;
+            }
+        }
+        content.innerHTML = html;
+        box.style.display = 'block';
+    }
+
+    /* ============================================================= SAVE / LABEL */
+    function generateDefaultName() {
+        const base = (inputMode === 'upload' && originalFileName)
+            ? originalFileName.replace(/\.[a-z]+$/i, '').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50)
+            : 'draw';
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+        return `${base}_${ts}`;
+    }
+    function showBadge(text, bg, color) {
+        const b = document.getElementById('savedBadge');
+        b.textContent = text; b.style.background = bg; b.style.color = color; b.style.display = 'inline-block';
+        setTimeout(() => { b.style.display = 'none'; }, 3000);
+    }
+    async function saveLabelled() {
+        if (!activeHasContent()) {
+            alert(inputMode === 'upload' ? 'Please upload an image first!' : 'Please draw something first!');
+            return;
+        }
+        let name = document.getElementById('testName').value.trim();
+        if (!name) { name = generateDefaultName(); document.getElementById('testName').value = name; }
+        const isUpdate = loadedTestId && name === loadedTestName;
+        if (isUpdate && !confirm(`Overwrite "${name}"?`)) return;
+
+        const saveBtn = document.getElementById('saveBtn');
+        saveBtn.disabled = true;
+        try {
+            const blob = await getActiveImageBlob();
+            const fd = new FormData();
+            fd.append('file', blob, name + '.png');
+            fd.append('name', name);
+            fd.append('total_score', componentTotal());
+            fd.append('components', JSON.stringify(componentState));
+            fd.append('source_format', inputMode === 'upload' ? 'UPLOAD' : 'DRAWN');
+            fd.append('task_type', inputMode === 'upload' ? 'UPLOAD' : 'DRAWN');
+
+            if (isUpdate) {
+                await fetch(`/api/training-data-image/${loadedTestId}`, { method: 'DELETE' });
+            }
+            const r = await fetch('/api/save-drawn-image', { method: 'POST', body: fd });
+            if (r.ok) {
+                showBadge(isUpdate ? 'Updated' : 'Saved', '#d4edda', '#155724');
+                loadedTestId = null; loadedTestName = null;
+                document.getElementById('editingHint').textContent = '';
+                loadTestImages();
+            } else {
+                const err = await r.json();
+                alert('Error: ' + (err.detail || 'Unknown error'));
+            }
+        } catch (e) {
+            alert('Error: ' + e.message);
+        } finally {
+            saveBtn.disabled = false;
+        }
+    }
+
+    /* ====================================== SAVED DRAWINGS BROWSER (DRAWN) */
+    let allTestImages = [];
+    const ITEM_HEIGHT = 72;
+    let visibleCount = 0, startIndex = 0;
+    async function loadTestImages() {
+        try {
+            const r = await fetch('/api/training-data-images?limit=1000&offset=0&source_format=DRAWN');
+            const data = await r.json();
+            allTestImages = data.images || [];
+            const counter = document.getElementById('imageCounter');
+            const total = typeof data.total === 'number' ? data.total : allTestImages.length;
+            counter.textContent = `${allTestImages.length} of ${total}`;
+            const listDiv = document.getElementById('testImagesList');
+            if (allTestImages.length === 0) { listDiv.innerHTML = '<div class="empty-list">No saved drawings yet</div>'; counter.textContent = '0 of 0'; return; }
+            initVirtualScroll();
+        } catch (e) {
+            document.getElementById('testImagesList').innerHTML = '<div class="empty-list">Error loading list</div>';
+        }
+    }
+    function initVirtualScroll() {
+        const container = document.getElementById('virtualListContainer');
+        const content = document.getElementById('virtualListContent');
+        visibleCount = Math.ceil(container.clientHeight / ITEM_HEIGHT) + 3;
+        content.style.height = (allTestImages.length * ITEM_HEIGHT) + 'px';
+        startIndex = 0;
+        renderVisibleItems();
+        container.onscroll = handleScroll;
+    }
+    function handleScroll() {
+        const container = document.getElementById('virtualListContainer');
+        const ni = Math.floor(container.scrollTop / ITEM_HEIGHT);
+        if (ni !== startIndex) { startIndex = ni; renderVisibleItems(); }
+    }
+    function renderVisibleItems() {
+        const listDiv = document.getElementById('testImagesList');
+        const endIndex = Math.min(startIndex + visibleCount, allTestImages.length);
+        listDiv.innerHTML = '';
+        listDiv.style.paddingTop = (startIndex * ITEM_HEIGHT) + 'px';
+        listDiv.style.paddingBottom = ((allTestImages.length - endIndex) * ITEM_HEIGHT) + 'px';
+        for (let i = startIndex; i < endIndex; i++) {
+            const test = allTestImages[i];
+            const item = document.createElement('div');
+            item.className = 'test-item';
+            item.style.height = (ITEM_HEIGHT - 10) + 'px';
+            const dateStr = new Date(test.uploaded_at).toLocaleDateString();
+            const name = test.test_name || test.patient_id;
+            item.innerHTML = `<div class="test-item-header">
+                    <span class="test-id">#${test.id} - ${name}</span>
+                    <div class="test-meta"><span style="font-size:12px;color:#999;">${dateStr}</span>
+                    <span class="delete-icon" onclick="deleteTestImage(${test.id}, event)" title="Delete">🗑️</span></div></div>
+                <div class="test-stats"><span>${test.has_components ? '🧩 evaluated' : (test.has_features ? 'Σ scored' : 'not evaluated')}</span></div>`;
+            item.addEventListener('click', (e) => { if (!e.target.closest('.delete-icon')) loadTestImage(test.id, name); });
+            listDiv.appendChild(item);
+        }
+    }
+    async function loadTestImage(testId, name) {
+        try {
+            // switch to Draw input so we can show/edit it on the draw canvas
+            switchInput('draw');
+            const r = await fetch(`/api/training-data-image/${testId}/original`);
+            const blob = await r.blob();
+            const url = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onload = () => {
+                ctx.fillStyle = 'white'; ctx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
+                ctx.drawImage(img, 0, 0, drawCanvas.width, drawCanvas.height);
+                URL.revokeObjectURL(url);
+                hasContent = true; drawRotation = 0;
+                loadedTestId = testId; loadedTestName = name;
+                document.getElementById('testName').value = name;
+                document.getElementById('editingHint').textContent = `(editing #${testId} — same name overwrites)`;
+                showBadge('Loaded', '#d1ecf1', '#0c5460');
+            };
+            img.src = url;
+            try {
+                const fr = await fetch(`/api/training-data-image/${testId}/features`);
+                if (fr.ok) setComponentState((await fr.json())?.features?.components || null);
+            } catch (e) { /* ignore */ }
+        } catch (e) {
+            alert('Error loading: ' + e.message);
+        }
+    }
+    async function deleteTestImage(testId, event) {
+        event.stopPropagation();
+        if (!confirm('Delete this saved drawing?')) return;
+        try {
+            const r = await fetch(`/api/training-data-image/${testId}`, { method: 'DELETE' });
+            if (r.ok) {
+                if (loadedTestId === testId) { loadedTestId = null; loadedTestName = null; document.getElementById('editingHint').textContent = ''; }
+                loadTestImages();
+                showBadge('Deleted', '#f8d7da', '#721c24');
+            } else alert('Error deleting');
+        } catch (e) { alert('Error: ' + e.message); }
+    }
+    window.addEventListener('resize', () => { if (allTestImages.length) setTimeout(initVirtualScroll, 100); });
+
+    /* ============================================================= INIT */
+    (function init() {
+        const params = new URLSearchParams(location.search);
+        const wanted = params.get('input');
+        if (wanted === 'draw') switchInput('draw'); else switchInput('upload');
+        switchAction('predict');
+        updateBrushPreview();
+        renderComponentEditor();
+        loadAvailableModels();
+        loadTestImages();
+    })();
+    </script>
+</body>
+</html>

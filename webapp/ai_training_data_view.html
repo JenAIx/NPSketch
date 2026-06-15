@@ -131,7 +131,7 @@
         
         .data-row {
             display: grid;
-            grid-template-columns: 60px 150px 100px 100px 100px 120px 100px 120px 1fr 50px;
+            grid-template-columns: 60px 150px 100px 100px 100px 120px 100px 1fr 50px;
             padding: 12px 15px;
             border-bottom: 1px solid #e9ecef;
             cursor: pointer;
@@ -531,29 +531,7 @@
                 <div class="stat-label">Patients</div>
             </div>
         </div>
-        
-        <!-- Bulk Features Section -->
-        <div class="section">
-            <h2>📊 Image and Bulk Feature Management</h2>
-            <p style="color: #666; margin-bottom: 15px;">Download template, fill in features, and upload to update multiple entries at once.</p>
-            <div style="display: flex; gap: 15px; flex-wrap: wrap;">
-                <a href="/ai_training_data_upload.html" class="btn btn-small" style="white-space: nowrap;">➕ Add New Data</a>
-                <a href="/api/training-data-features-template" class="btn btn-small" download>
-                    📥 Download CSV Template
-                </a>
-                <button class="btn btn-small" onclick="document.getElementById('csvFileInput').click()" style="background: #28a745;">
-                    📤 Upload Feature Table
-                </button>
-                <div class="tooltip-wrapper" data-tooltip="Run background quality check on all images. Results are saved to DB. Use 'Quality Failed' checkbox to filter.">
-                    <button class="btn btn-small" id="qualityCheckBtn" onclick="runQualityCheck()" style="background: #ff9800;">
-                        🧪 Run Quality Check
-                    </button>
-                </div>
-                <input type="file" id="csvFileInput" accept=".csv" style="display: none;" onchange="uploadFeatureCSV()">
-            </div>
-            <div id="csvUploadResult" style="margin-top: 15px;"></div>
-        </div>
-        
+
         <!-- Data Table -->
         <div class="section">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; gap: 20px; flex-wrap: wrap;">
@@ -574,22 +552,12 @@
                         <input type="checkbox" id="filterMissing" onchange="searchData()" style="cursor: pointer;">
                         <span style="color: #856404; font-weight: 600;">Only Missing</span>
                     </label>
-                    <label id="filterQualityLabel" style="display: flex; align-items: center; gap: 6px; background: #ffebee; padding: 6px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; font-size: 0.9em;">
-                        <input type="checkbox" id="filterQualityFailed" onchange="searchData()" style="cursor: pointer;">
-                        <span style="color: #c62828; font-weight: 600;">Quality Failed</span>
-                    </label>
-                    <input type="text" 
+                    <input type="text"
                            id="searchInput" 
                            placeholder="🔍 Search ID, Patient, Task, Source, Date..." 
                            style="flex: 1; padding: 10px; border: 2px solid #dee2e6; border-radius: 6px; font-size: 0.95em;"
                            oninput="searchData()">
                     <button id="clearBtn" class="btn btn-secondary btn-small" onclick="clearSearch()" style="white-space: nowrap;">Clear</button>
-                </div>
-                <div id="qualityCheckProgress" style="display: none; background: #e3f2fd; color: #1565c0; padding: 10px 15px; border-radius: 6px; margin-top: 10px; font-weight: 600;">
-                    ⏳ Quality Check Running: <span id="qualityProgressText">0%</span>
-                    <div style="background: #bbdefb; height: 6px; border-radius: 3px; margin-top: 8px;">
-                        <div id="qualityProgressBar" style="background: #1565c0; height: 100%; border-radius: 3px; width: 0%; transition: width 0.3s;"></div>
-                    </div>
                 </div>
             </div>
             
@@ -622,10 +590,6 @@
                     <div class="data-cell" onclick="sortBy('features')">
                         <span>Features</span>
                         <span class="sort-icon" id="sort-features">↕</span>
-                    </div>
-                    <div class="data-cell" onclick="sortBy('ground_truth')">
-                        <span>Lines</span>
-                        <span class="sort-icon" id="sort-ground_truth">↕</span>
                     </div>
                     <div class="data-cell" onclick="sortBy('filename')">
                         <span>Original File</span>
@@ -665,7 +629,8 @@
             <div class="modal-images" id="modalImages"></div>
         </div>
     </div>
-    
+
+    <script src="/js/component_result.js?v=2"></script>
     <script>
         let existingData = [];
         let allData = [];  // Store all loaded data for client-side search
@@ -677,8 +642,7 @@
         let sortDirection = 'desc';  // 'asc' or 'desc'
         let loadLimit = 10;
         let searchDebounceTimer = null;
-        let qualityCheckPolling = null;
-        
+
         async function loadData() {
             try {
                 // Build URL with server-side filters
@@ -696,13 +660,7 @@
                 if (onlyMissing) {
                     params.set('only_missing', 'true');
                 }
-                
-                // Add "quality check failed" filter (server-side)
-                const qualityFailed = document.getElementById('filterQualityFailed').checked;
-                if (qualityFailed) {
-                    params.set('quality_check_failed', 'true');
-                }
-                
+
                 const response = await fetch(`/api/training-data-images?${params.toString()}`);
                 const data = await response.json();
                 
@@ -771,10 +729,7 @@
             
             // Change color if filtered
             const onlyMissing = document.getElementById('filterMissing').checked;
-            const qualityFailed = document.getElementById('filterQualityFailed').checked;
-            if (qualityFailed) {
-                countElement.style.background = '#c62828';  // Red for quality failed
-            } else if (searchTerm && searchTerm.trim() !== '' || onlyMissing) {
+            if (searchTerm && searchTerm.trim() !== '' || onlyMissing) {
                 countElement.style.background = '#28a745';  // Green when filtering
             } else {
                 countElement.style.background = '#667eea';  // Default blue
@@ -800,103 +755,11 @@
         function clearSearch() {
             document.getElementById('searchInput').value = '';
             document.getElementById('filterMissing').checked = false;
-            document.getElementById('filterQualityFailed').checked = false;
             searchTerm = '';
             currentPage = 0;
             loadData();
         }
 
-        let qualityCheckRunning = false;
-        
-        async function runQualityCheck() {
-            // Prevent multiple simultaneous quality checks
-            if (qualityCheckRunning) {
-                console.log('Quality check already running, skipping...');
-                return;
-            }
-            
-            const btn = document.getElementById('qualityCheckBtn');
-            btn.disabled = true;
-            qualityCheckRunning = true;
-            const originalText = btn.innerHTML;
-            btn.innerHTML = '⏳ Starting...';
-            
-            try {
-                // Start background quality check job
-                const response = await fetch('/api/training-data-image-quality-check/start?recheck_invalid_only=true', {
-                    method: 'POST'
-                });
-                
-                if (!response.ok) {
-                    const errData = await response.json().catch(() => ({}));
-                    throw new Error(errData.detail || errData.message || 'Failed to start quality check');
-                }
-                
-                const data = await response.json();
-                if (!data.success) {
-                    throw new Error(data.message || 'Quality check could not start');
-                }
-                
-                // Show progress bar
-                const progressDiv = document.getElementById('qualityCheckProgress');
-                progressDiv.style.display = 'block';
-                
-                // Start polling for status
-                pollQualityCheckStatus(btn, originalText);
-                
-            } catch (error) {
-                showAlert('error', `Quality check error: ${error.message}`);
-                btn.disabled = false;
-                btn.innerHTML = originalText;
-                qualityCheckRunning = false;
-            }
-        }
-        
-        function pollQualityCheckStatus(btn, originalText) {
-            qualityCheckPolling = setInterval(async () => {
-                try {
-                    const response = await fetch('/api/training-data-image-quality-check/status');
-                    const status = await response.json();
-                    
-                    // Update progress bar
-                    document.getElementById('qualityProgressText').textContent = 
-                        `${status.progress}% (${status.checked}/${status.total}) - Valid: ${status.valid}, Invalid: ${status.invalid}`;
-                    document.getElementById('qualityProgressBar').style.width = `${status.progress}%`;
-                    btn.innerHTML = `⏳ ${status.progress}%`;
-                    
-                    // Check if done
-                    if (!status.running) {
-                        clearInterval(qualityCheckPolling);
-                        qualityCheckPolling = null;
-                        
-                        // Hide progress bar
-                        document.getElementById('qualityCheckProgress').style.display = 'none';
-                        
-                        // Reset button
-                        btn.disabled = false;
-                        btn.innerHTML = originalText;
-                        qualityCheckRunning = false;
-                        
-                        if (status.error) {
-                            showAlert('error', `Quality check error: ${status.error}`);
-                        } else {
-                            showAlert('success', `Quality check complete: ${status.invalid} invalid, ${status.valid} valid images`);
-                            
-                            // Auto-check the "Quality Failed" filter if there are invalid images
-                            if (status.invalid > 0) {
-                                document.getElementById('filterQualityFailed').checked = true;
-                            }
-                            
-                            // Reload data to show results
-                            loadData();
-                        }
-                    }
-                } catch (error) {
-                    console.error('Error polling quality check status:', error);
-                }
-            }, 1000);  // Poll every second
-        }
-        
         function sortData() {
             // Sort existingData based on current sortColumn and sortDirection
             existingData.sort((a, b) => {
@@ -932,12 +795,9 @@
                         valB = new Date(b.uploaded_at).getTime();
                         break;
                     case 'features':
-                        valA = a.has_features ? 1 : 0;
-                        valB = b.has_features ? 1 : 0;
-                        break;
-                    case 'ground_truth':
-                        valA = (a.ground_truth_correct || 0) + (a.ground_truth_extra || 0);
-                        valB = (b.ground_truth_correct || 0) + (b.ground_truth_extra || 0);
+                        // Sort by Total_Score (rows without a score sort to the bottom)
+                        valA = (a.total_score !== null && a.total_score !== undefined) ? a.total_score : -Infinity;
+                        valB = (b.total_score !== null && b.total_score !== undefined) ? b.total_score : -Infinity;
                         break;
                     default:
                         return 0;
@@ -993,8 +853,7 @@
                     <div class="empty-state">
                         <div class="empty-state-icon">📭</div>
                         <h3>No training data found</h3>
-                        <p>Upload some files to get started</p>
-                        <a href="/ai_training_data_upload.html" class="btn" style="display: inline-block; margin-top: 20px;">➕ Add New Data</a>
+                        <p>Import training data via the unified import pipeline.</p>
                     </div>
                 `;
                 return;
@@ -1009,15 +868,18 @@
                     ? img.original_filename.substring(0, 27) + '...' 
                     : img.original_filename;
                 
-                const featuresBadge = img.has_features 
-                    ? '<span class="badge has-features">✓ Set</span>'
-                    : '<span class="badge missing-features">MISSING</span>';
-                
-                const hasGroundTruth = (img.ground_truth_correct !== null && img.ground_truth_correct !== undefined) || 
-                                       (img.ground_truth_extra !== null && img.ground_truth_extra !== undefined);
-                const groundTruthDisplay = hasGroundTruth
-                    ? `<span style="color: #28a745;">✓${img.ground_truth_correct || 0}</span> / <span style="color: #ffc107;">✗${img.ground_truth_extra || 0}</span>`
-                    : '<span class="badge missing-features">—</span>';
+                let featuresBadge;
+                if (img.has_features) {
+                    const scorePart = (img.total_score !== null && img.total_score !== undefined)
+                        ? `<span class="badge has-features" title="Total_Score">Σ ${img.total_score}</span>`
+                        : '<span class="badge has-features">✓ Set</span>';
+                    const compPart = img.has_components
+                        ? ' <span class="badge has-features" style="background:#ede7f6;color:#5a3d99;" title="60 component sub-labels present">🧩 60</span>'
+                        : '';
+                    featuresBadge = scorePart + compPart;
+                } else {
+                    featuresBadge = '<span class="badge missing-features">MISSING</span>';
+                }
                 
                 return `
                     <div class="data-row" onclick="showPreview(${realIndex})">
@@ -1028,7 +890,6 @@
                         <div class="data-cell" style="font-size: 0.8em;">${img.width}×${img.height}</div>
                         <div class="data-cell">${date}</div>
                         <div class="data-cell">${featuresBadge}</div>
-                        <div class="data-cell" style="font-size: 0.9em;">${groundTruthDisplay}</div>
                         <div class="data-cell" style="font-size: 0.8em;" title="${img.original_filename}">${shortFilename}</div>
                         <div class="data-cell">
                             <span class="delete-icon" onclick="event.stopPropagation(); deleteImage(${img.id}, '${img.patient_id}')" title="Delete">🗑️</span>
@@ -1149,17 +1010,6 @@
                             <p><strong>Format:</strong> Black-on-white PNG</p>
                             <p><strong>Auto-cropped:</strong> 5px padding</p>
                         </div>
-                        <div id="qualityStatusSection" style="margin-top: 15px; padding: 12px; border-radius: 8px; ${img.quality_check_status === 'invalid' ? 'background: #ffebee; border: 2px solid #c62828;' : img.quality_check_status === 'valid' ? 'background: #e8f5e9; border: 2px solid #2e7d32;' : 'background: #f5f5f5; border: 2px solid #9e9e9e;'}">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <div>
-                                    <strong style="color: ${img.quality_check_status === 'invalid' ? '#c62828' : img.quality_check_status === 'valid' ? '#2e7d32' : '#616161'};">
-                                        ${img.quality_check_status === 'invalid' ? '❌ Quality Check: INVALID' : img.quality_check_status === 'valid' ? '✅ Quality Check: VALID' : '⏳ Quality Check: Not checked'}
-                                    </strong>
-                                    ${img.quality_check_date ? '<p style="margin: 5px 0 0 0; font-size: 0.85em; color: #666;">Checked: ' + new Date(img.quality_check_date).toLocaleString() + '</p>' : ''}
-                                </div>
-                                ${img.quality_check_status === 'invalid' ? '<button class="btn btn-small" onclick="markAsValid(' + img.id + ')" style="background: #2e7d32;">✓ Mark as Valid</button>' : ''}
-                            </div>
-                        </div>
                     </div>
                 </div>
             `;
@@ -1169,7 +1019,10 @@
                 ? Object.entries(featuresData).map(([key, value]) => {
                     // Escape for HTML display
                     const safeKey = key.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-                    
+
+                    // components are shown in their own table above — skip here
+                    if (key === 'components') return '';
+
                     // Handle Custom_Class differently
                     if (key === 'Custom_Class' && typeof value === 'object') {
                         // Display Custom_Class structure
@@ -1211,72 +1064,57 @@
                 }).join('')
                 : '<p style="color: #999; text-align: center; padding: 10px;">No features set yet</p>';
             
-            // Add Ground Truth Editor Section
-            const groundTruthEditor = `
-                <div class="feature-editor" data-current-image-id="${img.id}" style="margin-bottom: 20px;">
-                    <h3>🎯 Ground Truth (for Algorithmic Evaluation)</h3>
-                    <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px solid #dee2e6;">
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div>
-                                <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #28a745;">✓ Correct Lines (0-11)</label>
-                                <input type="number" id="groundTruthCorrect" value="${img.ground_truth_correct || 0}" min="0" max="11" 
-                                       style="width: 100%; padding: 8px; border: 1px solid #28a745; border-radius: 4px; background: white;" />
-                            </div>
-                            <div>
-                                <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #ffc107;">✗ Extra Lines</label>
-                                <input type="number" id="groundTruthExtra" value="${img.ground_truth_extra || 0}" min="0" 
-                                       style="width: 100%; padding: 8px; border: 1px solid #ffc107; border-radius: 4px; background: white;" />
-                            </div>
-                        </div>
-                        <div style="margin-top: 10px; padding: 10px; background: white; border-radius: 4px; font-size: 0.9em; color: #666;">
-                            <strong>Missing Lines:</strong> ${11 - (img.ground_truth_correct || 0)} (calculated: 11 - correct)
-                        </div>
-                        <button class="btn btn-small save-ground-truth-btn" style="margin-top: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 100%;">
-                            💾 Save Ground Truth
-                        </button>
+            // Component evaluation (20 elements × Presence/Accuracy/Position), if labelled
+            let componentsHtml = '';
+            const comp = featuresData.components;
+            if (comp && comp.presence && comp.accuracy && comp.position) {
+                const elements = [];
+                for (let e = 0; e < 20; e++) {
+                    elements.push({
+                        element: e + 1,
+                        presence: comp.presence[e], accuracy: comp.accuracy[e], position: comp.position[e],
+                        subscore_hard: (comp.presence[e] + comp.accuracy[e] + comp.position[e])
+                    });
+                }
+                const total = elements.reduce((s, x) => s + x.subscore_hard, 0);
+                componentsHtml = `
+                    <div style="margin-top: 16px;">
+                        <h4 style="margin: 0 0 8px 0; color: #444;">🧩 Component Labels (20 elements × Presence/Accuracy/Position)</h4>
+                        ${renderComponentBreakdown({total_score_hard: total, total_score_soft: total, elements: elements},
+                                                   {isLabels: true, title: 'Total_Score (ground-truth labels)'})}
                     </div>
-                </div>
-            `;
-            
+                `;
+            } else {
+                componentsHtml = `
+                    <div style="margin-top: 16px;">
+                        <h4 style="margin: 0 0 8px 0; color: #444;">🧩 Component Labels</h4>
+                        <p style="color: #999; margin: 0; font-size: 0.9em;">
+                            No component labels for this image (source: ${img.source_format || 'unknown'}) — only Total_Score is available.
+                            Component labels (60 sub-labels) currently exist for TELEFRED, ALGORITHM and OCS_MACHINE sources.
+                        </p>
+                    </div>
+                `;
+            }
+
             const featureEditor = `
                 <div class="feature-editor" data-current-image-id="${img.id}">
                     <h3>🏷️ Features & Labels (for CNN Training)</h3>
-                    <div class="feature-list" id="featuresList">
-                        ${featuresList}
-                    </div>
                     <div class="feature-input-group">
                         <input type="text" id="featureKey" placeholder="Feature name (e.g., quality_score)" />
                         <input type="number" id="featureValue" placeholder="Numeric value (e.g., 0.85)" step="any" />
                         <button class="btn btn-small add-feature-btn" style="white-space: nowrap;">+ Add</button>
                     </div>
+                    <div class="feature-list" id="featuresList">
+                        ${featuresList}
+                    </div>
+                    ${componentsHtml}
                 </div>
             `;
-            
-            modalImages.innerHTML = imagesHtml + groundTruthEditor + featureEditor;
-            
+
+            modalImages.innerHTML = imagesHtml + featureEditor;
+
             // Add event listeners for buttons (event delegation)
             setTimeout(() => {
-                // Save ground truth button
-                const saveGroundTruthBtn = document.querySelector('.save-ground-truth-btn');
-                if (saveGroundTruthBtn) {
-                    saveGroundTruthBtn.addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        await saveGroundTruth(img.id);
-                    });
-                }
-                
-                // Update missing lines display when correct lines changes
-                const correctInput = document.getElementById('groundTruthCorrect');
-                if (correctInput) {
-                    correctInput.addEventListener('input', (e) => {
-                        const correct = parseInt(e.target.value) || 0;
-                        const missingDisplay = document.querySelector('.feature-editor div[style*="Missing Lines"]');
-                        if (missingDisplay) {
-                            missingDisplay.innerHTML = `<strong>Missing Lines:</strong> ${11 - correct} (calculated: 11 - correct)`;
-                        }
-                    });
-                }
-                
                 // Add feature button
                 const addBtn = document.querySelector('.add-feature-btn');
                 if (addBtn) {
@@ -1298,36 +1136,6 @@
             }, 0);
             
             modal.classList.add('show');
-        }
-        
-        async function saveGroundTruth(imageId) {
-            const correct = parseInt(document.getElementById('groundTruthCorrect').value) || 0;
-            const extra = parseInt(document.getElementById('groundTruthExtra').value) || 0;
-            
-            try {
-                const response = await fetch(`/api/training-data-image/${imageId}/ground-truth`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        ground_truth_correct: correct,
-                        ground_truth_extra: extra
-                    })
-                });
-                
-                if (response.ok) {
-                    // Reload data and re-open modal
-                    await loadData();
-                    const newIndex = existingData.findIndex(img => img.id === imageId);
-                    if (newIndex >= 0) {
-                        showPreview(newIndex);
-                    }
-                } else {
-                    alert('Error saving ground truth');
-                }
-            } catch (error) {
-                console.error('Error saving ground truth:', error);
-                alert('Error saving ground truth: ' + error.message);
-            }
         }
         
         async function addFeature(imageId) {
@@ -1389,72 +1197,6 @@
         function closeModal() {
             cancelCrop();  // Clean up crop mode if active
             document.getElementById('previewModal').classList.remove('show');
-        }
-        
-        async function markAsValid(imageId) {
-            try {
-                const response = await fetch(`/api/training-data-image/${imageId}/quality-status`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: 'valid' })
-                });
-                
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Failed to update status');
-                }
-                
-                const result = await response.json();
-                
-                // Update UI immediately
-                const section = document.getElementById('qualityStatusSection');
-                if (section) {
-                    section.style.background = '#e8f5e9';
-                    section.style.border = '2px solid #2e7d32';
-                    section.innerHTML = `
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <strong style="color: #2e7d32;">✅ Quality Check: VALID</strong>
-                                <p style="margin: 5px 0 0 0; font-size: 0.85em; color: #666;">Checked: ${new Date(result.quality_check_date).toLocaleString()}</p>
-                            </div>
-                        </div>
-                    `;
-                }
-                
-                // Update in local data
-                const imgIndex = existingData.findIndex(img => img.id === imageId);
-                if (imgIndex >= 0) {
-                    existingData[imgIndex].quality_check_status = 'valid';
-                    existingData[imgIndex].quality_check_date = result.quality_check_date;
-                }
-                
-                // If "Quality Failed" filter is active, remove item from list and re-render
-                const qualityFailedFilter = document.getElementById('filterQualityFailed').checked;
-                if (qualityFailedFilter) {
-                    // Remove from existingData
-                    if (imgIndex >= 0) {
-                        existingData.splice(imgIndex, 1);
-                        allData = allData.filter(img => img.id !== imageId);
-                    }
-                    
-                    // Re-render table
-                    totalPages = Math.ceil(existingData.length / pageSize);
-                    if (currentPage >= totalPages && currentPage > 0) {
-                        currentPage = totalPages - 1;
-                    }
-                    renderDataTable(getPaginatedData());
-                    updatePagination();
-                    updateResultCount();
-                    
-                    // Close modal if list is now empty or item removed
-                    closeModal();
-                }
-                
-                showAlert('success', `Image #${imageId} marked as valid`);
-                
-            } catch (error) {
-                showAlert('error', `Error: ${error.message}`);
-            }
         }
         
         // Crop functionality
@@ -1722,66 +1464,6 @@
             // Re-render with new page size
             renderDataTable(getPaginatedData());
             updatePagination();
-        }
-        
-        async function uploadFeatureCSV() {
-            const fileInput = document.getElementById('csvFileInput');
-            const file = fileInput.files[0];
-            
-            if (!file) return;
-            
-            const resultDiv = document.getElementById('csvUploadResult');
-            resultDiv.innerHTML = '<div style="text-align: center; padding: 20px;"><div class="spinner"></div><p>Processing CSV...</p></div>';
-            
-            try {
-                const formData = new FormData();
-                formData.append('file', file);
-                
-                const response = await fetch('/api/training-data-features-upload', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    resultDiv.innerHTML = `
-                        <div style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 15px; border-radius: 6px;">
-                            <strong>✅ Upload Successful!</strong>
-                            <p style="margin: 10px 0 0 0;">
-                                Updated: ${data.updated} | Skipped: ${data.skipped} | Total: ${data.total_rows}
-                            </p>
-                            ${data.errors.length > 0 ? `
-                                <details style="margin-top: 10px;">
-                                    <summary style="cursor: pointer;">Errors (${data.errors.length})</summary>
-                                    <ul style="margin: 10px 0 0 20px;">
-                                        ${data.errors.map(err => `<li>${err}</li>`).join('')}
-                                    </ul>
-                                </details>
-                            ` : ''}
-                        </div>
-                    `;
-                    
-                    // Reload data
-                    await loadData();
-                    
-                    // Auto-hide after 5 seconds
-                    setTimeout(() => {
-                        resultDiv.innerHTML = '';
-                    }, 8000);
-                } else {
-                    throw new Error('Upload failed');
-                }
-            } catch (error) {
-                resultDiv.innerHTML = `
-                    <div style="background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 15px; border-radius: 6px;">
-                        <strong>❌ Upload Failed</strong>
-                        <p style="margin: 10px 0 0 0;">${error.message}</p>
-                    </div>
-                `;
-            } finally {
-                fileInput.value = '';
-            }
         }
         
         function showAlert(type, message) {

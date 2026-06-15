@@ -227,9 +227,9 @@ class ImageAugmentor:
         scale_range: Tuple[float, float] = (0.95, 1.05),
         num_augmentations: int = 6,
         safety_margin: int = 15,
-        # NEW: Pre-shrink settings
+        # NEW: Pre-shrink settings (default mirrors config/training_config.yaml: 0.90)
         pre_shrink_enabled: bool = True,
-        pre_shrink_factor: float = 0.95,
+        pre_shrink_factor: float = 0.90,
         # NEW: Diversity control settings
         diversity_control_enabled: bool = True,
         similarity_to_original_max: float = 0.95,
@@ -1138,7 +1138,12 @@ class AugmentedDatasetBuilder:
         
         with open(self.output_dir / "metadata.json", 'w') as f:
             json.dump(metadata, f, indent=2)
-        
+
+        # Expose the augmentation config (incl. pre_shrink) to the caller so it lands in
+        # the MODEL metadata — inference reads pre_shrink/factor from there to reproduce
+        # the exact training preprocessing.
+        stats['augmentation_config'] = metadata['augmentation_config']
+
         logger.info(f"Augmented dataset created in {self.output_dir}")
         logger.info(f"Train: {stats['train']['total']} images ({stats['train']['original']} original + {stats['train']['augmented']} augmented)")
         logger.info(f"Val:   {stats['val']['total']} images ({stats['val']['original']} original + {stats['val']['augmented']} augmented)")
@@ -1169,12 +1174,20 @@ class AugmentedDatasetBuilder:
             try:
                 # Get target value
                 features = json.loads(img_data.get('features_data', '{}'))
-                
-                # Check if feature exists (handle Custom_Class)
+
+                # Check mode (Components sentinel / Custom_Class prefix / regression)
+                from .dataset import COMPONENTS_TARGET, components_to_vector
+                is_components = (target_feature == COMPONENTS_TARGET)
                 is_classification = target_feature.startswith('Custom_Class_')
                 target_value = None
-                
-                if is_classification:
+                target_vector = None
+
+                if is_components:
+                    target_vector = components_to_vector(features)
+                    if target_vector is None:
+                        errors.append(f"Image {img_data.get('id', idx)} missing component sub-labels")
+                        continue
+                elif is_classification:
                     num_classes_str = target_feature.replace('Custom_Class_', '')
                     if "Custom_Class" in features and num_classes_str in features.get("Custom_Class", {}):
                         target_value = features["Custom_Class"][num_classes_str]["label"]
@@ -1186,10 +1199,10 @@ class AugmentedDatasetBuilder:
                         errors.append(f"Image {img_data.get('id', idx)} missing feature {target_feature}")
                         continue
                     target_value = features[target_feature]
-                
-                # Apply normalization if normalizer is provided
+
+                # Apply normalization if normalizer is provided (regression only)
                 target_value_normalized = target_value
-                if self.normalizer is not None:
+                if self.normalizer is not None and target_value is not None:
                     target_value_normalized = self.normalizer.transform(np.array([target_value]))[0]
                 
                 # Load image
@@ -1238,6 +1251,7 @@ class AugmentedDatasetBuilder:
                             'target_feature': target_feature,
                             'target_value': target_value_normalized,
                             'target_value_original': target_value,  # Keep original for reference
+                            'target_vector': target_vector,  # 60-dim for component mode (else None)
                             'augmentation': None,
                             'pre_shrink_applied': self.augmentor.pre_shrink_enabled
                         }, f)
@@ -1262,6 +1276,7 @@ class AugmentedDatasetBuilder:
                             'target_feature': target_feature,
                             'target_value': target_value_normalized,
                             'target_value_original': target_value,  # Keep original for reference
+                            'target_vector': target_vector,  # 60-dim for component mode (else None)
                             'augmentation': aug_params
                         }, f)
                     

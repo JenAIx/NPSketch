@@ -112,6 +112,7 @@ class CNNTrainer:
         training_mode: str = "regression",
         use_sigmoid: bool = None,
         class_weights: list = None,
+        pos_weight: list = None,
         use_lr_scheduling: bool = True,
         use_differential_lr: bool = True,
         backbone_lr_multiplier: float = 0.1,
@@ -270,10 +271,21 @@ class CNNTrainer:
                 logger.warning("  No class weights provided - classes will be equally weighted")
                 if label_smoothing > 0:
                     logger.info(f"  Label smoothing: {label_smoothing}")
+        elif training_mode == "components":
+            # Multi-label: 60 independent binary sub-labels (20 elements x PRES/ACC/POS).
+            # BCEWithLogitsLoss applies the sigmoid internally (stable); the model
+            # outputs raw logits (use_sigmoid=False).
+            pw = None
+            if pos_weight is not None:
+                pw = torch.tensor(pos_weight, dtype=torch.float32).to(self.device)
+            self.criterion = nn.BCEWithLogitsLoss(pos_weight=pw)
+            logger.info(f"Loss function: BCEWithLogitsLoss (components, {num_outputs} sub-labels)")
+            if pw is not None:
+                logger.info(f"  pos_weight enabled (per-label, len {len(pos_weight)})")
         else:
             self.criterion = nn.MSELoss()
             logger.info(f"Loss function: MSELoss (regression)")
-        
+
         # Learning rate scheduler
         self.scheduler = None
         if use_lr_scheduling:
@@ -455,17 +467,31 @@ class CNNTrainer:
             Dict with MSE, RMSE, MAE, R², predictions
         """
         self.model.eval()
-        
+
+        # Components mode: collect 60-dim probabilities + targets (keep 2D)
+        if self.training_mode == "components":
+            probs_list, tgt_list = [], []
+            with torch.no_grad():
+                for images, targets in data_loader:
+                    images = images.to(self.device)
+                    outputs = self.model(images)              # logits (B, 60)
+                    probs = torch.sigmoid(outputs)
+                    probs_list.append(probs.cpu().numpy())
+                    tgt_list.append(targets.cpu().numpy())
+            probs = np.concatenate(probs_list, axis=0)
+            tgts = np.concatenate(tgt_list, axis=0)
+            return self._calculate_component_metrics(probs, tgts)
+
         all_predictions = []
         all_targets = []
-        
+
         with torch.no_grad():
             for images, targets in data_loader:
                 images = images.to(self.device)
                 targets = targets.to(self.device)
-                
+
                 outputs = self.model(images)
-                
+
                 if self.training_mode == "classification":
                     # Get predicted class (argmax)
                     predicted_classes = torch.argmax(outputs, dim=1)
@@ -558,7 +584,99 @@ class CNNTrainer:
             'targets': targets.tolist()[:1000],
             'num_samples': len(targets)
         }
-    
+
+    def _calculate_component_metrics(self, probs: np.ndarray, targets: np.ndarray) -> Dict:
+        """
+        Metrics for the 60-sub-label component model.
+
+        probs, targets: (N, 60), column order ELEM01PRES, ELEM01ACC, ELEM01POS,
+        ELEM02PRES, ... (3 aspects interleaved per element).
+
+        Reports: per-sub-label macro F1/accuracy, per-aspect (presence/accuracy/
+        position), per-component (20), AND the derived Total_Score (= sum of the 60)
+        as R²/RMSE/MAE + per-score-bin — the direct comparison to the holistic model.
+        """
+        preds = (probs >= 0.5).astype(int)
+        tgt = targets.astype(int)
+
+        def prf(p, t):
+            tp = int(((p == 1) & (t == 1)).sum())
+            fp = int(((p == 1) & (t == 0)).sum())
+            fn = int(((p == 0) & (t == 1)).sum())
+            prec = tp / (tp + fp) if (tp + fp) else 0.0
+            rec = tp / (tp + fn) if (tp + fn) else 0.0
+            f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
+            acc = float((p == t).mean())
+            return prec, rec, f1, acc
+
+        # per sub-label (60), then macro
+        per_label_f1 = []
+        for j in range(probs.shape[1]):
+            _, _, f1, _ = prf(preds[:, j], tgt[:, j])
+            per_label_f1.append(f1)
+        macro_f1 = float(np.mean(per_label_f1))
+        overall_acc = float((preds == tgt).mean())
+
+        # per aspect: columns j%3 == 0 presence, 1 accuracy, 2 position
+        aspect = {}
+        for name, off in (("presence", 0), ("accuracy", 1), ("position", 2)):
+            cols = list(range(off, probs.shape[1], 3))
+            _, _, f1, acc = prf(preds[:, cols], tgt[:, cols])
+            aspect[name] = {"f1": float(f1), "accuracy": float(acc)}
+
+        # per component (20): each element = its 3 columns
+        per_component = {}
+        for e in range(20):
+            cols = [3 * e, 3 * e + 1, 3 * e + 2]
+            _, _, f1, acc = prf(preds[:, cols], tgt[:, cols])
+            per_component[f"E{e+1:02d}"] = {"f1": float(f1), "accuracy": float(acc)}
+
+        # derived Total_Score (hard = sum of >0.5 decisions; soft = sum of probs)
+        score_true = tgt.sum(axis=1).astype(float)
+        score_hard = preds.sum(axis=1).astype(float)
+        score_soft = probs.sum(axis=1)
+
+        def score_stats(pred_score):
+            mse = float(np.mean((pred_score - score_true) ** 2))
+            ss_res = np.sum((score_true - pred_score) ** 2)
+            ss_tot = np.sum((score_true - score_true.mean()) ** 2)
+            return {
+                "rmse": float(np.sqrt(mse)),
+                "mae": float(np.mean(np.abs(pred_score - score_true))),
+                "r2_score": float(1 - ss_res / ss_tot) if ss_tot != 0 else 0.0,
+            }
+
+        # per-score-bin on the hard derived score (decades) — comparable to holistic
+        per_score_bin = {}
+        bin_starts = np.floor(score_true / 10.0) * 10.0
+        for start in sorted(np.unique(bin_starts)):
+            m = bin_starts == start
+            per_score_bin[f"{int(start)}-{int(start+9)}"] = {
+                "count": int(m.sum()),
+                "mae": float(np.mean(np.abs(score_hard[m] - score_true[m]))),
+                "rmse": float(np.sqrt(np.mean((score_hard[m] - score_true[m]) ** 2))),
+                "mean_pred": float(np.mean(score_hard[m])),
+                "mean_target": float(np.mean(score_true[m])),
+            }
+
+        # For frontend/early-stopping compatibility, surface the derived-score
+        # regression metrics at the top level (val_loss is BCE; these are the
+        # interpretable headline numbers).
+        hard = score_stats(score_hard)
+        return {
+            "macro_f1": macro_f1,
+            "sublabel_accuracy": overall_acc,
+            "per_aspect": aspect,
+            "per_component": per_component,
+            "derived_score_hard": hard,
+            "derived_score_soft": score_stats(score_soft),
+            "r2_score": hard["r2_score"],
+            "rmse": hard["rmse"],
+            "mae": hard["mae"],
+            "per_score_bin": per_score_bin,
+            "num_samples": int(len(score_true)),
+        }
+
     def _calculate_classification_metrics(self, predictions: np.ndarray, targets: np.ndarray) -> Dict:
         """Calculate classification metrics (Accuracy, F1, Precision, Recall)"""
         # Accuracy

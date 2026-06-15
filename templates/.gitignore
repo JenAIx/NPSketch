@@ -1,4 +1,14 @@
+# Training-image data is treated as data, not code (kept on the data volume,
+# not in git). Tracked here: labels.csv, README.md, reference_image.png and the
+# consolidation script under api/data_consolidation/.
+
+# Consolidated raw images and archived originals (large; data, not code)
+img/
+old/
+
+# Legacy per-source folders (kept for back-compat; all now live under old/)
 bsp_ocsplus_202511
 training_data_oxford_manual_rater_202512
 algorithm_training_data_20260112
 training_data_telefred_20260119
+training_data_telefred_202606

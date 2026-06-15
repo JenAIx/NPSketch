@@ -12,34 +12,33 @@ Date: October 2025
 Version: 1.0
 """
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import os
 
-from database import init_database, get_db, ReferenceImage
+from database import init_database, get_db
 from models import HealthResponse
-from services import ReferenceService
 
 # Import routers
 from routers import (
     admin_router,
     upload_router,
-    evaluations_router,
-    references_router,
-    test_images_router,
     training_data_router,
     ai_training_base_router,
     ai_training_classification_router,
     ai_training_models_router
 )
 
+# Single source of truth for the app version (also returned by /api/health)
+APP_VERSION = "2.1.0"
+
 # Initialize FastAPI app
 app = FastAPI(
     title="NPSketch API",
-    description="Automated line detection and comparison for hand-drawn images",
-    version="1.0.0"
+    description="CNN-based scoring of hand-drawn neuropsychological figures",
+    version=APP_VERSION
 )
 
 # Enable CORS for external access (e.g., from mars.biomag.uni-jena.de)
@@ -59,9 +58,6 @@ app.mount("/api/visualizations", StaticFiles(directory=VIS_DIR), name="visualiza
 # Include routers
 app.include_router(admin_router)
 app.include_router(upload_router)
-app.include_router(evaluations_router)
-app.include_router(references_router)
-app.include_router(test_images_router)
 app.include_router(training_data_router)
 
 # AI Training routers (split for better organization)
@@ -72,38 +68,30 @@ app.include_router(ai_training_models_router)
 
 @app.on_event("startup")
 async def startup_event():
-    """
-    Initialize database and reference images on startup.
-    """
-    # Initialize database tables
+    """Initialize the database on startup."""
     init_database()
-    
-    # Initialize default reference image
-    db = next(get_db())
-    try:
-        ref_service = ReferenceService(db)
-        ref_service.initialize_default_reference("default_reference")
-        print("✓ Database initialized")
-        print("✓ Default reference image loaded")
-    finally:
-        db.close()
+    print("✓ Database initialized")
 
 
 @app.get("/api/health", response_model=HealthResponse)
 async def health_check(db: Session = Depends(get_db)):
-    """
-    Health check endpoint.
-    
-    Returns:
-        System health status and database statistics
-    """
-    reference_count = db.query(ReferenceImage).count()
-    
+    """Health check endpoint."""
     return HealthResponse(
         status="healthy",
         database_initialized=True,
-        reference_images_count=reference_count
+        reference_images_count=0,
+        version=APP_VERSION
     )
+
+
+@app.get("/api/reference-image")
+async def reference_image():
+    """Serve the canonical OCS-Plus reference figure (templates/ is not on the nginx root)."""
+    from fastapi.responses import FileResponse
+    path = "/app/templates/reference_image.png"
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Reference image not found")
+    return FileResponse(path, media_type="image/png")
 
 
 if __name__ == "__main__":

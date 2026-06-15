@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NPSketch v1.0</title>
+    <title>NPSketch</title>
     
     <!-- Global Common Styles -->
     <link rel="stylesheet" href="/css/common.css">
@@ -390,200 +390,142 @@
 <body>
     <div class="container hexagon-pattern">
         <h1>🎨 NPSketch</h1>
-        <div class="version">v. 1.0</div>
+        <div class="version" id="appVersion">v2.1.0</div>
         
         <p class="description">
-            Automated Line Detection for Hand-Drawn Images<br>
-            Compare your drawings to reference templates with AI-powered analysis
+            AI scoring of hand-drawn neuropsychological figures<br>
+            Train ResNet-18 CNNs to predict the Total_Score, a score class, or the full
+            20-element component breakdown — straight from the image
         </p>
         
         <div class="links">
-            <!-- Main User Functions -->
+            <!-- Evaluate an image with a trained model -->
             <div class="button-group">
-                <div class="button-group-label">📱 Main Functions</div>
+                <div class="button-group-label">🤖 Evaluate</div>
                 <div class="button-row">
-                    <a href="/upload.html" class="btn">📤 Upload Drawing</a>
+                    <a href="/evaluate.html" class="btn">🔬 Evaluate &amp; Label</a>
                 </div>
             </div>
-            
+
             <!-- Training Data Management -->
             <div class="button-group">
                 <div class="button-group-label">🎓 Training Data</div>
                 <div class="button-row">
-                    <a href="/ai_training_data_upload.html" class="btn">📤 Upload Data (MAT/OCS)</a>
-                    <a href="/draw_testimage.html" class="btn">✏️ Draw Data</a>
-                </div>
-                <div class="button-row" style="margin-top: 5px;">
                     <a href="/ai_training_data_view.html" class="btn">📊 View & Label Data</a>
                 </div>
             </div>
-            
-            <!-- AI & Models & Algorithmic approach -->
+
+            <!-- AI Models -->
             <div class="button-group">
-                <div class="button-group-label">AI Models & Algorithmic approach</div>
+                <div class="button-group-label">🧠 AI Models</div>
                 <div class="button-row">
-                    <a href="/ai_training.html" class="btn">AI Models</a>
-                    <a href="/training_evaluations.html" class="btn">Test Algorithm</a>
+                    <a href="/ai_training.html" class="btn">Models & Training</a>
+                    <a href="/run_test.html" class="btn">🧪 Run Tests</a>
                 </div>
             </div>
-            
-            <!-- Advanced / Admin Functions -->
+
+            <!-- Admin -->
             <div class="button-group">
                 <div class="button-group-label">⚙️ Advanced / Admin</div>
                 <div class="button-row">
-                    <a href="/reference.html" class="btn btn-admin">🎯 Reference Image</a>
-                    <a href="/run_test.html" class="btn btn-admin">🧪 Run Tests</a>
-                </div>
-                <div class="button-row" style="margin-top: 5px;">
                     <a href="/admin.html" class="btn btn-admin">⚙️ Admin Tools</a>
                 </div>
             </div>
-            
+
             <!-- Documentation -->
             <div style="margin-top: 10px;">
                 <a href="/docs.html" class="btn btn-docs">📚 Documentation</a>
             </div>
         </div>
-        
+
         <div class="status">
             <span class="status-dot"></span>
             <strong>System Online</strong>
             <p style="margin-top: 10px; color: #666; font-size: 0.9em;">
-                Ready to analyze drawings
+                Ready to score drawings
             </p>
         </div>
-        
+
         <div class="stats-grid" id="statsGrid" style="display: none;">
-            <div class="stat-card clickable" onclick="window.location.href='/training_evaluations.html'">
+            <div class="stat-card clickable" onclick="window.location.href='/ai_training_data_view.html'">
                 <div class="stat-value" id="totalEvaluations">-</div>
-                <div class="stat-label">Training Data</div>
-            </div>
-            <div class="stat-card clickable" onclick="window.location.href='/reference.html'">
-                <div class="stat-value" id="referenceCount">-</div>
-                <div class="stat-label">Reference Images</div>
-            </div>
-            <div class="stat-card clickable" onclick="window.location.href='/run_test.html'">
-                <div class="stat-value" id="testImages">-</div>
-                <div class="stat-label">Test Images</div>
+                <div class="stat-label">Training Images</div>
             </div>
             <div class="stat-card clickable" onclick="window.location.href='/ai_training_overview.html'">
                 <div class="stat-value" id="trainedModels">-</div>
                 <div class="stat-label">Trained AI Models</div>
             </div>
         </div>
-        
+
         <div class="info-section">
             <h2>🔍 How It Works</h2>
             <p style="text-align: center;">
-                NPSketch uses advanced computer vision techniques to analyze hand-drawn images.
-                Upload your drawing, and the system will automatically detect lines, compare them
-                to the reference template, and provide detailed feedback on accuracy.
+                NPSketch scores hand-drawn neuropsychological figures with trained CNN models.
+                Draw or upload a figure and a model predicts its Total_Score — or, with the
+                component model, the full 20-element × Presence/Accuracy/Position breakdown.
             </p>
-            
+
             <div class="features-grid">
                 <div class="feature">
-                    <div class="feature-icon">🎯</div>
-                    <h3>Line Detection</h3>
-                    <p>Hough Transform detects line segments with configurable precision and merging</p>
+                    <div class="feature-icon">✏️</div>
+                    <h3>Draw or Upload</h3>
+                    <p>Sketch a figure on the canvas or upload an image; it is normalized to the training format</p>
                 </div>
                 <div class="feature">
-                    <div class="feature-icon">📊</div>
-                    <h3>Smart Comparison</h3>
-                    <p>Compares position, angle, and length with weighted similarity scoring</p>
+                    <div class="feature-icon">🧩</div>
+                    <h3>Component Scoring</h3>
+                    <p>The component model predicts 60 sub-labels (20 elements × Presence/Accuracy/Position)</p>
                 </div>
                 <div class="feature">
-                    <div class="feature-icon">🎨</div>
-                    <h3>Visual Feedback</h3>
-                    <p>Color-coded visualizations show correct, missing, and extra lines</p>
+                    <div class="feature-icon">🧠</div>
+                    <h3>Train Your Own</h3>
+                    <p>Train regression, classification, or component models on the unified data base</p>
                 </div>
                 <div class="feature">
-                    <div class="feature-icon">💾</div>
-                    <h3>Persistent Storage</h3>
-                    <p>All evaluations saved to database with full history tracking</p>
+                    <div class="feature-icon">🧪</div>
+                    <h3>Run Tests</h3>
+                    <p>Batch-evaluate a model over your drawn test images and compare to expected scores</p>
                 </div>
             </div>
         </div>
     </div>
     
     <script>
-        // Check reference status on load
-        async function checkReferenceStatus() {
-            try {
-                const response = await fetch('/api/reference/status');
-                const status = await response.json();
-                
-                if (!status.initialized) {
-                    // Hide all buttons except Reference
-                    const links = document.querySelector('.links');
-                    links.innerHTML = '<a href="/reference.html" class="btn" style="font-size: 1.2em; padding: 20px 40px;">📐 Setup Reference Image</a>';
-                    
-                    // Show warning
-                    const statusDiv = document.querySelector('.status');
-                    statusDiv.innerHTML = `
-                        <span class="status-dot" style="background: #ffc107;"></span>
-                        <strong>Setup Required</strong>
-                        <p style="margin-top: 10px; color: #856404; font-size: 0.9em;">
-                            ${status.message}<br>
-                            Please create reference features before using the system
-                        </p>
-                    `;
-                    
-                    // Hide stats
-                    document.getElementById('statsGrid').style.display = 'none';
-                    
-                    return false;
-                }
-                
-                return true;
-            } catch (error) {
-                console.error('Failed to check reference status:', error);
-                return false;
-            }
-        }
-        
         // Load stats and update UI
         async function loadStats() {
-            // First check if reference is initialized
-            const initialized = await checkReferenceStatus();
-            
-            if (!initialized) {
-                return;
-            }
-            
             try {
-                // Get health data
-                const healthResponse = await fetch('/api/health');
-                const healthData = await healthResponse.json();
-                
-                // Get training data evaluations
-                const evalsResponse = await fetch('/api/training-data-evaluations?limit=100');
-                const evalsData = await evalsResponse.json();
-                
-                // Get test images
-                const testResponse = await fetch('/api/test-images');
-                const testImages = await testResponse.json();
-                
-                // Get trained AI models
+                const imgResponse = await fetch('/api/training-data-images?limit=1');
+                const imgData = await imgResponse.json();
+
                 const modelsResponse = await fetch('/api/ai-training/models');
                 const modelsData = await modelsResponse.json();
-                
-                // Update stats
-                document.getElementById('totalEvaluations').textContent = evalsData.total || 0;
-                document.getElementById('referenceCount').textContent = healthData.reference_images_count || 1;
-                document.getElementById('testImages').textContent = testImages.length;
-                document.getElementById('trainedModels').textContent = modelsData.total || 0;
-                
-                // Show stats grid
+
+                document.getElementById('totalEvaluations').textContent = imgData.total || 0;
+                document.getElementById('trainedModels').textContent = modelsData.total || (modelsData.models ? modelsData.models.length : 0);
+
                 document.getElementById('statsGrid').style.display = 'grid';
-                
             } catch (error) {
                 console.error('Failed to load stats:', error);
                 document.querySelector('.status-dot').style.background = '#ff4444';
             }
         }
-        
-        // Load stats on page load
+
+        // Show the live app version from the API (falls back to the static text)
+        async function loadVersion() {
+            try {
+                const r = await fetch('/api/health');
+                if (!r.ok) return;
+                const h = await r.json();
+                if (h.version) {
+                    const el = document.getElementById('appVersion');
+                    if (el) el.textContent = 'v' + h.version;
+                    document.title = 'NPSketch v' + h.version;
+                }
+            } catch (e) { /* keep static fallback */ }
+        }
+
         loadStats();
+        loadVersion();
     </script>
 </body>
 </html>

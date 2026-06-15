@@ -173,58 +173,6 @@ async def get_model_metadata(model_filename: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/models/{model_filename}/loss-plot")
-async def get_loss_plot(model_filename: str):
-    """
-    Generate and return loss plot for a trained model.
-    
-    Shows training and validation loss over epochs with best epoch marker.
-    """
-    from pathlib import Path
-    from fastapi.responses import StreamingResponse
-    
-    try:
-        # Load metadata
-        model_stem = model_filename.replace('.pth', '')
-        metadata_file = Path("/app/data/models") / f"{model_stem}_metadata.json"
-        
-        if not metadata_file.exists():
-            raise HTTPException(status_code=404, detail="Metadata not found")
-        
-        with open(metadata_file, 'r') as f:
-            metadata = json.load(f)
-        
-        # Get training history
-        history = metadata.get('training_history', {})
-        train_loss = history.get('train_loss', [])
-        val_loss = history.get('val_loss', [])
-        
-        if not train_loss or not val_loss:
-            raise HTTPException(status_code=404, detail="No training history available")
-        
-        # Generate plot
-        from ai_training.visualization import generate_loss_plot
-        
-        target_feature = metadata.get('target_feature', 'Unknown')
-        title = f"Training Loss History - {target_feature}"
-        
-        plot_buffer = generate_loss_plot(train_loss, val_loss, title=title)
-        
-        logger.info(f"Generated loss plot for {model_filename}: {len(train_loss)} epochs")
-        
-        return StreamingResponse(
-            plot_buffer,
-            media_type="image/png",
-            headers={"Cache-Control": "public, max-age=3600"}
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to generate loss plot: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to generate loss plot: {str(e)}")
-
-
 @router.post("/models/test")
 async def test_model(
     request: dict = Body(...),
@@ -603,8 +551,47 @@ async def predict_single_image(
         # Predict
         with torch.no_grad():
             output = model(img_tensor)
-            
-            if training_mode == "classification":
+
+            if training_mode == "components":
+                # 60 sub-labels (20 elements x PRES/ACC/POS); Total_Score = sum.
+                # Apply post-hoc calibration if present in metadata: per-label decision
+                # thresholds + a non-negative linear readout of the 60 probabilities.
+                probs = torch.sigmoid(output)[0].tolist()
+                thr = metadata.get('thresholds')
+                if not (isinstance(thr, list) and len(thr) == 60):
+                    thr = [0.5] * 60
+                hard = [1 if probs[j] >= thr[j] else 0 for j in range(60)]
+                elements = []
+                for e in range(20):
+                    pr, ac, po = probs[3*e], probs[3*e+1], probs[3*e+2]
+                    elements.append({
+                        'element': e + 1,
+                        'presence': round(pr, 3), 'accuracy': round(ac, 3), 'position': round(po, 3),
+                        'thr_presence': round(thr[3*e], 3), 'thr_accuracy': round(thr[3*e+1], 3),
+                        'thr_position': round(thr[3*e+2], 3),
+                        'subscore_hard': int(hard[3*e] + hard[3*e+1] + hard[3*e+2]),
+                    })
+                sc = metadata.get('score_calibration') or {}
+                w = sc.get('weights'); bcal = sc.get('bias')
+                calibrated = None
+                if isinstance(w, list) and len(w) == 60 and bcal is not None:
+                    calibrated = round(float(sum(w[j] * probs[j] for j in range(60)) + bcal), 1)
+                    calibrated = max(0.0, min(60.0, calibrated))
+                total_score = calibrated if calibrated is not None else int(sum(hard))
+                return {
+                    'success': True,
+                    'model': model_filename,
+                    'target_feature': 'Components',
+                    'training_mode': 'components',
+                    'prediction': {
+                        'total_score': total_score,
+                        'calibrated': calibrated is not None,
+                        'total_score_hard': int(sum(hard)),
+                        'total_score_soft': round(float(sum(probs)), 2),
+                        'elements': elements,
+                    }
+                }
+            elif training_mode == "classification":
                 # Get probabilities and predicted class
                 probabilities = torch.softmax(output, dim=1)[0]
                 predicted_class = torch.argmax(probabilities).item()
@@ -691,6 +678,78 @@ async def predict_single_image(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/models/run-on-test-images")
+async def run_on_test_images(request: dict = Body(...), db: Session = Depends(get_db)):
+    """
+    Run a trained model over the DRAWN test images and compare predicted vs
+    expected (the "Run Tests" batch). Each DRAWN image with features is scored
+    using the same preprocessing as predict-single.
+    """
+    import os, io, torch
+    import numpy as np
+    from pathlib import Path
+    from ai_training.model import DrawingClassifier
+    from ai_training.preprocessing import preprocess_bytes_for_prediction
+
+    model_filename = request.get("model_filename")
+    if not model_filename:
+        raise HTTPException(status_code=400, detail="model_filename required")
+    model_path = Path("/app/data/models") / model_filename
+    meta_path = Path("/app/data/models") / f"{model_path.stem}_metadata.json"
+    if not model_path.exists():
+        raise HTTPException(status_code=404, detail="Model not found")
+    metadata = json.load(open(meta_path)) if meta_path.exists() else {}
+    mode = metadata.get("training_mode", "regression")
+    num_outputs = metadata.get("model", {}).get("output_neurons", 1)
+    use_sigmoid = bool(metadata.get("use_sigmoid", False))
+    norm = metadata.get("normalization", {})
+
+    model = DrawingClassifier(num_outputs=num_outputs, pretrained=False, use_sigmoid=use_sigmoid)
+    ckpt = torch.load(model_path, map_location="cpu")
+    model.load_state_dict(ckpt.get("model_state_dict", ckpt))
+    model.eval()
+
+    def expected_total(feats):
+        c = feats.get("components")
+        if c:
+            return sum(c["presence"]) + sum(c["accuracy"]) + sum(c["position"])
+        return feats.get("Total_Score")
+
+    rows = db.query(TrainingDataImage).filter(
+        TrainingDataImage.source_format == "DRAWN",
+        TrainingDataImage.features_data.isnot(None),
+    ).all()
+
+    results, diffs = [], []
+    for r in rows:
+        feats = json.loads(r.features_data)
+        exp = expected_total(feats)
+        arr = preprocess_bytes_for_prediction(r.original_file_data, metadata=metadata)
+        t = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0)
+        with torch.no_grad():
+            out = model(t)
+        if mode == "components":
+            pred = float(torch.sigmoid(out)[0].sum().item())
+        elif mode == "classification":
+            pred = int(torch.argmax(out, dim=1).item())
+        else:
+            v = out[0][0].item()
+            if norm.get("method") == "min_max":
+                mn, mx = norm.get("min_value", 0), norm.get("max_value", 60)
+                v = max(mn, min(mx, v * (mx - mn) + mn))
+            pred = round(v, 2)
+        row = {"id": r.id, "name": r.test_name or r.patient_id, "expected": exp, "predicted": pred}
+        if exp is not None and mode != "classification":
+            row["abs_error"] = round(abs(pred - exp), 2)
+            diffs.append(abs(pred - exp))
+        results.append(row)
+
+    summary = {"count": len(results), "training_mode": mode}
+    if diffs:
+        summary["mae"] = round(float(np.mean(diffs)), 2)
+    return {"success": True, "model": model_filename, "summary": summary, "results": results}
 
 
 @router.delete("/models/{model_filename}")
@@ -790,3 +849,48 @@ async def cleanup_orphaned_metadata():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+# --------------------------------------------------------------------------
+# Component Map (explainability) — rebuild the per-element heatmaps
+# --------------------------------------------------------------------------
+import threading as _threading
+from datetime import datetime as _dt
+
+_component_map_job = {
+    "running": False,
+    "started_at": None,
+    "finished_at": None,
+    "error": None,
+}
+
+
+def _run_component_map_build():
+    global _component_map_job
+    _component_map_job.update(running=True, error=None,
+                              started_at=_dt.now().isoformat(), finished_at=None)
+    try:
+        from ai_training.component_heatmaps import main as _gen
+        _gen()
+        _component_map_job["finished_at"] = _dt.now().isoformat()
+        logger.info("Component map rebuild complete")
+    except Exception as e:
+        logger.error(f"Component map rebuild failed: {e}", exc_info=True)
+        _component_map_job["error"] = str(e)
+    finally:
+        _component_map_job["running"] = False
+
+
+@router.post("/component-map/rebuild")
+async def rebuild_component_map():
+    """Regenerate the 20 per-element heatmaps (data-driven + Grad-CAM) in the background."""
+    if _component_map_job["running"]:
+        return {"success": False, "message": "Rebuild already running", "status": _component_map_job}
+    _threading.Thread(target=_run_component_map_build, daemon=True).start()
+    return {"success": True, "message": "Component map rebuild started"}
+
+
+@router.get("/component-map/status")
+async def component_map_status():
+    """Current status of the component-map rebuild job."""
+    return _component_map_job

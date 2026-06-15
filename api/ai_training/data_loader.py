@@ -102,6 +102,7 @@ class TrainingDataLoader:
         all_features = set()
         feature_stats = {}
         custom_class_info = {}
+        component_count = 0
         
         # Process all rows for accurate stats
         for row in result:
@@ -118,7 +119,14 @@ class TrainingDataLoader:
                             if class_data.get('name_custom'):
                                 custom_class_info[feature_key]['names'].add(class_data['name_custom'])
                         continue
-                    
+
+                    # 'components' is the component-mode target (a dict of sub-labels),
+                    # not a numeric regression feature — count it, skip numeric stats.
+                    if key == "components":
+                        if value:
+                            component_count += 1
+                        continue
+
                     all_features.add(key)
                     if key not in feature_stats:
                         feature_stats[key] = {'count': 0, 'min': float('inf'), 'max': float('-inf'), 'sum': 0, 'sum_sq': 0}
@@ -148,6 +156,9 @@ class TrainingDataLoader:
                 stats['std'] = std
                 stats['median'] = float(mean)  # Approximate - exact median would require storing all values
             else:
+                # No numeric values seen — avoid leaking inf/-inf (not JSON compliant)
+                stats['min'] = 0
+                stats['max'] = 0
                 stats['mean'] = 0
                 stats['std'] = 0
                 stats['median'] = 0
@@ -167,7 +178,12 @@ class TrainingDataLoader:
                 'median': 0,
                 'std': 0
             }
-        
+
+        # Component target (60 sub-labels): a third training mode, not a numeric feature
+        if component_count > 0:
+            all_features.add('Components')
+            feature_stats['Components'] = {'count': component_count, 'type': 'components'}
+
         return {
             'features': sorted(list(all_features)),
             'stats': feature_stats
@@ -379,7 +395,8 @@ class TrainingDataLoader:
         normalizer=None,
         add_synthetic_bad_images: bool = False,
         synthetic_n_samples: int = 50,
-        max_images: Optional[int] = None
+        max_images: Optional[int] = None,
+        source_filter: Optional[str] = None
     ) -> Tuple[Dict, str]:
         """
         Prepare augmented training dataset and save to disk.
@@ -429,27 +446,36 @@ class TrainingDataLoader:
         logger.info("Preparing augmented dataset...")
         logger.debug(f"Augmentation config: {default_config}")
         
-        # Load images from database
-        images = self.db.query(TrainingDataImage).filter(
+        # Load images from database (optionally restricted to one source,
+        # e.g. TELEFRED for the component model — see source_filter)
+        query = self.db.query(TrainingDataImage).filter(
             TrainingDataImage.features_data.isnot(None)
-        ).all()
-        
+        )
+        if source_filter:
+            query = query.filter(TrainingDataImage.source_format == source_filter)
+            logger.info(f"Restricting to source_format == {source_filter}")
+        images = query.all()
+
         # Filter images with target feature
         images_data = []
-        
-        # Check if classification
+
+        # Check mode (Components sentinel / Custom_Class prefix / regression)
+        is_components_mode = (target_feature == 'Components')
         is_classification_mode = target_feature.startswith('Custom_Class_')
         num_classes_str = None  # Initialize to avoid NameError
         if is_classification_mode:
             num_classes_str = target_feature.replace('Custom_Class_', '')
-        
+
         for img in images:
             try:
                 features = json.loads(img.features_data)
-                
+
                 # Check if feature exists
                 has_feature = False
-                if is_classification_mode:
+                if is_components_mode:
+                    if features.get("components"):
+                        has_feature = True
+                elif is_classification_mode:
                     if "Custom_Class" in features and num_classes_str in features.get("Custom_Class", {}):
                         has_feature = True
                 else:
@@ -635,14 +661,17 @@ class TrainingDataLoader:
         for img_data in images_data:
             features = json.loads(img_data['features_data'])
             
-            # Extract target value
-            if is_classification_mode:
+            # Extract a scalar for the stratified split. Component mode stratifies
+            # by the derived Total_Score (the training target is the 60-vector).
+            if is_components_mode:
+                y_values.append(float(features.get("Total_Score") or 0))
+            elif is_classification_mode:
                 if num_classes_str is None:
                     raise ValueError(f"num_classes_str is None for classification mode (target_feature={target_feature})")
                 y_values.append(float(features["Custom_Class"][num_classes_str]["label"]))
             else:
                 y_values.append(float(features[target_feature]))
-        
+
         y_array = np.array(y_values)
         
         # Create patient-level (group-aware) stratified split.
@@ -753,7 +782,7 @@ class TrainingDataLoader:
             num_augmentations=default_config['num_augmentations'],
             # NEW: Pre-shrink settings
             pre_shrink_enabled=default_config.get('pre_shrink', {}).get('enabled', True),
-            pre_shrink_factor=default_config.get('pre_shrink', {}).get('factor', 0.95),
+            pre_shrink_factor=default_config.get('pre_shrink', {}).get('factor', 0.90),
             # NEW: Diversity control
             diversity_control_enabled=default_config.get('diversity_control', {}).get('enabled', True),
             similarity_to_original_max=default_config.get('diversity_control', {}).get('similarity_to_original_max', 0.95),

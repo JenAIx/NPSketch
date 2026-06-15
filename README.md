@@ -1,28 +1,34 @@
-# NPSketch v1.0
+# NPSketch v2.1
 
-**Automated Line Detection & AI Training for Hand-Drawn Images**
+**CNN-based scoring of hand-drawn neuropsychological figures**
 
-NPSketch is a computer vision and machine learning application that automatically compares hand-drawn images to reference templates, provides detailed feedback on drawing accuracy, and trains CNN models to predict clinical features from neuropsychological drawings.
+NPSketch trains and applies ResNet-18 CNN models to score hand-drawn OCS-Plus figures directly from
+the image — predicting the Total_Score, a score class, or the full 20-element ×
+Presence/Accuracy/Position component breakdown. (The earlier classical line-detection/template-matching
+pipeline was removed in v2.0; see `CLAUDE.md`.)
 
 ---
 
 ## 🎯 Features
 
 ### Core Functionality
-- **Automated Line Detection**: OpenCV Hough Transform with iterative pixel subtraction
-- **Smart Comparison**: Hungarian algorithm for optimal line matching
-- **Visual Feedback**: Color-coded visualizations showing matches and differences
-- **Dual Analysis Methods**: 
-  - Algorithm-based: Line detection and matching
-  - AI-based: Trained CNN model prediction (regression or classification)
-- **Duplicate Detection**: SHA256 hash-based checking across both upload and training databases
-- **Optimized Processing**: Separate thinning and registration options for faster uploads
+- **Draw or upload** a figure → score it with a trained model (component breakdown for component models)
+- **Three training modes**: regression (Total_Score), classification (score classes), components (60 sub-labels)
+- **Unified data base**: all sources consolidated into `templates/labels.csv` + `img/`, imported via
+  `api/data_consolidation/import_unified.py`
+- **Run Tests**: batch-evaluate a model over your drawn test images (predicted vs. expected)
+- **Duplicate Detection**: SHA256 hash-based
 
 ### AI Training Pipeline
-- **CNN Model Training**: ResNet-18 for both regression and classification tasks
-- **Dual Training Modes**: 
-  - Regression: Predict continuous scores (Total_Score, MMSE)
-  - Classification: Predict score ranges with custom class boundaries
+- **CNN Model Training**: ResNet-18, three training modes (see `CLAUDE.md` §7)
+- **Three Training Modes**:
+  - Regression: predict continuous scores (Total_Score, MMSE)
+  - Classification: predict score ranges with custom class boundaries
+  - Components (2026-06): predict the 60 OCS-Plus sub-labels (20 elements × Presence/Accuracy/Position);
+    Total_Score = their sum — gives dense supervision in the sparse low-score range. TELEFRED-only (v1).
+- **Unified data base**: all sources consolidated into `templates/labels.csv` + `img/`, imported via
+  the single `api/data_consolidation/import_unified.py` (auto-detects red/black image style, dedups,
+  stores the 60 sub-labels). See `templates/README.md`.
 - **Interactive Class Creation**: Visual distribution preview with customizable class names and boundaries
 - **Data Augmentation**: Realistic image transformations (rotation, translation, scaling, local warping)
 - **Synthetic Bad Images**: Generate low-quality images to address data imbalance (NEW)
@@ -94,14 +100,13 @@ npsketch/
 │   ├── js/                       # JavaScript modules
 │   │   └── ai_training_preview_target_distribution.js
 │   ├── index.html                # Landing page
-│   ├── upload.html               # Upload & analyze (Algorithm or AI)
-│   ├── reference.html            # Reference line editor
+│   ├── evaluate.html             # Upload OR draw → predict / label & save (merged)
+│   ├── upload.html · draw_testimage.html  # redirect stubs → evaluate.html
 │   ├── ai_training.html          # AI training menu
 │   ├── ai_training_overview.html # Dataset overview & models
 │   ├── ai_training_train.html    # Model training interface
 │   ├── ai_training_data_view.html # View & label data
-│   ├── ai_training_data_upload.html # Upload MAT/OCS
-│   └── training_evaluations.html # Algorithm evaluation
+│   └── ai_training_data_upload.html # Upload MAT/OCS
 ├── data/                         # Persistent data (volume)
 │   ├── npsketch.db               # SQLite database
 │   ├── models/                   # Trained CNN models
@@ -132,8 +137,9 @@ docker compose up --build -d
 
 ### Main Pages
 - **http://localhost** - Landing page with stats
-- **http://localhost/upload.html** - Upload & analyze drawings (Algorithm or AI Model)
-- **http://localhost/reference.html** - Define reference lines
+- **http://localhost/evaluate.html** - Upload or draw a figure → predict with a model, or label
+  (Total_Score + 20 components) and add it to the training data. `?input=upload|draw` preselects the
+  source tab. (Old `upload.html` / `draw_testimage.html` redirect here.)
 - **http://localhost/ai_training.html** - AI training menu
 - **http://localhost/ai_training_overview.html** - Dataset overview & trained models
 - **http://localhost/ai_training_train.html** - Train new models
@@ -214,32 +220,27 @@ docker compose up --build -d
 - **Extra Lines**: Detected lines with no match
 - **Reference Match Score**: correct_lines / total_reference_lines
 
-### 5. AI Model Prediction (Alternative to Algorithm)
+### 5. Evaluate & Label (`evaluate.html`)
 
-**Upload & Analyze with Trained Models:**
+> Note: the classical line-detection/template-matching algorithm was removed in v2.0. Scoring is
+> AI-only — the sections above describing line detection are historical (see `CLAUDE.md`).
 
-In `upload.html`, users can choose between:
+`evaluate.html` is the single page for working with one figure. It has two tab rows:
 
-**Method 1: Algorithm (Traditional)**
-- Line detection + Hungarian matching
-- Shows: Correct, Missing, Extra Lines, Similarity Score
+- **Top — image source:** **📤 Upload** (drag/drop → auto-normalize to 568×274 → scale/rotate/move
+  correction) or **🎨 Draw** (pen/eraser canvas). `?input=upload|draw` preselects the tab.
+- **Bottom — action:** **🤖 Predict** or **🏷️ Train / Label** — both operate on whichever source is active.
 
-**Method 2: AI Model (Neural Network)**
-- Select trained CNN model from dropdown
-- **Regression**: Predicts continuous score (e.g., 37.5 out of 60)
-  - Shows score visualization bar with denormalized value
-  - Displays raw model output and normalization info
-- **Classification**: Predicts score range/class (e.g., "Good [52-60]")
-  - Shows predicted class with confidence percentage
-  - Displays probability bars for all classes with custom names
-  - Highlights predicted class with checkmark
+**🤖 Predict** — pick a trained model; one renderer handles all three modes:
+- **Regression** (Total_Score): score + visualization bar, denormalized raw output.
+- **Classification** (custom class): predicted class + confidence + probability bars.
+- **Components** (60 sub-labels): full 20-element × Presence/Accuracy/Position breakdown with the
+  derived Total_Score.
 
-**Features:**
-- Model dropdown shows all available trained models
-- Displays model metadata (target feature, mode, accuracy/MAE)
-- Real-time prediction (~0.5 sec)
-- Supports both regression and classification models
-- Uses custom class names (e.g., "Poor", "Fair", "Good")
+**🏷️ Train / Label** — set the 20 components (Total_Score = their sum) and a name, then save to the
+training data via `/api/save-drawn-image`. The `source_format` is `UPLOAD` or `DRAWN` depending on the
+active source. A saved-drawings browser lets you reload a drawing (image + labels), edit and re-save,
+or delete it.
 
 ---
 
@@ -710,13 +711,9 @@ docker exec npsketch-api python3 /app/ocs_extraction/ocs_extractor.py \
 **Usage:**
 
 ```bash
-# Step 1: Normalize images
-docker exec npsketch-api python3 /app/oxford_extraction/oxford_normalizer.py \
-  /app/templates/training_data_oxford_manual_rater_202512/imgs \
-  /app/templates/training_data_oxford_manual_rater_202512/imgs_normalized_568x274
-
-# Step 2: Import to database
-docker exec npsketch-api python3 /app/oxford_extraction/oxford_db_populator.py
+# DEPRECATED (2026-06): per-source import was replaced by the unified path.
+# All data now lives in templates/labels.csv + img/ and is imported via:
+docker exec -e PYTHONPATH=/app npsketch-api python3 /app/data_consolidation/import_unified.py
 ```
 
 **Input:**
@@ -1181,8 +1178,8 @@ MIT License - feel free to use and modify for your projects.
 ## 👤 Author
 
 **Stefan Brodoehl**  
-Date: October-December 2025, January 2026  
-Version: 1.2.0
+Date: October-December 2025, January–June 2026  
+Version: 2.1.0
 
 ---
 

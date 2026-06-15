@@ -31,11 +31,8 @@ import scipy.io
 from PIL import Image
 import csv
 
-from database import get_db, TrainingDataImage, ReferenceImage
-from image_quality_check.contour_quality import run_quality_check
+from database import get_db, TrainingDataImage
 from line_normalizer import normalize_line_thickness
-from services import EvaluationService
-from image_processing import LineDetector
 
 router = APIRouter(prefix="/api", tags=["training_data"])
 
@@ -190,6 +187,13 @@ async def extract_training_data(
     files: List[UploadFile] = File(...),
     db: Session = Depends(get_db)
 ):
+    raise HTTPException(
+        status_code=410,
+        detail=("Bulk training-data import was retired. The single import path is "
+                "api/data_consolidation/import_unified.py (reads templates/labels.csv + img/). "
+                "See templates/README.md."),
+    )
+    # Legacy implementation below is unreachable (retired 2026-06-12).
     """
     Extract training data from uploaded files and save to database.
     
@@ -505,6 +509,13 @@ async def extract_oxford_data(
     files: List[UploadFile] = File(...),
     db: Session = Depends(get_db)
 ):
+    raise HTTPException(
+        status_code=410,
+        detail=("Bulk training-data import was retired. The single import path is "
+                "api/data_consolidation/import_unified.py (reads templates/labels.csv + img/). "
+                "See templates/README.md."),
+    )
+    # Legacy implementation below is unreachable (retired 2026-06-12).
     """
     Extract Oxford-style PNG images and save to database.
     
@@ -687,7 +698,6 @@ async def get_training_data_images(
     source_format: str = None,
     search: str = None,
     only_missing: bool = False,
-    quality_check_failed: bool = False,
     ids: str = None,
     db: Session = Depends(get_db)
 ):
@@ -702,7 +712,6 @@ async def get_training_data_images(
         source_format: Filter by source format
         search: Search term (filters ID, patient_id, task_type, source_format, filename)
         only_missing: If true, only return images without features
-        quality_check_failed: If true, only return images that failed quality check
         ids: Comma-separated list of image IDs to filter by (e.g., "122,123,456")
         db: Database session
     
@@ -754,11 +763,7 @@ async def get_training_data_images(
                 TrainingDataImage.features_data == '',
             )
         )
-    
-    # Quality check failed filter
-    if quality_check_failed:
-        filters.append(TrainingDataImage.quality_check_status == "invalid")
-    
+
     # Get total count using func.count (fast - doesn't load data)
     count_query = db.query(func.count(TrainingDataImage.id))
     for f in filters:
@@ -778,11 +783,7 @@ async def get_training_data_images(
             TrainingDataImage.extraction_metadata,
             TrainingDataImage.features_data,
             TrainingDataImage.uploaded_at,
-            TrainingDataImage.session_id,
-            TrainingDataImage.ground_truth_correct,
-            TrainingDataImage.ground_truth_extra,
-            TrainingDataImage.quality_check_status,
-            TrainingDataImage.quality_check_date
+            TrainingDataImage.session_id
         )
     )
     for f in filters:
@@ -794,7 +795,18 @@ async def get_training_data_images(
     for img in images:
         metadata = json.loads(img.extraction_metadata) if img.extraction_metadata else {}
         has_features = bool(img.features_data and img.features_data != '{}' and img.features_data != 'null')
-        
+
+        total_score = None
+        has_components = False
+        if has_features:
+            try:
+                fd = json.loads(img.features_data)
+                total_score = fd.get("Total_Score")
+                comp = fd.get("components")
+                has_components = bool(comp and comp.get("presence") and comp.get("accuracy") and comp.get("position"))
+            except (ValueError, AttributeError):
+                pass
+
         results.append({
             "id": img.id,
             "patient_id": img.patient_id,
@@ -802,15 +814,13 @@ async def get_training_data_images(
             "source_format": img.source_format,
             "original_filename": img.original_filename,
             "test_name": img.test_name,
-            "width": metadata.get("width"),
-            "height": metadata.get("height"),
+            "width": metadata.get("width", 568),   # processed images are always 568×274
+            "height": metadata.get("height", 274),
             "uploaded_at": img.uploaded_at.isoformat(),
             "session_id": img.session_id,
             "has_features": has_features,
-            "ground_truth_correct": img.ground_truth_correct,
-            "ground_truth_extra": img.ground_truth_extra,
-            "quality_check_status": img.quality_check_status,
-            "quality_check_date": img.quality_check_date.isoformat() if img.quality_check_date else None
+            "total_score": total_score,
+            "has_components": has_components
         })
     
     return {
@@ -834,168 +844,8 @@ def get_training_data_stats(db: Session = Depends(get_db)):
         "by_source": {"MAT": 0, "OCS": 0, "OXFORD": 0, "DRAWN": 0},
         "patients": 0,
         "with_features": 0,
-        "without_features": total,
-        "quality": {"valid": 0, "invalid": 0, "unchecked": total}
+        "without_features": total
     }
-
-
-# Global state for quality check background job
-quality_check_job = {
-    "running": False,
-    "progress": 0,
-    "total": 0,
-    "checked": 0,
-    "invalid": 0,
-    "valid": 0,
-    "started_at": None,
-    "finished_at": None,
-    "error": None,
-}
-
-
-def _run_quality_check_background(recheck_invalid_only: bool = False):
-    """Background task to run quality check and update DB."""
-    import threading
-    from database import SessionLocal
-    from image_quality_check.contour_quality import analyze_image, preprocess_original_image
-    
-    global quality_check_job
-    
-    quality_check_job["running"] = True
-    quality_check_job["started_at"] = datetime.now().isoformat()
-    quality_check_job["finished_at"] = None
-    quality_check_job["error"] = None
-    quality_check_job["checked"] = 0
-    quality_check_job["invalid"] = 0
-    quality_check_job["valid"] = 0
-    
-    # Quality check parameters
-    red_threshold = {"r_min": 150, "g_max": 100, "b_max": 100}
-    
-    try:
-        db = SessionLocal()
-        
-        # Get entries to check
-        query = db.query(TrainingDataImage)
-        if recheck_invalid_only:
-            # Only check entries that are NULL or invalid
-            from sqlalchemy import or_
-            query = query.filter(
-                or_(
-                    TrainingDataImage.quality_check_status.is_(None),
-                    TrainingDataImage.quality_check_status == "invalid"
-                )
-            )
-        
-        entries = query.all()
-        quality_check_job["total"] = len(entries)
-        
-        logger.info(f"Quality check background job started: {len(entries)} entries to check")
-        
-        for i, entry in enumerate(entries):
-            try:
-                # Use original image data
-                image_bytes = entry.original_file_data
-                if not image_bytes:
-                    image_bytes = entry.processed_image_data
-                
-                if not image_bytes:
-                    continue
-                
-                # Analyze image with all parameters
-                result = analyze_image(
-                    image_bytes=image_bytes,
-                    use_original=True,
-                    red_threshold=red_threshold,
-                    min_component_area=100,
-                    min_component_ratio=0.01,
-                    min_gap_px=80,
-                    merge_kernel=5,
-                    merge_iterations=2,
-                    peak_threshold_ratio=0.1,
-                    min_peak_separation=9999,  # Disable projection-based check
-                    outside_margin_ratio=0.05,
-                    outside_ink_ratio=0.08,
-                    min_contour_area=1,
-                    contour_only=False,
-                    require_gap_and_outside=True,
-                    min_component_height_ratio=0.1,
-                    require_contours=True,
-                    min_contour_count=2,
-                )
-                
-                # Update entry
-                is_flagged = result.get("flagged", False)
-                entry.quality_check_status = "invalid" if is_flagged else "valid"
-                entry.quality_check_date = datetime.now()
-                
-                if is_flagged:
-                    quality_check_job["invalid"] += 1
-                else:
-                    quality_check_job["valid"] += 1
-                
-                quality_check_job["checked"] = i + 1
-                quality_check_job["progress"] = int((i + 1) / len(entries) * 100)
-                
-                # Commit in batches so DB is updated while running
-                if (i + 1) % 50 == 0:
-                    db.commit()
-                
-            except Exception as e:
-                logger.warning(f"Error checking image {entry.id}: {e}")
-                continue
-        
-        db.commit()
-        db.close()
-        
-        quality_check_job["finished_at"] = datetime.now().isoformat()
-        logger.info(f"Quality check complete: {quality_check_job['invalid']} invalid, {quality_check_job['valid']} valid")
-        
-    except Exception as e:
-        logger.error(f"Quality check background job error: {e}", exc_info=True)
-        quality_check_job["error"] = str(e)
-    finally:
-        quality_check_job["running"] = False
-
-
-@router.post("/training-data-image-quality-check/start")
-async def start_quality_check(recheck_invalid_only: bool = True):
-    """
-    Start background quality check job.
-    
-    Args:
-        recheck_invalid_only: If true, only check entries with status=NULL or status="invalid"
-    """
-    import threading
-    
-    global quality_check_job
-    
-    if quality_check_job["running"]:
-        return {
-            "success": False,
-            "message": "Quality check already running",
-            "status": quality_check_job,
-        }
-    
-    # Start background thread
-    thread = threading.Thread(
-        target=_run_quality_check_background,
-        args=(recheck_invalid_only,),
-        daemon=True
-    )
-    thread.start()
-    
-    return {
-        "success": True,
-        "message": "Quality check started",
-        "recheck_invalid_only": recheck_invalid_only,
-    }
-
-
-@router.get("/training-data-image-quality-check/status")
-async def get_quality_check_status():
-    """Get current status of quality check background job."""
-    return quality_check_job
 
 
 @router.get("/training-data-image/{image_id}/original")
@@ -1144,38 +994,6 @@ async def delete_training_data_image(image_id: int, db: Session = Depends(get_db
     return {"success": True}
 
 
-@router.post("/training-data-image/{image_id}/quality-status")
-async def update_quality_status(image_id: int, data: dict, db: Session = Depends(get_db)):
-    """
-    Manually update the quality check status of an image.
-    
-    Args:
-        image_id: Image ID
-        data: Dictionary with 'status' ("valid" or "invalid")
-    """
-    img = db.query(TrainingDataImage).filter(TrainingDataImage.id == image_id).first()
-    if not img:
-        raise HTTPException(status_code=404, detail="Image not found")
-    
-    status = data.get('status')
-    if status not in ('valid', 'invalid'):
-        raise HTTPException(status_code=400, detail="Status must be 'valid' or 'invalid'")
-    
-    img.quality_check_status = status
-    img.quality_check_date = datetime.now()
-    
-    db.commit()
-    
-    logger.info(f"Quality status for image {image_id} manually set to '{status}'")
-    
-    return {
-        "success": True,
-        "image_id": img.id,
-        "quality_check_status": img.quality_check_status,
-        "quality_check_date": img.quality_check_date.isoformat()
-    }
-
-
 @router.get("/training-data-image/{image_id}/features")
 async def get_training_data_features(image_id: int, db: Session = Depends(get_db)):
     """Get features/labels for a training data image."""
@@ -1240,41 +1058,6 @@ async def delete_training_data_features(image_id: int, db: Session = Depends(get
     db.commit()
     
     return {"success": True}
-
-
-@router.post("/training-data-image/{image_id}/ground-truth")
-async def update_ground_truth(
-    image_id: int,
-    data: dict,
-    db: Session = Depends(get_db)
-):
-    """
-    Update ground truth values for a training data image.
-    
-    Args:
-        image_id: Image ID
-        data: Dictionary with ground_truth_correct and ground_truth_extra
-        
-    Returns:
-        Success status and updated values
-    """
-    img = db.query(TrainingDataImage).filter(TrainingDataImage.id == image_id).first()
-    if not img:
-        raise HTTPException(status_code=404, detail="Image not found")
-    
-    # Update ground truth values
-    img.ground_truth_correct = data.get('ground_truth_correct')
-    img.ground_truth_extra = data.get('ground_truth_extra')
-    
-    db.commit()
-    db.refresh(img)
-    
-    return {
-        "success": True,
-        "image_id": img.id,
-        "ground_truth_correct": img.ground_truth_correct,
-        "ground_truth_extra": img.ground_truth_extra
-    }
 
 
 @router.post("/training-data-image/{image_id}/crop-and-reprocess")
@@ -1420,202 +1203,22 @@ async def crop_and_reprocess_image(
         raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
 
 
-@router.get("/training-data-features-template")
-async def download_features_template(db: Session = Depends(get_db)):
-    """
-    Generate CSV template with all training data entries for bulk feature upload.
-    
-    Returns:
-        CSV file with columns: Patient, Task, Total_Score, Data_Quality
-    """
-    from sqlalchemy.orm import load_only
-    
-    # Only load columns needed for CSV (exclude BLOBs for performance)
-    images = db.query(TrainingDataImage).options(
-        load_only(
-            TrainingDataImage.patient_id,
-            TrainingDataImage.task_type,
-            TrainingDataImage.features_data
-        )
-    ).order_by(
-        TrainingDataImage.patient_id, 
-        TrainingDataImage.task_type
-    ).all()
-    
-    # Create CSV in memory
-    output = io.StringIO()
-    writer = csv.writer(output)
-    
-    # Header
-    writer.writerow(['Patient', 'Task', 'Total_Score', 'Data_Quality'])
-    
-    # Rows - add existing features if present
-    for img in images:
-        features = {}
-        if img.features_data:
-            try:
-                features = json.loads(img.features_data)
-            except:
-                pass
-        
-        total_score = features.get('Total_Score', '')
-        data_quality = features.get('Data_Quality', '')
-        
-        writer.writerow([
-            img.patient_id,
-            img.task_type,
-            total_score,
-            data_quality
-        ])
-    
-    # Return as downloadable CSV
-    csv_content = output.getvalue()
-    output.close()
-    
-    return Response(
-        content=csv_content,
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": f"attachment; filename=training_data_features_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        }
-    )
-
-
-@router.post("/training-data-features-upload")
-async def upload_features_csv(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db)
-):
-    """
-    Upload CSV file with features and update database.
-    
-    CSV Format: Patient, Task, Total_Score, Data_Quality
-    Matching: Case-insensitive Patient + Task
-    
-    Returns:
-        Update statistics
-    """
-    try:
-        # Read CSV
-        content = await file.read()
-        content_str = content.decode('utf-8')
-        
-        # Auto-detect delimiter using csv.Sniffer (handles quoted fields correctly)
-        try:
-            # Sample first few lines for detection
-            sample = '\n'.join(content_str.split('\n')[:5])
-            sniffer = csv.Sniffer()
-            delimiter = sniffer.sniff(sample, delimiters=',;').delimiter
-        except Exception:
-            # Fallback to comma if detection fails
-            delimiter = ','
-        
-        csv_reader = csv.DictReader(io.StringIO(content_str), delimiter=delimiter)
-        
-        updated = 0
-        skipped = 0
-        errors = []
-        
-        for row in csv_reader:
-            try:
-                patient = row.get('Patient', '').strip()
-                task = row.get('Task', '').strip()
-                total_score = row.get('Total_Score', '').strip()
-                data_quality = row.get('Data_Quality', '').strip()
-                
-                if not patient or not task:
-                    skipped += 1
-                    continue
-                
-                # Find matching entry in DB (case-insensitive)
-                img = db.query(TrainingDataImage).filter(
-                    TrainingDataImage.patient_id.ilike(patient),
-                    TrainingDataImage.task_type.ilike(task)
-                ).first()
-                
-                if img:
-                    # Load existing features or create new
-                    features = {}
-                    if img.features_data:
-                        try:
-                            features = json.loads(img.features_data)
-                        except:
-                            pass
-                    
-                    # Track if any feature was successfully added
-                    any_success = False
-                    
-                    # Update features from CSV
-                    if total_score:
-                        try:
-                            features['Total_Score'] = float(total_score)
-                            any_success = True
-                        except ValueError:
-                            # Sanitize error message to prevent XSS
-                            safe_patient = patient.replace('<', '&lt;').replace('>', '&gt;')
-                            safe_task = task.replace('<', '&lt;').replace('>', '&gt;')
-                            safe_score = total_score.replace('<', '&lt;').replace('>', '&gt;')
-                            errors.append(f"{safe_patient}/{safe_task}: Invalid Total_Score '{safe_score}'")
-                    
-                    if data_quality:
-                        try:
-                            features['Data_Quality'] = float(data_quality)
-                            any_success = True
-                        except ValueError:
-                            # Sanitize error message to prevent XSS
-                            safe_patient = patient.replace('<', '&lt;').replace('>', '&gt;')
-                            safe_task = task.replace('<', '&lt;').replace('>', '&gt;')
-                            safe_quality = data_quality.replace('<', '&lt;').replace('>', '&gt;')
-                            errors.append(f"{safe_patient}/{safe_task}: Invalid Data_Quality '{safe_quality}'")
-                    
-                    # Only save and count as updated if at least one feature was successfully parsed
-                    if any_success:
-                        img.features_data = json.dumps(features)
-                        db.commit()
-                        updated += 1
-                    else:
-                        # All features failed to parse - skip this row
-                        skipped += 1
-                else:
-                    skipped += 1
-                    
-            except Exception as e:
-                # Sanitize exception message to prevent XSS
-                safe_error = str(e).replace('<', '&lt;').replace('>', '&gt;')
-                errors.append(f"Row error: {safe_error}")
-        
-        return {
-            "success": True,
-            "updated": updated,
-            "skipped": skipped,
-            "errors": errors,
-            "total_rows": updated + skipped
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"CSV processing error: {str(e)}")
-
-
 @router.post("/save-drawn-image")
 async def save_drawn_image(
     file: UploadFile = File(...),
     name: str = Form(...),
-    correct_lines: int = Form(0),
-    extra_lines: int = Form(0),
     total_score: Optional[int] = Form(None),
+    components: Optional[str] = Form(None),  # JSON {presence:[20], accuracy:[20], position:[20]}
     source_format: str = Form('DRAWN'),
     task_type: str = Form('DRAWN'),
     db: Session = Depends(get_db)
 ):
     """
-    Save manually drawn image as training data.
-    
-    Ground truth fields:
-    - correct_lines: Number of correctly drawn lines (0-11)
-    - extra_lines: Number of extra/wrong lines drawn
+    Save a manually drawn / uploaded image as training data.
 
-    Optional features:
-    - total_score: Total_Score clinical feature
+    Optional evaluation (training format):
+    - total_score: Total_Score (sum of the component sub-labels)
+    - components: JSON with the 20 elements × Presence/Accuracy/Position (0/1)
     
     Source format: DRAWN (from draw tool), UPLOAD (from upload page), MAT, OCS
     Task type: DRAWN, UPLOAD, undefined, COPY, RECALL
@@ -1726,9 +1329,21 @@ async def save_drawn_image(
         # Get final dimensions
         height, width = normalized_array.shape[:2]
         
-        features_data = None
+        feats = {}
         if total_score is not None:
-            features_data = json.dumps({"Total_Score": total_score})
+            feats["Total_Score"] = total_score
+        if components:
+            try:
+                comp = json.loads(components)
+                # keep only the canonical sub-label arrays
+                feats["components"] = {
+                    "presence": [int(x) for x in comp.get("presence", [])],
+                    "accuracy": [int(x) for x in comp.get("accuracy", [])],
+                    "position": [int(x) for x in comp.get("position", [])],
+                }
+            except (ValueError, TypeError):
+                pass
+        features_data = json.dumps(feats) if feats else None
 
         # Create entry
         training_image = TrainingDataImage(
@@ -1739,8 +1354,6 @@ async def save_drawn_image(
             original_file_data=content,  # Original drawing (raw)
             processed_image_data=normalized_content,  # CNN-ready (normalized 2px lines)
             image_hash=image_hash,
-            ground_truth_correct=correct_lines if correct_lines > 0 else None,
-            ground_truth_extra=extra_lines if extra_lines > 0 else None,
             features_data=features_data,
             test_name=name,
             session_id=f'{source_format.lower()}_upload',  # e.g., 'upload_upload' or 'drawn_upload'
@@ -1816,228 +1429,3 @@ def cleanup_session(session_id: str):
             logger.warning(f"Error cleaning up {directory}: {e}")
 
 
-@router.post("/training-data-image/{image_id}/evaluate")
-async def evaluate_training_data_image(
-    image_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    Evaluate a training data image by running line detection and comparing to ground truth.
-    
-    This endpoint:
-    1. Loads the processed image from database
-    2. Runs automated line detection
-    3. Compares detected lines to reference
-    4. Compares detected metrics to ground truth values
-    5. Returns both automated and ground truth values for comparison
-    
-    Args:
-        image_id: Training data image ID
-        db: Database session
-    
-    Returns:
-        Evaluation results with automated detection vs ground truth comparison
-    """
-    # Get training image
-    training_img = db.query(TrainingDataImage).filter(
-        TrainingDataImage.id == image_id
-    ).first()
-    
-    if not training_img:
-        raise HTTPException(status_code=404, detail="Training image not found")
-    
-    # Get reference image (assume default reference for now)
-    reference = db.query(ReferenceImage).first()
-    if not reference:
-        raise HTTPException(status_code=404, detail="No reference image found")
-    
-    # Load processed image
-    nparr = np.frombuffer(training_img.processed_image_data, np.uint8)
-    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    
-    # Run evaluation using EvaluationService
-    eval_service = EvaluationService(db)
-    
-    # Use evaluate_test_image (doesn't store to DB, just returns result)
-    evaluation_result = eval_service.evaluate_test_image(
-        image,
-        reference.id,
-        f"training_{training_img.id}"
-    )
-    
-    # Get reference line count for calculations
-    line_detector = LineDetector()
-    ref_features = line_detector.features_from_json(reference.feature_data)
-    total_ref_lines = len(ref_features['lines'])
-    
-    # Calculate missing lines (reference - correct)
-    # Note: evaluation_result already has missing_lines calculated correctly
-    detected_correct = evaluation_result.correct_lines
-    detected_missing = evaluation_result.missing_lines
-    detected_extra = evaluation_result.extra_lines
-    
-    # Calculate automated similarity score
-    automated_similarity = evaluation_result.similarity_score
-    
-    # If ground truth exists, calculate accuracy of detection
-    ground_truth_accuracy = None
-    accuracy_details = None
-    
-    if training_img.ground_truth_correct is not None:
-        # Compare automated detection to ground truth
-        gt_correct = training_img.ground_truth_correct
-        gt_extra = training_img.ground_truth_extra or 0
-        gt_missing = total_ref_lines - gt_correct  # Calculate expected missing
-        
-        # Calculate differences
-        correct_diff = abs(detected_correct - gt_correct)
-        missing_diff = abs(detected_missing - gt_missing)
-        extra_diff = abs(detected_extra - gt_extra)
-        
-        # Total error (sum of absolute differences)
-        total_error = correct_diff + missing_diff + extra_diff
-        max_error = total_ref_lines * 3  # 3 metrics, max error = ref_lines each
-        
-        # Accuracy: 1.0 if perfect match, decreases with error
-        ground_truth_accuracy = max(0.0, 1.0 - (total_error / max_error)) if max_error > 0 else 1.0
-        
-        accuracy_details = {
-            "correct_diff": correct_diff,
-            "missing_diff": missing_diff,
-            "extra_diff": extra_diff,
-            "total_error": total_error,
-            "max_error": max_error
-        }
-    
-    # Prepare response
-    response = {
-        "image_id": training_img.id,
-        "patient_id": training_img.patient_id,
-        "task_type": training_img.task_type,
-        "source_format": training_img.source_format,
-        "total_reference_lines": total_ref_lines,
-        
-        # Automated detection results
-        "automated": {
-            "correct_lines": detected_correct,
-            "missing_lines": detected_missing,
-            "extra_lines": detected_extra,
-            "similarity_score": automated_similarity
-        },
-        
-        # Ground truth (if available)
-        "ground_truth": {
-            "correct_lines": training_img.ground_truth_correct,
-            "extra_lines": training_img.ground_truth_extra,
-            "missing_lines": total_ref_lines - training_img.ground_truth_correct if training_img.ground_truth_correct is not None else None,
-            "has_ground_truth": training_img.ground_truth_correct is not None
-        },
-        
-        # Comparison metrics
-        "comparison": {
-            "accuracy": ground_truth_accuracy,
-            "details": accuracy_details
-        },
-        
-        # Visualization path
-        "visualization_path": evaluation_result.visualization_path if evaluation_result.visualization_path else None
-    }
-    
-    return response
-
-
-@router.get("/training-data-evaluations")
-async def get_training_data_evaluations(
-    limit: int = 100,
-    offset: int = 0,
-    has_ground_truth: bool = None,
-    task_type: str = None,
-    source_format: str = None,
-    db: Session = Depends(get_db)
-):
-    """
-    Get list of training data images suitable for evaluation.
-    
-    Args:
-        limit: Maximum number of results
-        offset: Offset for pagination
-        has_ground_truth: Filter by presence of ground truth
-        task_type: Filter by task type
-        source_format: Filter by source format
-        db: Database session
-    
-    Returns:
-        List of training data images with ground truth status
-    """
-    from sqlalchemy import func
-    from sqlalchemy.orm import load_only
-    
-    # Build filter conditions (shared between count and fetch queries)
-    filters = []
-    
-    # Filter by ground truth presence
-    if has_ground_truth is not None:
-        if has_ground_truth:
-            filters.append(TrainingDataImage.ground_truth_correct.isnot(None))
-        else:
-            filters.append(TrainingDataImage.ground_truth_correct.is_(None))
-    
-    # Filter by task type
-    if task_type:
-        filters.append(TrainingDataImage.task_type == task_type)
-    
-    # Filter by source format
-    if source_format:
-        filters.append(TrainingDataImage.source_format == source_format)
-    
-    # Get total count using func.count (fast - doesn't load data)
-    count_query = db.query(func.count(TrainingDataImage.id))
-    for f in filters:
-        count_query = count_query.filter(f)
-    total = count_query.scalar()
-    
-    # Fetch data using load_only to exclude BLOB columns (critical for performance)
-    query = db.query(TrainingDataImage).options(
-        load_only(
-            TrainingDataImage.id,
-            TrainingDataImage.patient_id,
-            TrainingDataImage.task_type,
-            TrainingDataImage.source_format,
-            TrainingDataImage.test_name,
-            TrainingDataImage.extraction_metadata,
-            TrainingDataImage.uploaded_at,
-            TrainingDataImage.ground_truth_correct,
-            TrainingDataImage.ground_truth_extra
-        )
-    )
-    for f in filters:
-        query = query.filter(f)
-    
-    # Order by most recent first and apply pagination
-    images = query.order_by(TrainingDataImage.uploaded_at.desc()).offset(offset).limit(limit).all()
-    
-    # Prepare results
-    results = []
-    for img in images:
-        metadata = json.loads(img.extraction_metadata) if img.extraction_metadata else {}
-        
-        results.append({
-            "id": img.id,
-            "patient_id": img.patient_id,
-            "task_type": img.task_type,
-            "source_format": img.source_format,
-            "test_name": img.test_name,
-            "uploaded_at": img.uploaded_at.isoformat(),
-            "has_ground_truth": img.ground_truth_correct is not None,
-            "ground_truth_correct": img.ground_truth_correct,
-            "ground_truth_extra": img.ground_truth_extra,
-            "width": metadata.get("width"),
-            "height": metadata.get("height")
-        })
-    
-    return {
-        "total": total,
-        "offset": offset,
-        "limit": limit,
-        "evaluations": results
-    }

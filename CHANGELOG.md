@@ -4,6 +4,105 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [2.1.0] - 2026-06-14 — Component model, data integrity, merged Evaluate page
+
+- **Component-head training on clean TELEFRED**: trained the 60-sub-label model on the curated
+  dataset (5403 rows). Honest patient-level held-out: macro-F1 ≈ 0.96, derived Total_Score
+  MAE ≈ 2.7 / R² ≈ 0.76. Components target is now selectable directly in `ai_training_train.html`.
+- **Data integrity — `label_status='zero'`**: 987 TELEFRED rows are unscored placeholders (total_score
+  0, all components 0), not genuine zeros (e.g. a near-complete figure labelled 0). They poisoned
+  training. `import_unified.py` now keeps these images but imports them with `features_data = NULL`,
+  so they are excluded from training (queries filter `features_data IS NOT NULL`) yet appear under the
+  "Only Missing" filter for later labelling. DB reset + re-imported (7693 images, 608 NULL-feature,
+  min Total_Score now 1).
+- **Merged Evaluate page**: new `evaluate.html` combines upload + draw — top tabs for the image source
+  (Upload / Draw), bottom tabs for the action (Predict / Train-Label); both feed the same actions.
+  `upload.html` and `draw_testimage.html` are now redirect stubs; index nav points to `evaluate.html`.
+- **Removed the quality-check feature**: it had no effect on training (the flag was never read) and was
+  a leftover scan-artifact heuristic from the old pipeline. Dropped the button/filter/endpoints,
+  `contour_quality.py`, and the `quality_check_*` DB columns.
+- **Data-view improvements** (`ai_training_data_view.html`): components shown inside Features & Labels
+  with the add-value field on top; table shows `Σ Total_Score` + a `🧩 60` badge and sorts by score;
+  removed the bulk feature-CSV / "Add new data" controls.
+- **Fixes**: `evaluate.html`/`upload.html` no longer throw "Cannot set innerHTML of null" when switching
+  between Components and Total_Score predictions.
+
+## [2.0.0] - 2026-06-12 — AI-only pivot
+
+Removed the classical algorithm pipeline entirely; the app is now CNN-only
+(regression / classification / components).
+
+- **Backend**: deleted `image_processing/`, `services/` (evaluation + reference),
+  routers `evaluations.py` / `references.py` / `test_images.py`, the algorithm
+  `/api/upload` + `/api/register-image` + `/training-data-image/{id}/evaluate`
+  endpoints, and the dead `synthetic_bad_images.py` / `generate_synthetic_images.py`.
+  `line_normalizer.py` kept (shared preprocessing).
+- **DB**: dropped the algorithm tables (reference_images, uploaded_images,
+  extracted_features, evaluation_results, test_images) and the `ground_truth_*`
+  columns; single table `training_data_images`. Rebuilt from labels.csv (7693 rows).
+  Backup: `npsketch.db.bak_pre_pivot_20260612`.
+- **Frontend**: removed reference.html + training_evaluations.html; index.html nav
+  rewritten (AI-only); upload.html is AI-only (no algorithm toggle); draw +
+  data-view use the component evaluation; run_test.html rewritten as an AI batch
+  test backed by the new `/api/ai-training/models/run-on-test-images`.
+- **Models**: deleted the 27 January model files (kept the June Total_Score model
+  and the new component model/checkpoint).
+
+## [Unreleased] - 2026-06-12
+
+### Added - Component-score model (third training mode)
+
+A new **components** training mode predicts the 60 OCS-Plus sub-labels (20 elements ×
+Presence/Accuracy/Position); Total_Score is derived as their sum. This attacks the
+holistic regressor's weakness in the sparse low-score range by giving dense supervision
+(every image labels all 60). Additive — regression/classification are unchanged
+(everything gated on `training_mode == "components"` / `target_feature == "Components"`).
+
+- **Trainer**: `BCEWithLogitsLoss` + per-label `pos_weight`; `_calculate_component_metrics`
+  (per-sub-label macro-F1, per-aspect, per-component F1, AND the derived Total_Score
+  R²/RMSE/MAE + `per_score_bin` for direct comparison to the holistic model).
+- **Data**: 60-vector targets (augmentation-invariant) persisted as `target_vector` in the
+  augmented label JSON; `DrawingDataset`/`AugmentedDrawingDataset` return the vector;
+  patient-level split stratified by derived Total_Score; imbalance sampler skipped.
+- **Orchestration** (`run_training_job`): mode detection, **TELEFRED-only** source filter
+  (v1 — human-rated, element ordering verified consistent via Mantel test p≈0; machine
+  sources excluded due to different label calibration), `num_outputs=60`, pos_weight,
+  metadata. `predict-single` returns 60 probabilities + derived score.
+- New `start_telefred_component_training.py`; `training.components` config section.
+- Verified: component smoke run completes end-to-end (macro-F1, per-aspect/component,
+  derived score + per-decade metrics all produced); regression mode unaffected.
+
+### Changed - Single unified DB import + full reset (component-score prep)
+
+- **One import path.** New `api/data_consolidation/import_unified.py` is now the only batch
+  importer: it reads the consolidated base (`templates/labels.csv` + `img/`) and writes
+  `training_data_images`. The three per-source CLI populators (`telefred_import.py`,
+  `oxford_db_populator.py`, `algorithm_db_populator.py`) were **deleted**; the bulk web endpoints
+  `/api/extract-training-data[-oxford]` now return **HTTP 410**. Interactive single-image upload is
+  unchanged. Preprocessing libraries (ocs/oxford/mat/line_normalizer) are reused.
+- **Per-image style auto-detection** (not hard-coded by source): red ink → red extraction; else
+  dark + black-source name → bbox-crop; else heuristic. Source is only a consistency anchor;
+  mismatches are logged. (Verified: 0 style/source mismatches across 7693 images.)
+- **Curation at import:** blanks (no ink) skipped; **SHA256-dedup** on the original bytes; hash
+  groups with conflicting nonzero scores dropped as corrupt (caught the defective `2024_10_28-3991`
+  PNG that had been duplicated with 15 different labels); negative score dropped;
+  `|total − sublabel_sum| > 5` kept but flagged.
+- **Schema:** added `uid` column to `TrainingDataImage` (traceable to `labels.csv`);
+  `features_data` now carries the 60 sub-labels as `{"Total_Score", "components": {presence,
+  accuracy, position}}` (`components` null for OXFORD).
+- **Full DB reset + reload** onto the unified base: 8089 label rows → **7693 imported**
+  (TELEFRED 6011, ALGORITHM 777, OXFORD 893, OCS_MACHINE 12; 16 corrupt + 364 byte-dup + 16 blank
+  removed). All `task_type` now COPY/RECALL; `image_hash`/`uid` unique; processed images 568×274 / 2 px;
+  3999 patients. Backup: `npsketch.db.bak_pre_unified_20260612`.
+
+### Migration re-audit
+Filename-based dedup in the consolidation kept ~390 byte-identical images (blank template scans
+under different patient IDs, plus a corrupt 16-image group with conflicting labels) and 1 negative
+score. These are now handled at import via SHA256-dedup + blank-exclusion + corrupt-group drop.
+(OCS-Plus machine images are black-line drawings, not red — handled by the auto-detector.)
+
+---
+
 ## [Unreleased] - 2026-06-10
 
 ### Fixed - Training Pipeline (audit findings)
@@ -806,7 +905,7 @@ Restored best model from epoch 20
 
 ---
 
-**Current Version:** 1.2.0  
-**Last Updated:** 2026-01-22  
+**Current Version:** 2.1.0  
+**Last Updated:** 2026-06-14  
 **Status:** Production Ready
 

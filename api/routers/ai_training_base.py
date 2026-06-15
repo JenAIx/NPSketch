@@ -34,6 +34,23 @@ training_state = {
     'cancelled': False  # Flag to request cancellation
 }
 
+# Shared progress file so CLI-launched trainings (separate process) are also
+# visible in the UI — both run_training_job (any process) and the status
+# endpoint use it.
+PROGRESS_FILE = "/app/data/logs/training_progress.json"
+
+
+def _write_progress_file():
+    """Persist the current training_state to the shared progress file."""
+    try:
+        import time as _t
+        snap = dict(training_state)
+        snap['_updated_at'] = _t.time()
+        with open(PROGRESS_FILE, 'w') as f:
+            json.dump(snap, f, default=str)
+    except Exception:
+        pass
+
 
 def get_task_specific_config(training_mode: str, config_dict: dict) -> dict:
     """
@@ -338,6 +355,7 @@ def run_training_job(config):
         # Reset cancellation flag when starting new training
         training_state['cancelled'] = False
         training_state['status'] = 'training'
+        training_state['error'] = None
         training_state['progress'] = {
             'epoch': 0,
             'total_epochs': config['num_epochs'],
@@ -353,7 +371,8 @@ def run_training_job(config):
                 'use_normalization': config.get('use_normalization', True)
             }
         }
-        
+        _write_progress_file()
+
         logger.debug(f"Training state initialized: {training_state}")
         
         from ai_training.trainer import CNNTrainer
@@ -363,11 +382,21 @@ def run_training_job(config):
         use_augmentation = config.get('use_augmentation', True)
         target_feature = config['target_feature']
         
-        # Detect if this is classification or regression
+        # Detect mode: components / classification / regression
+        is_components = (target_feature == 'Components')
         is_classification = target_feature.startswith('Custom_Class_')
         num_classes = None  # Initialize for regression case
-        
-        if is_classification:
+
+        if is_components:
+            # Multi-label component head: 60 sub-labels (20 elements x PRES/ACC/POS).
+            # v1 trains on TELEFRED only (human-rated, internally consistent).
+            num_outputs = 60
+            training_mode = "components"
+            normalizer = None
+            training_state['progress']['training_config']['use_normalization'] = False
+            logger.info("Training mode: COMPONENTS (60 sub-labels, TELEFRED-only)")
+            logger.info(f"Output neurons: {num_outputs}")
+        elif is_classification:
             # Extract num_classes from feature name (e.g., "Custom_Class_5" -> 5)
             num_classes = int(target_feature.replace('Custom_Class_', ''))
             num_outputs = num_classes
@@ -419,14 +448,16 @@ def run_training_job(config):
                     normalizer=normalizer,
                     add_synthetic_bad_images=config.get('add_synthetic_bad_images', False),
                     synthetic_n_samples=config.get('synthetic_n_samples', 50),
-                    max_images=config.get('max_images')
+                    max_images=config.get('max_images'),
+                    source_filter=('TELEFRED' if is_components else None)
                 )
-                
+
                 train_loader, val_loader, stats = create_augmented_dataloaders(
                     data_dir=output_dir,
                     batch_size=config['batch_size'],
                     shuffle_train=True,
-                    is_classification=is_classification
+                    is_classification=is_classification,
+                    is_components=is_components
                 )
                 
                 stats['augmentation'] = {
@@ -445,9 +476,12 @@ def run_training_job(config):
             finally:
                 db.close()
         else:
+            if is_components:
+                raise NotImplementedError(
+                    "Component mode (target_feature='Components') requires use_augmentation=True.")
             from ai_training.dataset import create_dataloaders
             from config import get_config
-            
+
             # Load pre-shrink config from training_config.yaml (for consistency with augmented path)
             yaml_config = get_config()
             aug_yaml = yaml_config.get('augmentation', {})
@@ -499,6 +533,31 @@ def run_training_job(config):
                 logger.info(f"Using class weights for balanced loss calculation")
             else:
                 logger.warning("No class weights available - using unweighted loss")
+
+        # Per-label pos_weight for the component head (BCE), from TELEFRED label
+        # frequencies: pos_weight_j = clip(N_neg/N_pos, 0.1, 10) balances each of
+        # the 60 sub-labels (most elements are usually present -> imbalanced).
+        pos_weight = None
+        if is_components:
+            from database import SessionLocal as _SL
+            from ai_training.dataset import components_to_vector
+            _db = _SL()
+            try:
+                vecs = []
+                for (fd,) in _db.query(TrainingDataImage.features_data).filter(
+                        TrainingDataImage.source_format == 'TELEFRED',
+                        TrainingDataImage.features_data.isnot(None)).all():
+                    v = components_to_vector(json.loads(fd))
+                    if v is not None:
+                        vecs.append(v)
+            finally:
+                _db.close()
+            import numpy as _np
+            arr = _np.array(vecs)
+            p = arr.mean(axis=0).clip(1e-3, 1 - 1e-3)
+            pos_weight = _np.clip((1 - p) / p, 0.1, 10.0).tolist()
+            logger.info(f"Component pos_weight from {len(vecs)} TELEFRED rows "
+                        f"(min {min(pos_weight):.2f}, max {max(pos_weight):.2f})")
         
         # Load task-specific configuration (classification vs regression)
         task_config = get_task_specific_config(training_mode, config)
@@ -511,6 +570,7 @@ def run_training_job(config):
             normalizer=normalizer,
             training_mode=training_mode,
             class_weights=class_weights,
+            pos_weight=pos_weight,
             use_lr_scheduling=config.get('use_lr_scheduling', True),
             use_differential_lr=config.get('use_differential_lr', True),
             backbone_lr_multiplier=config.get('backbone_lr_multiplier', 0.1),
@@ -615,7 +675,8 @@ def run_training_job(config):
             training_state['progress']['val_loss'] = metrics['val_loss']
             training_state['progress']['duration_seconds'] = int(elapsed_time)
             training_state['progress']['estimated_remaining_seconds'] = int(estimated_remaining)
-        
+            _write_progress_file()  # visible to the UI even for CLI-launched runs
+
         train_metrics = trainer.evaluate_metrics(train_loader)
         val_metrics = trainer.evaluate_metrics(val_loader)
         
@@ -659,6 +720,10 @@ def run_training_job(config):
             'class_weights': {
                 'enabled': class_weights is not None,
                 'weights': class_weights if class_weights else None
+            },
+            'pos_weight': {
+                'enabled': pos_weight is not None,
+                'weights': pos_weight if pos_weight else None
             },
             'lr_scheduling': {
                 'enabled': config.get('use_lr_scheduling', True),
@@ -729,6 +794,21 @@ def run_training_job(config):
         
         model_path = trainer.save_model(f"model_{config['target_feature']}", metadata=metadata)
 
+        # Components: auto-calibrate (per-label thresholds + NNLS score readout) and
+        # persist into the model metadata, so predict-single returns the calibrated
+        # derived Total_Score without any manual step.
+        if is_components:
+            try:
+                training_state['progress']['message'] = 'Calibrating component model…'
+                _write_progress_file()
+                from ai_training.component_calibration import calibrate_model
+                cal = calibrate_model(model_path, write=True, verbose=False)
+                logger.info(f"Component calibration: hard@0.5 {cal.get('hard@0.5')} -> "
+                            f"calibrated {cal.get('calibrated')}, macro-F1 "
+                            f"{cal.get('macro_f1_0.5')} -> {cal.get('macro_f1_thr')}")
+            except Exception as e:
+                logger.warning(f"Component auto-calibration skipped: {e}")
+
         # Final model saved - remove the crash-safe checkpoint
         try:
             if os.path.exists(checkpoint_path):
@@ -741,12 +821,14 @@ def run_training_job(config):
         training_state['progress']['model_path'] = model_path
         training_state['progress']['train_metrics'] = train_metrics
         training_state['progress']['val_metrics'] = val_metrics
-        
+        _write_progress_file()
+
     except Exception as e:
         training_state['status'] = 'error'
         training_state['error'] = str(e)
         import traceback
         training_state['progress']['message'] = f'Error: {str(e)}'
+        _write_progress_file()
         traceback.print_exc()
 
 
@@ -774,9 +856,29 @@ async def stop_training():
 @router.get("/training-status")
 async def get_training_status():
     """Get current training status and progress."""
-    import time
+    import time, os
     global training_state
-    
+
+    # If this process isn't the one training (e.g. a detached CLI run), fall back
+    # to the shared progress file so the UI still shows live progress.
+    if training_state['status'] != 'training' and os.path.exists(PROGRESS_FILE):
+        try:
+            with open(PROGRESS_FILE) as f:
+                file_state = json.load(f)
+            updated = file_state.pop('_updated_at', 0)
+            # Use the file only if it reports an active run updated recently (< 2h)
+            if file_state.get('status') == 'training' and (time.time() - updated) < 7200:
+                prog = file_state.get('progress', {})
+                if prog.get('start_time'):
+                    prog['duration_seconds'] = int(time.time() - prog['start_time'])
+                    ep, tot = prog.get('epoch', 0), prog.get('total_epochs', 0)
+                    if ep > 0 and tot > 0:
+                        prog['estimated_remaining_seconds'] = int(
+                            (prog['duration_seconds'] / ep) * (tot - ep))
+                return file_state
+        except Exception:
+            pass
+
     # Calculate current duration if training is in progress
     if training_state['status'] == 'training' and 'progress' in training_state:
         progress = training_state['progress']
