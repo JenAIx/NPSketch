@@ -69,6 +69,9 @@
             <a href="/ai_training_train.html" class="btn btn-success" style="margin-top: 15px;">
                 🚀 Train New Model
             </a>
+            <a href="/component_map.html" class="btn btn-secondary" style="margin-top: 15px; margin-left: 10px;">
+                🗺️ Component Map (Explainability)
+            </a>
         </div>
         
         <!-- Available Features -->
@@ -864,9 +867,25 @@
                     const stats = data.stats[featureName];
                     
                     if (!stats) return; // Skip if no stats
-                    
+
+                    // Components: 60 binary sub-labels — no scalar min/max/mean
+                    if (featureName === 'Components') {
+                        html += `
+                            <div style="background: white; padding: 12px; border-radius: 8px; border: 2px solid #764ba2; color: #333;">
+                                <div style="font-weight: 600; color: #764ba2; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+                                    <span style="display: flex; align-items: center; gap: 6px;"><span>🧩</span><span>Components</span></span>
+                                    <span style="background: #764ba2; color: white; padding: 4px 10px; border-radius: 10px; font-size: 0.75em;">${stats.count}</span>
+                                </div>
+                                <div style="font-size: 0.8em; color: #666; margin-top: 6px; padding: 6px; background: #f8f9fa; border-radius: 4px;">
+                                    60 sub-labels — 20 elements × Presence/Accuracy/Position (TELEFRED). Total_Score = sum.
+                                </div>
+                            </div>
+                        `;
+                        return;
+                    }
+
                     const isCustomClass = featureName.startsWith('Custom_Class_');
-                    
+
                     if (isCustomClass) {
                         // Custom Classification
                         const numClasses = stats.num_classes || 0;
@@ -909,7 +928,7 @@
                                 </div>
                                 <div style="font-size: 0.8em; color: #666; margin-top: 6px; padding: 6px; background: #f8f9fa; border-radius: 4px;">
                                     Range: <strong>${stats.min}</strong> - <strong>${stats.max}</strong><br>
-                                    Mean: <strong>${stats.mean.toFixed(1)}</strong> | 
+                                    Mean: <strong>${stats.mean?.toFixed(1) ?? 'N/A'}</strong> |
                                     Median: <strong>${stats.median?.toFixed(1) || 'N/A'}</strong>
                                 </div>
                             </div>
