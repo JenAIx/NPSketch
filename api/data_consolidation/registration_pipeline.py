@@ -144,15 +144,38 @@ def m_rect(d, r):
     return cv2.warpPerspective(d, M, (W, H), flags=cv2.INTER_LINEAR, borderValue=255)
 
 
+def m_minarea(d, r, fill=False):
+    """Structure-based: deskew + fit the overall oriented bounding box to the frame.
+    Never fails (uses all ink). fill=True stretches to the frame aspect ratio."""
+    pts = cv2.findNonZero(ink(d))
+    if pts is None:
+        return None
+    (cx, cy), (w, h), ang = cv2.minAreaRect(pts)
+    if w < h:
+        w, h = h, w; ang += 90.0
+    if w < 1 or h < 1:
+        return None
+    m = 14
+    if fill:
+        sx, sy = (W - 2 * m) / w, (H - 2 * m) / h
+    else:
+        sx = sy = min((W - 2 * m) / w, (H - 2 * m) / h)
+    th = -np.radians(ang)
+    A = np.array([[sx, 0], [0, sy]]) @ np.array([[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]])
+    t = np.array([W / 2.0, H / 2.0]) - A @ np.array([cx, cy])
+    return warp_aff(d, np.hstack([A, t.reshape(2, 1)]).astype(np.float32))
+
+
 METHODS = {
-    "baseline":   lambda d, r: d,
-    "moments":    m_moments,
-    "ecc_euclid": lambda d, r: m_ecc(d, r, cv2.MOTION_EUCLIDEAN),
-    "ecc_affine": lambda d, r: m_ecc(d, r, cv2.MOTION_AFFINE),
-    "orb_affine": m_orb,
-    "flow":       m_flow,
-    "rect_persp": m_rect,
+    "baseline":     lambda d, r: d,
+    "moments":      m_moments,
+    "ecc_affine":   lambda d, r: m_ecc(d, r, cv2.MOTION_AFFINE),
+    "minarea":      lambda d, r: m_minarea(d, r, fill=False),
+    "minarea_fill": lambda d, r: m_minarea(d, r, fill=True),
+    "rect_persp":   m_rect,
 }
+# candidates considered by the gated cascade (keep best overlap, fall back to baseline)
+GATED_CANDIDATES = ["moments", "ecc_affine", "minarea", "minarea_fill", "rect_persp"]
 
 
 def main():
@@ -177,6 +200,7 @@ def main():
         for r in sample:
             d = gray(r.processed_image_data)
             row_imgs = [refg, d]
+            ov = {}
             for name, fn in METHODS.items():
                 try:
                     a = fn(d, refg)
@@ -185,15 +209,21 @@ def main():
                 if a is None:
                     fails[grp][name] += 1
                     continue
-                agg[grp][name].append(overlap(ink(a), rink))
+                o = overlap(ink(a), rink)
+                ov[name] = o
+                agg[grp][name].append(o)
                 agg[grp][name + "__ssim"].append(float(ssim(rblur, blur(a), data_range=1.0)))
                 if r in (complete[:1] + partial[:1]) and name != "baseline":
                     row_imgs.append(a)
+            # gated cascade: keep the best candidate only if it beats baseline
+            base = ov.get("baseline", 0.0)
+            cand = [ov[c] for c in GATED_CANDIDATES if c in ov]
+            agg[grp]["gated"].append(max([base] + cand))
             if r in (complete[:1] + partial[:1]):
                 strips.append(np.hstack([cv2.resize(x, (W // 2, H // 2)) for x in row_imgs]))
 
     print(f"{'method':12} | {'complete overlap':>16} {'ssim':>6} | {'partial overlap':>15} {'ssim':>6} | fails(c/p)")
-    for name in METHODS:
+    for name in list(METHODS) + ["gated"]:
         co = np.mean(agg['complete'][name]) if agg['complete'][name] else float('nan')
         cs = np.mean(agg['complete'][name + '__ssim']) if agg['complete'][name + '__ssim'] else float('nan')
         po = np.mean(agg['partial'][name]) if agg['partial'][name] else float('nan')
