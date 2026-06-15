@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
-"""Render StackReg before/after examples to data/tmp/pystackreg/ for visual review.
-Each strip: [drawing | StackReg-aligned | reference | aligned(red) over reference]."""
+"""Render StackReg coregistration overlays for visual review.
+
+Reference is used AS-IS (never distorted). Each drawing is aligned to it via
+bbox-fill prealign (drawing ink-bbox -> reference ink-bbox) + StackReg affine refine,
+gated: the refine is kept only if it doesn't touch the frame border or lose ink,
+else we fall back to the prealign (which can't clip by construction).
+
+Outputs to data/tmp/pystackreg/:
+  ex_NN_idX.png        [ drawing | aligned | overlay ]
+  ex_NN_idX_overlay.png   overlay only: reference BLUE, coregistered drawing RED
+  contact_sheet.png    all 10 overlays stacked, labelled
+"""
 import io, os, json
 import numpy as np
 import cv2
@@ -34,71 +44,64 @@ def overlap(a, b, tol=5):
 
 
 def warp_aff(g, M):
-    return cv2.warpAffine(g, M, (W, H), flags=cv2.INTER_LINEAR, borderValue=255)
+    return cv2.warpAffine(g, M.astype(np.float32), (W, H), flags=cv2.INTER_LINEAR, borderValue=255)
 
 
-def bbox_affine(src_g, dst_g, m=14):
-    """non-uniform scale + translate so the src ink bbox fills a canonical target box
-    with a guaranteed `m`-px margin (so edge lines can't be clipped by the warp)."""
+def bbox_affine(src_g, dst_g):
+    """non-uniform scale + translate mapping src ink-bbox -> dst ink-bbox."""
     def bb(g):
         ys, xs = np.where(ink(g) > 0)
         return (xs.min(), ys.min(), xs.max(), ys.max()) if len(xs) else None
-    s = bb(src_g)
-    if not s:
+    s, d = bb(src_g), bb(dst_g)
+    if not s or not d:
         return None
     sw, sh = s[2] - s[0] + 1, s[3] - s[1] + 1
-    tw, th = (W - 2 * m), (H - 2 * m)            # canonical target box with margin
-    A = np.array([[tw / sw, 0], [0, th / sh]], np.float32)
+    dw, dh = d[2] - d[0] + 1, d[3] - d[1] + 1
+    A = np.array([[dw / sw, 0], [0, dh / sh]], float)
     scx, scy = (s[0] + s[2]) / 2, (s[1] + s[3]) / 2
-    t = np.array([W / 2.0, H / 2.0]) - A @ np.array([scx, scy])
-    return np.hstack([A, t.reshape(2, 1)]).astype(np.float32)
+    dcx, dcy = (d[0] + d[2]) / 2, (d[1] + d[3]) / 2
+    t = np.array([dcx, dcy]) - A @ np.array([scx, scy])
+    return np.hstack([A, t.reshape(2, 1)])
 
 
-def _touches_border(g, b=2):
-    return (g[:b, :].min() < 128 or g[-b:, :].min() < 128 or
-            g[:, :b].min() < 128 or g[:, -b:].min() < 128)
-
-
-def align(d, ref, mode=StackReg.AFFINE, m=14):
-    """bbox-fill prealign (edge-safe, fills the margin box) + StackReg affine refine.
-    The refinement is kept only if it doesn't push ink off the frame or lose ink;
-    otherwise we fall back to the prealign, which cannot clip by construction."""
-    A1 = bbox_affine(d, d, m)
+def align(d, ref, mode=StackReg.AFFINE):
+    """bbox-fill prealign (drawing bbox -> reference bbox) + StackReg refine.
+    Keep the refine unless it loses ink off-frame (a whole line clipped); lines
+    sitting AT the border are fine, so we gate on ink retention only."""
+    A1 = bbox_affine(d, ref)
     if A1 is None:
         return d
-    pre = warp_aff(d, A1)                                  # fills [m..W-m], no clipping
+    pre = warp_aff(d, A1)
     sr = StackReg(mode)
     sr.register(blur(ref), blur(pre))
     out = sr.transform((255 - pre).astype(float) / 255.0)
     out = (255 - np.clip(out, 0, 1) * 255).astype(np.uint8)
-    if _touches_border(out) or ink(out).sum() < 0.92 * ink(pre).sum():
-        return pre                                         # refinement clipped → keep prealign
+    return pre if ink(out).sum() < 0.93 * ink(pre).sum() else out
+
+
+def label(img, txt):
+    if img.ndim == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    img = img.copy()
+    cv2.rectangle(img, (0, 0), (W, 22), (245, 245, 245), -1)
+    cv2.putText(img, txt, (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (60, 60, 60), 1, cv2.LINE_AA)
+    return img
+
+
+def overlay_blue_red(ref, aligned):
+    """reference = blue, coregistered drawing = red, overlap = purple, on white."""
+    b, r = ink(ref).astype(bool), ink(aligned).astype(bool)
+    out = np.full((H, W, 3), 255, np.uint8)           # BGR
+    out[b] = (235, 120, 0)                             # blue (reference)
+    out[r & ~b] = (0, 0, 235)                          # red (drawing only)
+    out[r & b] = (180, 0, 180)                         # purple (overlap)
     return out
 
 
-def label(img_gray, txt):
-    bgr = cv2.cvtColor(img_gray, cv2.COLOR_GRAY2BGR)
-    cv2.rectangle(bgr, (0, 0), (W, 22), (245, 245, 245), -1)
-    cv2.putText(bgr, txt, (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (60, 60, 60), 1, cv2.LINE_AA)
-    return bgr
-
-
-def overlay_on_ref(aligned, ref):
-    bgr = cv2.cvtColor(255 - (255 - ref) // 3, cv2.COLOR_GRAY2BGR)  # faded ref
-    am = ink(aligned).astype(bool)
-    bgr[am] = (0, 0, 230)  # aligned drawing in red
-    cv2.rectangle(bgr, (0, 0), (W, 22), (245, 245, 245), -1)
-    cv2.putText(bgr, "bbox+affine (red) over reference", (6, 16),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (60, 60, 60), 1, cv2.LINE_AA)
-    return bgr.astype(np.uint8)
-
-
 def main():
-    refg0 = cv2.resize((preprocess_bytes_for_prediction(open("/app/templates/reference_image.png", "rb").read(),
-                        metadata={}) * 255).astype(np.uint8), (W, H))
-    # margined reference: inset the figure so alignment lives in [m..W-m] and edge lines
-    # can never be clipped (StackReg aligns drawings to THIS, not the edge-touching original).
-    refg = warp_aff(refg0, bbox_affine(refg0, refg0))
+    ref = cv2.resize((preprocess_bytes_for_prediction(open("/app/templates/reference_image.png", "rb").read(),
+                      metadata={}) * 255).astype(np.uint8), (W, H))   # AS-IS, never distorted
+    rink = ink(ref)
     db = next(get_db())
     rows = db.query(TrainingDataImage).filter(
         TrainingDataImage.source_format == "TELEFRED", TrainingDataImage.features_data.isnot(None)).all()
@@ -108,21 +111,24 @@ def main():
         except: return 0
     picks = [r for r in rows if sc(r) >= 55][:5] + [r for r in rows if sc(r) <= 35][:5]
 
-    rink = ink(refg)
+    overlays = []
     for i, r in enumerate(picks):
         d = gray(r.processed_image_data)
-        al = align(d, refg)                              # bbox-fill + affine + fit-inside
-        ob, oal = overlap(ink(d), rink), overlap(ink(al), rink)
-        retain = ink(al).sum() / max(ink(d).sum(), 1)
-        strip = np.hstack([
+        al = align(d, ref)
+        ob, oa = overlap(ink(d), rink), overlap(ink(al), rink)
+        ov = overlay_blue_red(ref, al)
+        cv2.imwrite(f"{OUT}/ex_{i:02d}_id{r.id}.png", np.hstack([
             label(d, f"drawing (score {sc(r)})  overlap {ob:.2f}"),
-            label(al, f"aligned (bbox+affine+fit)  {oal:.2f}  ink {retain:.0%}"),
-            label(refg, "reference"),
-            overlay_on_ref(al, refg),
-        ])
-        cv2.imwrite(f"{OUT}/ex_{i:02d}_id{r.id}.png", strip)
-        print(f"ex_{i:02d}_id{r.id}: score {sc(r)} | overlap {ob:.2f} → {oal:.2f} | ink retained {retain:.0%}", flush=True)
-    print(f"\nwrote {len(picks)} strips to {OUT}")
+            label(al, f"coregistered  {oa:.2f}"),
+            label(ov, "reference=blue  coreg=red  overlap=purple"),
+        ]))
+        cv2.imwrite(f"{OUT}/ex_{i:02d}_id{r.id}_overlay.png", ov)
+        overlays.append(label(ov, f"ex_{i:02d} id{r.id}  score {sc(r)}  overlap {ob:.2f}->{oa:.2f}"))
+        print(f"ex_{i:02d}_id{r.id}: score {sc(r)} | overlap {ob:.2f} -> {oa:.2f}", flush=True)
+
+    sheet = np.vstack(overlays)
+    cv2.imwrite(f"{OUT}/contact_sheet.png", sheet)
+    print(f"\noverlays + contact_sheet.png in {OUT}  (reference=blue, coreg=red)")
 
 
 if __name__ == "__main__":
