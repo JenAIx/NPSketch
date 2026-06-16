@@ -7,8 +7,15 @@ All notable changes to NPSketch will be documented in this file.
 ## [Unreleased] (branch `feature/coreg`) — Drawing→reference coregistration (experimental)
 
 Aligns every normalized drawing to the OCS-Plus reference figure so the CNN sees a
-consistently framed/oriented figure. **Experimental** — under A/B evaluation (component
-model trained on coregistered vs. current data) before any decision to adopt.
+consistently framed/oriented figure. **Experimental — evaluated and NOT adopted.**
+A/B test (component model, identical seed=42 / 1077-image val split): coregistered model
+calibrated R² **0.9199** vs. baseline **0.9256** (RMSE 2.72 vs. 2.62) — a net wash / marginally
+worse on the derived score, a hair better on component-F1. Root cause is *not* a coreg or
+augmentation bug: coreg QA is clean and a controlled test (40 matched images) shows augmentation
+is unharmed (6/6 augs accepted, coreg data slightly *more* diverse, SSIM→orig 0.725 vs. 0.757).
+Coreg simply adds no signal — the ResNet+augmentation already learns spatial invariance, and
+alignment likely removes mildly diagnostic framing/size/tilt cues. Code kept on this branch for
+the record (reproduce via `import_unified --coregister`); live DB restored to the non-coreg state.
 
 - **`coregistration.py`** (shared core): anisotropic **bbox prealign** (drawing ink-bbox →
   reference ink-bbox, no shear) → **overlap-gated `RIGID_BODY`** pystackreg refine →
