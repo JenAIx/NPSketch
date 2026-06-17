@@ -1,7 +1,7 @@
 # MASTER_PLAN_SYN_TRAIN — Synthetic training for the component model
 
 Living document. Update the **Results log** and **TODO** after every experiment.
-Branch: `feature/synthetic-gen`. Last updated: experiment E2 launched.
+Branch: `feature/synthetic-gen`. Last updated: E2 done (not adopted; v1 `023227` remains best).
 
 ---
 
@@ -54,7 +54,8 @@ model. The real val is the honest measure; low bins have small n (read direction
 |-------|------|--------------|------|--------|
 | `model_Components_20260613_005214` | baseline (real only) | 0.9256 | 2.619 | reference |
 | `model_Components_20260616_015757` | + coregistration | 0.9199 | 2.718 | abandoned (wash) |
-| `model_Components_20260617_023227` | + 500 v1 synthetic | 0.9264 | 2.607 | **current best** |
+| `model_Components_20260617_023227` | + 500 v1 synthetic (uniform 0–35) | 0.9264 | 2.607 | **current best** |
+| `model_Components_20260617_162212` | + 630 v2 synthetic (low-weighted) | 0.9064 | 2.939 | not adopted (E2; overall regressed) |
 
 DB backups: `data/npsketch.precoreg.db` (pre-coreg), `data/npsketch.presynth.db`
 (pre-any-synthetic), `data/npsketch.prev2.db` (pre-E2). Revert synthetic anytime:
@@ -66,9 +67,16 @@ DB backups: `data/npsketch.precoreg.db` (pre-coreg), `data/npsketch.presynth.db`
 |-----|--------|---------|-----------|------------|-----------|----------------|---------|
 | E0 | baseline `005214` | 14.39/0.20 | 8.11/0.25 | 2.74/0.62 | 4.51/0.604 | 1.55/0.974 | reference |
 | E1 | +500 v1 synth (0–35) → `023227` | 9.65/0.06 | 3.31/0.29 | 2.73/0.65 | **3.40/0.635** | 1.54/0.973 | **adopted** (MAE −25 % on 0–29, no overall cost) |
-| E2 | +~630 **v2** synth (low-weighted) → `<pending>` | … | … | … | … | … | running |
+| E2 | +630 **v2** synth, low-weighted (380@0–18, 250@18–35) → `162212` | **5.74**/0.10 | 3.35/0.29 | 4.18/0.63 | 4.19/0.627 | 1.69/0.974 | **not adopted** — won extreme 0–19 (n=3/8) but regressed 20–29 + overall |
 
 (0–9 F1 is degenerate at n=3 — ignore; track the 0–29 derived-score MAE + overall.)
+
+**E2 learning:** more synthetic (630 vs 500) + heavy low-weighting **over-skewed the model
+low** — it nailed 0–19 but pushed 20–29 (n=27) from 2.73 → 4.18 and overall MAE 1.54 → 1.69.
+So **balanced ~500 uniform (E1) is the better recipe**; don't over-weight the tail. Confound:
+E2 changed *both* generator (v1→v2) and distribution (uniform→low-weighted+more) — to isolate,
+a future run could test **v2 generator at 500 uniform** (like E1 but v2 strokes). v1 model
+`023227` remains best and deployed; DB restored to its state (500 v1 synthetic).
 
 ## 5. Decisions
 
@@ -80,13 +88,15 @@ DB backups: `data/npsketch.precoreg.db` (pre-coreg), `data/npsketch.presynth.db`
 
 ## 6. TODO / next experiments
 
-- [ ] **E2** (running): v2 synthetic, low-weighted. Compare to `023227`; keep best.
-- [ ] **Amount/ratio sweep**: 250 / 500 / 1000 synthetic to find the overfit sweet spot.
-- [ ] **CNN-in-the-loop hard-mining**: use the best model to find where it's still wrong
-      (esp. 0–9), generate those, retrain — the realistic "improving generator" (not a GAN).
-- [ ] **Better low-score eval**: cross-validation folds so the low bins have real n (current
-      0–9 n=3 is unmeasurable). Expensive (multiple trains).
-- [ ] **Generator realism**: validate v2 images against real low-score drawings; tune.
+- [x] **E2** (done): v2 low-weighted 630 → regressed overall; **not adopted**. v1 `023227` best.
+- [ ] **E3 — isolate the confound**: v2 generator at **500 uniform 0–35** (match E1's
+      distribution, only the generator differs). Tells us whether v2 strokes alone help/hurt.
+- [ ] **Better low-score eval FIRST**: the real blocker is measurement — 0–9 n=3, 0–29 n=35.
+      Without more real low-score eval (cross-val folds, or holding out more real low rows) we
+      can't trust low-bin deltas. Consider before more 10 h trains.
+- [ ] **Amount sweep** (informed): 500 looks near the sweet spot; test 350 / 500 / 700 *uniform*
+      (not low-weighted — E2 showed low-weighting hurts 20–29).
+- [ ] **CNN-in-the-loop hard-mining**: best model → hardest cases → generate → retrain.
 - [ ] **Beyond TELEFRED**: extend the component head / synthetic to other sources.
 
 ## 7. Risks / open questions
