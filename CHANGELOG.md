@@ -4,6 +4,29 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [Unreleased] — Element definitions + synthetic low-score generator
+
+Fixes the component model's low-score blindness (it floored at ~18 because real low-score
+drawings are scarce) by generating synthetic low-score images with **exact** labels.
+
+- **Canonical 20-element geometry** extracted from the official scoring manual
+  (`api/data_consolidation/extract_elements_from_manual.py`): each record-form cell highlights
+  one element in red → mapped to the 568×274 reference; identity validated to the model's
+  ELEM01–20 order by label-correlation over 5403 images (`map_elements_by_correlation.py`).
+  Stored in `data/element_definitions.json`. `docs/SCORING_CRITERIA.md` captures the rubric.
+- **Hand-annotation tool** in `component_map.html`: paint each element's region on the
+  reference (works for circle/star/cross); GET/POST `/api/ai-training/element-definitions`.
+  Centroid composites removed; intro rewritten; rebuild bar moved to the heatmaps section.
+- **`gen_synth_image.py`** — element-grounded generator: `element region ∩ reference ink =
+  real strokes`; composes low-score figures with exact 60-component labels (position/accuracy
+  degradation). CLI `--preview / --insert / --purge`. Synthetic rows
+  (`source_format='SYNTHETIC'`, `SYNTH_*` patient → forced to train) wired into component
+  training (`data_loader` source filter → `.in_()`, `ai_training_base` → `('TELEFRED','SYNTHETIC')`).
+- **Result:** retraining with 500 synthetic low-score rows (same seed/val) cut derived-score
+  MAE **−25 % on 0–29 / −46 % on 0–19** with **no overall cost** (calibrated R² 0.9256 → 0.9264).
+  Model `model_Components_20260617_023227`. A GAN is unnecessary here — the recipe yields
+  unlimited exact-label data; the next lever is CNN-in-the-loop hard-example mining.
+
 ## [Unreleased] (branch `feature/coreg`) — Drawing→reference coregistration (experimental)
 
 Aligns every normalized drawing to the OCS-Plus reference figure so the CNN sees a

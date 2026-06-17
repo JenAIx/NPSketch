@@ -20,10 +20,7 @@
         .tag-cam { background: #e8f5e9; color: #2e7d32; }
         .caveat { margin-top: 10px; padding: 10px 12px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px; color: #856404; font-size: 0.88em; }
         .section-label { font-size: 0.8em; text-transform: uppercase; letter-spacing: 1px; color: #999; margin: 26px 0 10px; font-weight: 600; }
-        .composites { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .composite-card { background: #f8f9fa; border-radius: 10px; padding: 16px; text-align: center; }
-        .composite-card h4 { margin-bottom: 10px; color: #333; }
-        .composite-card img, .cell img { width: 100%; display: block; border: 1px solid #ddd; border-radius: 6px; background: white; }
+        .cell img { width: 100%; display: block; border: 1px solid #ddd; border-radius: 6px; background: white; }
         .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
         .el-card { background: #f8f9fa; border-radius: 10px; padding: 12px; }
         .el-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
@@ -42,7 +39,21 @@
         .rebuild-meta { font-size: 0.8em; color: #888; }
         .ref-figure { text-align: center; background: #f8f9fa; border-radius: 10px; padding: 16px; }
         .ref-figure img { max-width: 620px; width: 100%; border: 1px solid #ddd; border-radius: 6px; background: white; }
-        @media (max-width: 800px) { .composites { grid-template-columns: 1fr; } }
+        /* element annotation */
+        .annotate { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 10px; padding: 16px; }
+        .annotate .help { font-size: 0.88em; color: #555; line-height: 1.5; margin-bottom: 12px; }
+        .el-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+        .el-btn { width: 40px; height: 30px; border: 2px solid transparent; border-radius: 6px; cursor: pointer; font-size: 0.8em; font-weight: 700; color: #fff; opacity: .55; transition: all .12s; }
+        .el-btn.active { opacity: 1; border-color: #333; transform: scale(1.08); }
+        .el-btn.has { box-shadow: inset 0 -4px 0 rgba(0,0,0,.35); }
+        .ann-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 12px; font-size: 0.86em; color: #444; }
+        .ann-tools button { padding: 7px 12px; border: none; border-radius: 7px; font-weight: 600; cursor: pointer; background: #667eea; color: #fff; }
+        .ann-tools button.ghost { background: #e9ecef; color: #444; }
+        .ann-tools button:disabled { opacity: .5; cursor: not-allowed; }
+        .ann-tools label { display: inline-flex; align-items: center; gap: 5px; }
+        .ann-canvas-wrap { display: inline-block; border: 1px solid #ccc; border-radius: 6px; background: #fff; line-height: 0; touch-action: none; max-width: 100%; }
+        #annCanvas { width: 100%; max-width: 852px; height: auto; image-rendering: auto; cursor: crosshair; touch-action: none; }
+        .ann-status { font-size: 0.85em; color: #666; margin-top: 8px; }
     </style>
 </head>
 <body>
@@ -52,37 +63,24 @@
         <p class="subtitle">Where each of the 20 OCS-Plus elements sits on the figure — and where the model looks for it.</p>
 
         <div class="intro">
-            <h3>Two views of the same question: which element is which?</h3>
+            <h3>Defining and checking the 20 OCS-Plus elements</h3>
             <div class="method">
-                <span class="tag tag-data">Data-driven</span>
-                mean(ink&nbsp;|&nbsp;presence=1) − mean(ink&nbsp;|&nbsp;presence=0), computed
-                <strong>within each Total_Score band</strong> and then averaged. Model-free — shows where
-                each element's strokes actually live in the aligned data. (Score-stratification is what
-                removes the confound that an absent element usually means a globally sparser drawing;
-                comparing within a band isolates element <em>e</em> alone.)
+                <span class="tag tag-data">Define</span>
+                The canonical geometry of the 20 elements is <strong>hand-traced on the reference
+                figure</strong> (paint each element's region below), derived from the official
+                scoring manual. This is the ground-truth answer to "which element is which", and the
+                build recipe for synthetic training images: <em>element region ∩ figure ink = that
+                element's strokes</em>.
             </div>
             <div class="method">
-                <span class="tag tag-cam">Grad-CAM</span>
-                attention of the trained component CNN's <em>presence</em> logit, <strong>averaged over
-                ~250 real TELEFRED drawings</strong> (layer3) — i.e. where the network looks to decide
-                that sub-label (explainable AI). Averaging over real images avoids the saturation
-                artifact of running Grad-CAM on the single complete reference (where every element is
-                present, so the maps degenerate). Shown over the model's preprocessed view of the figure.
+                <span class="tag tag-cam">Check</span>
+                The <strong>per-element heatmaps</strong> below are an independent sanity check that the
+                labels and the model agree on where each element lives — <em>data-driven</em>
+                (mean&nbsp;ink&nbsp;|&nbsp;presence=1 − presence=0, within each Total_Score band, then
+                averaged; model-free) and <em>Grad-CAM</em> (the component CNN's presence-logit attention
+                averaged over ~250 real TELEFRED drawings, layer3). Bright peak = the element's location;
+                the faint halo is residual from slight figure-to-figure misalignment.
             </div>
-            <div class="caveat" id="caveat">
-                ℹ️ The bright peak is the element's location; the faint halo is residual from slight
-                figure-to-figure misalignment. Data-driven peaks come straight from the labels; Grad-CAM
-                shows whether the model's attention agrees — a quick sanity check that it learned the
-                right regions.
-            </div>
-        </div>
-
-        <div class="rebuild-bar">
-            <div>
-                <button class="btn-rebuild" id="rebuildBtn" onclick="rebuildMaps()">🔄 Rebuild maps</button>
-                <span id="rebuildStatus" class="rebuild-status"></span>
-            </div>
-            <span class="rebuild-meta" id="genMeta"></span>
         </div>
 
         <div class="section-label">The reference figure (OCS-Plus)</div>
@@ -91,19 +89,41 @@
                  onerror="this.replaceWith(Object.assign(document.createElement('div'),{style:'color:#999;padding:20px',textContent:'Reference figure unavailable'}))">
         </div>
 
-        <div class="section-label">Reference figure — all 20 elements located</div>
-        <div class="composites">
-            <div class="composite-card">
-                <h4 style="color:#1565c0;">Data-driven centroids</h4>
-                <img id="dataComposite" alt="data-driven composite">
+        <div class="section-label">✏️ Annotate elements — paint each element's region by hand</div>
+        <div class="annotate">
+            <div class="help">
+                Pick an element below, then <strong>paint over its region</strong> on the figure with the
+                brush (drag the mouse / finger). Works for the circle, star and cross too — just cover the shape.
+                The painted region is intersected with the figure's ink to recover that element's exact strokes,
+                giving a clean 20-element definition (in the correct <strong>568×274</strong> frame) for structured
+                low-score generation. Tip: turn on the <em>heatmap hint</em> to see roughly where each element lives.
             </div>
-            <div class="composite-card">
-                <h4 style="color:#2e7d32;">Grad-CAM centroids</h4>
-                <img id="camComposite" alt="grad-cam composite">
+            <div class="el-picker" id="elPicker"></div>
+            <div class="ann-tools">
+                <label>Brush <input type="range" id="brushSize" min="4" max="48" value="16"><span id="brushVal">16</span>px</label>
+                <label><input type="checkbox" id="eraseMode"> Eraser</label>
+                <label><input type="checkbox" id="showAll" checked> Show all elements</label>
+                <label><input type="checkbox" id="showHint"> Heatmap hint</label>
+                <button class="ghost" id="undoBtn" onclick="annUndo()">↩ Undo</button>
+                <button class="ghost" id="clearElBtn" onclick="annClearElement()">Clear element</button>
+                <button class="ghost" id="clearAllBtn" onclick="annClearAll()">Clear all</button>
+                <button id="saveAnnBtn" onclick="annSave()">💾 Save definitions</button>
+                <span class="ann-status" id="annStatus"></span>
             </div>
+            <div class="ann-canvas-wrap">
+                <canvas id="annCanvas" width="568" height="274"></canvas>
+            </div>
+            <div class="ann-status" id="annProgress"></div>
         </div>
 
         <div class="section-label">Per-element heatmaps (E01–E20)</div>
+        <div class="rebuild-bar">
+            <div>
+                <button class="btn-rebuild" id="rebuildBtn" onclick="rebuildMaps()">🔄 Rebuild maps</button>
+                <span id="rebuildStatus" class="rebuild-status"></span>
+            </div>
+            <span class="rebuild-meta" id="genMeta"></span>
+        </div>
         <div class="grid" id="grid"></div>
     </div>
 
@@ -115,12 +135,9 @@
             if (r.ok) manifest = await r.json();
         } catch (e) { /* not generated yet */ }
 
-        const composites = document.querySelector('.composites');
         const grid = document.getElementById('grid');
 
         if (!manifest) {
-            composites.style.display = 'none';
-            document.querySelectorAll('.section-label')[1].style.display = 'none';
             grid.innerHTML =
                 `<div style="grid-column:1/-1; padding:30px; text-align:center; color:#856404; background:#fff3cd; border-radius:10px;">
                     The component maps haven't been generated yet — click <strong>🔄 Rebuild maps</strong> above
@@ -128,14 +145,9 @@
                 </div>`;
             return;
         }
-        composites.style.display = '';
-        document.querySelectorAll('.section-label')[1].style.display = '';
 
         const v = encodeURIComponent(manifest.generated_at || Date.now());  // cache-bust
         const url = (f) => `/api/visualizations/element_map/${f}?v=${v}`;
-
-        document.getElementById('dataComposite').src = url('data_composite.png');
-        document.getElementById('camComposite').src = url('cam_composite.png');
 
         if (manifest.generated_at) {
             const when = new Date(manifest.generated_at).toLocaleString();
@@ -200,6 +212,186 @@
     }
 
     loadMaps();
+
+    /* ===================================================================== */
+    /* Element annotation — paint each element's region by hand (568×274)    */
+    /* ===================================================================== */
+    const AW = 568, AH = 274;
+    const annCanvas = document.getElementById('annCanvas');
+    const annCtx = annCanvas.getContext('2d');
+    const bgCanvas = document.createElement('canvas'); bgCanvas.width = AW; bgCanvas.height = AH;
+    const bgCtx = bgCanvas.getContext('2d');
+    const elColor = e => `hsl(${Math.round((e - 1) * 360 / 20)}, 75%, 48%)`;
+
+    let annState = {};           // element(1..20) -> [ {width, erase, points:[[x,y]]} ]
+    for (let e = 1; e <= 20; e++) annState[e] = [];
+    let curEl = 1, curStroke = null, painting = false;
+    let annRefImg = null;
+    const hintCache = {};        // element -> Image or false
+
+    function annOpts() {
+        return {
+            brush: +document.getElementById('brushSize').value,
+            erase: document.getElementById('eraseMode').checked,
+            showAll: document.getElementById('showAll').checked,
+            showHint: document.getElementById('showHint').checked,
+        };
+    }
+
+    // rasterize one element's strokes into an alpha mask canvas
+    function rasterize(strokes, extra) {
+        const c = document.createElement('canvas'); c.width = AW; c.height = AH;
+        const x = c.getContext('2d');
+        x.lineCap = 'round'; x.lineJoin = 'round';
+        const all = extra ? strokes.concat([extra]) : strokes;
+        for (const s of all) {
+            x.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over';
+            x.strokeStyle = '#000'; x.fillStyle = '#000'; x.lineWidth = s.width;
+            const p = s.points;
+            x.beginPath();
+            if (p.length === 1) { x.arc(p[0][0], p[0][1], s.width / 2, 0, 7); x.fill(); continue; }
+            x.moveTo(p[0][0], p[0][1]);
+            for (let i = 1; i < p.length; i++) x.lineTo(p[i][0], p[i][1]);
+            x.stroke();
+        }
+        return c;
+    }
+    // tint an alpha mask with a colour
+    function tint(maskCanvas, color) {
+        const c = document.createElement('canvas'); c.width = AW; c.height = AH;
+        const x = c.getContext('2d');
+        x.fillStyle = color; x.fillRect(0, 0, AW, AH);
+        x.globalCompositeOperation = 'destination-in';
+        x.drawImage(maskCanvas, 0, 0);
+        return c;
+    }
+
+    function redrawBg() {
+        const o = annOpts();
+        bgCtx.clearRect(0, 0, AW, AH);
+        bgCtx.fillStyle = '#fff'; bgCtx.fillRect(0, 0, AW, AH);
+        if (annRefImg) { bgCtx.globalAlpha = 0.35; bgCtx.drawImage(annRefImg, 0, 0, AW, AH); bgCtx.globalAlpha = 1; }
+        if (o.showHint && hintCache[curEl]) { bgCtx.globalAlpha = 0.45; bgCtx.drawImage(hintCache[curEl], 0, 0, AW, AH); bgCtx.globalAlpha = 1; }
+        for (let e = 1; e <= 20; e++) {
+            if (e === curEl) continue;
+            if (!o.showAll || !annState[e].length) continue;
+            bgCtx.globalAlpha = 0.30;
+            bgCtx.drawImage(tint(rasterize(annState[e]), elColor(e)), 0, 0);
+            bgCtx.globalAlpha = 1;
+        }
+    }
+    function composite() {
+        annCtx.clearRect(0, 0, AW, AH);
+        annCtx.drawImage(bgCanvas, 0, 0);
+        annCtx.globalAlpha = 0.55;
+        annCtx.drawImage(tint(rasterize(annState[curEl], curStroke), elColor(curEl)), 0, 0);
+        annCtx.globalAlpha = 1;
+    }
+
+    function annPos(e) {
+        const r = annCanvas.getBoundingClientRect();
+        const t = e.touches ? (e.touches[0] || e.changedTouches[0]) : e;
+        return [(t.clientX - r.left) * AW / r.width, (t.clientY - r.top) * AH / r.height];
+    }
+    function annDown(e) {
+        e.preventDefault();
+        const o = annOpts();
+        painting = true;
+        curStroke = { width: o.brush, erase: o.erase, points: [annPos(e)] };
+        composite();
+    }
+    function annMove(e) {
+        if (!painting) return;
+        e.preventDefault();
+        curStroke.points.push(annPos(e));
+        composite();
+    }
+    function annUp() {
+        if (!painting) return;
+        painting = false;
+        if (curStroke && curStroke.points.length) annState[curEl].push(curStroke);
+        curStroke = null;
+        redrawBg(); composite(); renderPicker(); updateProgress();
+    }
+    annCanvas.addEventListener('mousedown', annDown);
+    annCanvas.addEventListener('mousemove', annMove);
+    window.addEventListener('mouseup', annUp);
+    annCanvas.addEventListener('touchstart', annDown, { passive: false });
+    annCanvas.addEventListener('touchmove', annMove, { passive: false });
+    annCanvas.addEventListener('touchend', annUp);
+
+    function selectEl(e) { curEl = e; loadHint(); redrawBg(); composite(); renderPicker(); }
+    function renderPicker() {
+        const wrap = document.getElementById('elPicker');
+        wrap.innerHTML = '';
+        for (let e = 1; e <= 20; e++) {
+            const b = document.createElement('button');
+            b.className = 'el-btn' + (e === curEl ? ' active' : '') + (annState[e].length ? ' has' : '');
+            b.style.background = elColor(e);
+            b.textContent = e; b.title = `Element ${e}` + (annState[e].length ? ` (${annState[e].length} strokes)` : '');
+            b.onclick = () => selectEl(e);
+            wrap.appendChild(b);
+        }
+    }
+    function updateProgress() {
+        const done = Object.values(annState).filter(s => s.length).length;
+        const strokes = Object.values(annState).reduce((a, s) => a + s.length, 0);
+        document.getElementById('annProgress').textContent =
+            `${done}/20 elements painted · ${strokes} strokes total` + (done < 20 ? ` · ${20 - done} still empty` : ' ✓ all done');
+    }
+
+    function loadHint() {
+        if (!annOpts().showHint || hintCache[curEl] !== undefined) return;
+        const id = String(curEl).padStart(2, '0');
+        const img = new Image();
+        img.onload = () => { hintCache[curEl] = img; redrawBg(); composite(); };
+        img.onerror = () => { hintCache[curEl] = false; };
+        img.src = `/api/visualizations/element_map/data_e${id}.png?_=${Date.now()}`;
+    }
+
+    window.annUndo = () => { annState[curEl].pop(); redrawBg(); composite(); renderPicker(); updateProgress(); };
+    window.annClearElement = () => { annState[curEl] = []; redrawBg(); composite(); renderPicker(); updateProgress(); };
+    window.annClearAll = () => {
+        if (!confirm('Clear ALL painted regions for all 20 elements?')) return;
+        for (let e = 1; e <= 20; e++) annState[e] = [];
+        redrawBg(); composite(); renderPicker(); updateProgress();
+    };
+    window.annSave = async () => {
+        const btn = document.getElementById('saveAnnBtn'); const st = document.getElementById('annStatus');
+        btn.disabled = true; st.textContent = '⏳ Saving…';
+        const payload = { image_size: [AW, AH], elements: [] };
+        for (let e = 1; e <= 20; e++) payload.elements.push({ element: e, strokes: annState[e] });
+        try {
+            const r = await fetch('/api/ai-training/element-definitions', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+            });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.detail || 'save failed');
+            st.textContent = `✅ Saved ${d.elements_annotated}/20 elements (${d.total_strokes} strokes)`;
+        } catch (err) { st.textContent = '❌ ' + err.message; }
+        finally { btn.disabled = false; }
+    };
+
+    document.getElementById('brushSize').oninput = e => document.getElementById('brushVal').textContent = e.target.value;
+    ['showAll', 'showHint', 'eraseMode'].forEach(id =>
+        document.getElementById(id).addEventListener('change', () => { if (id === 'showHint') loadHint(); redrawBg(); composite(); }));
+
+    async function initAnnotate() {
+        annRefImg = new Image();
+        annRefImg.onload = () => { redrawBg(); composite(); };
+        annRefImg.src = '/api/reference-image?_=' + Date.now();
+        try {
+            const d = await (await fetch('/api/ai-training/element-definitions?_=' + Date.now())).json();
+            (d.elements || []).forEach(el => {
+                if (el.element >= 1 && el.element <= 20)
+                    annState[el.element] = (el.strokes || []).map(s => Array.isArray(s)
+                        ? { width: 12, erase: false, points: s }
+                        : { width: s.width || 12, erase: !!s.erase, points: s.points || [] });
+            });
+        } catch (e) { /* none yet */ }
+        renderPicker(); updateProgress(); redrawBg(); composite();
+    }
+    initAnnotate();
     </script>
 </body>
 </html>
