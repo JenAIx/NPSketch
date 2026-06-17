@@ -29,9 +29,11 @@ sys.path.insert(0, "/app/data_consolidation")
 from coregistration import load_reference, renorm, to_png_bytes, ink, W, H
 
 DEFS = "/app/data/element_definitions.json"
+PRIORS = "/app/data/element_priors.json"
 OUT = "/app/data/tmp/synth_gen"
 BASELINE = "/app/data/models/model_Components_20260613_005214"
 POS_TOL = 25  # px; shift beyond this loses the position point (scoring manual)
+BANDS = [(0, 9), (10, 19), (20, 29), (30, 39), (40, 49), (50, 60)]
 
 
 # --------------------------------------------------------------- element recipe
@@ -165,27 +167,83 @@ def degrade_accuracy(m, e, rng):
     return partial_cut(m, rng)
 
 
+# --------------------------------------------------------------- empirical priors
+def build_priors():
+    """Per score-band empirical conditionals from REAL TELEFRED labels:
+    P(present_e | band), and given present, P(accuracy=1 | e,band), P(position=1 | e,band).
+    Real low-score drawings keep certain elements (frame/circle) and drop others — sampling
+    from these makes synthetic structurally realistic (vs a uniform random subset)."""
+    sys.path.insert(0, "/app")
+    from database import get_db, TrainingDataImage
+    from ai_training.dataset import components_to_vector
+    db = get_db().__next__()
+    rows = db.query(TrainingDataImage).filter(
+        TrainingDataImage.source_format == "TELEFRED",
+        TrainingDataImage.features_data.isnot(None)).all()
+    import json as _j
+    pres_c = [np.zeros(20) for _ in BANDS]; acc_c = [np.zeros(20) for _ in BANDS]
+    pos_c = [np.zeros(20) for _ in BANDS]; n_band = [0] * len(BANDS); npres = [np.zeros(20) for _ in BANDS]
+    for r in rows:
+        f = _j.loads(r.features_data); c = f.get("components")
+        if not c:
+            continue
+        s = f["Total_Score"]; b = next((i for i, (lo, hi) in enumerate(BANDS) if lo <= s <= hi), None)
+        if b is None:
+            continue
+        pr = np.array(c["presence"]); ac = np.array(c["accuracy"]); po = np.array(c["position"])
+        n_band[b] += 1; pres_c[b] += pr; npres[b] += pr
+        acc_c[b] += ac * pr; pos_c[b] += po * pr   # accuracy/position only count where present
+    db.close()
+    pres, acc, pos = [], [], []
+    for b in range(len(BANDS)):
+        nb = max(1, n_band[b]); npr = npres[b] + 1.0   # Laplace smoothing
+        pres.append(((pres_c[b] + 0.5) / (nb + 1)).tolist())
+        acc.append(((acc_c[b] + 0.5) / npr).tolist())
+        pos.append(((pos_c[b] + 0.5) / npr).tolist())
+    out = {"bands": BANDS, "n_per_band": n_band, "pres": pres, "acc": acc, "pos": pos}
+    json.dump(out, open(PRIORS, "w"), indent=2)
+    print(f"built priors from {sum(n_band)} real rows; n/band {n_band} -> {PRIORS}", flush=True)
+    return out
+
+
+def load_priors():
+    if os.path.exists(PRIORS):
+        return json.load(open(PRIORS))
+    return build_priors()
+
+
+def band_of(score):
+    for i, (lo, hi) in enumerate(BANDS):
+        if lo <= score <= hi:
+            return i
+    return len(BANDS) - 1
+
+
 # --------------------------------------------------------------- generation
-def sample_spec(rng, target):
-    """Pick present elements + per-element acc/pos so the score lands near `target`.
-    Detail elements are a bit likelier to lose accuracy (harder to draw well)."""
+def sample_spec(rng, target, priors):
+    """Sample present elements + per-element acc/pos from the real per-band priors, rejection-
+    sampled to land near `target`. Keeps the realistic structure (which elements survive at a
+    given score) instead of a uniform random subset."""
+    b = band_of(target)
+    pres = np.array(priors["pres"][b]); acc = np.array(priors["acc"][b]); pos = np.array(priors["pos"][b])
     best = None
-    for _ in range(300):
-        n = int(np.clip(round(target / 2.2 + rng.normal(0, 1.2)), 1, 20))
-        present = sorted(rng.choice(20, n, replace=False).tolist())
-        acc = np.array([int(rng.random() > (0.55 if e in DETAIL else 0.42)) for e in present])
-        pos = (rng.random(n) > 0.45).astype(int)
-        score = int(n + acc.sum() + pos.sum())
-        cand = (present, acc, pos, score)
-        if abs(score - target) <= 1:
+    for _ in range(400):
+        present = np.where(rng.random(20) < pres)[0]
+        if len(present) == 0:
+            continue
+        a = (rng.random(len(present)) < acc[present]).astype(int)
+        p = (rng.random(len(present)) < pos[present]).astype(int)
+        score = int(len(present) + a.sum() + p.sum())
+        cand = (present.tolist(), a, p, score)
+        if abs(score - target) <= 2:
             return cand
         if best is None or abs(score - target) < abs(best[3] - target):
             best = cand
     return best
 
 
-def generate(masks, rng, target):
-    present, acc, pos, score = sample_spec(rng, target)
+def generate(masks, priors, rng, target):
+    present, acc, pos, score = sample_spec(rng, target, priors)
     canvas = np.zeros((H, W), bool)
     vec = np.zeros(60, np.float32)
     for k, e in enumerate(present):
@@ -240,12 +298,13 @@ def do_preview(n, scores):
     sizes = [int(m.sum()) for m in masks]
     print(f"element ink sizes (px): min {min(sizes)} med {int(np.median(sizes))} max {max(sizes)}", flush=True)
     rng = np.random.default_rng(11)
+    priors = load_priors()
     targets = scores if scores else [int(t) for t in np.linspace(4, 34, n)]
     model, meta = load_cnn()
     tiles = []
     print(f"\n{'#':>2} {'target':>6} {'TRUE':>5} {'CNN':>5} {'|err|':>6} {'pres✓':>6}")
     for i, t in enumerate(targets):
-        img, vec, score = generate(masks, rng, t)
+        img, vec, score = generate(masks, priors, rng, t)
         probs, cal, thr = cnn_read(model, meta, img)
         pred = (probs >= thr).astype(int)
         presM = int(np.sum((vec[0::3] == 1) & (pred[0::3] == 1)))
@@ -265,12 +324,13 @@ def do_insert(n, smin, smax, seed):
     from database import SessionLocal, TrainingDataImage
     from datetime import datetime
     _, _, masks = build_element_ink()
+    priors = load_priors()
     rng = np.random.default_rng(seed)
     db = SessionLocal()
     added = 0
     for i in range(n):
         target = int(rng.integers(smin, smax + 1))
-        img, vec, score = generate(masks, rng, target)
+        img, vec, score = generate(masks, priors, rng, target)
         png = to_png_bytes(img)
         db.add(TrainingDataImage(
             uid=f"SYNTH-{seed}-{i}", patient_id=f"SYNTH_{seed}_{i}", task_type="COPY",
@@ -304,8 +364,11 @@ def main():
     ap.add_argument("--score-max", type=int, default=35)
     ap.add_argument("--seed", type=int, default=101)
     ap.add_argument("--purge", action="store_true")
+    ap.add_argument("--build-priors", action="store_true", help="(re)compute element_priors.json from real labels")
     args = ap.parse_args()
-    if args.purge:
+    if args.build_priors:
+        build_priors()
+    elif args.purge:
         do_purge()
     elif args.insert:
         do_insert(args.insert, args.score_min, args.score_max, args.seed)

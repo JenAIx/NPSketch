@@ -73,10 +73,19 @@ DB backups: `data/npsketch.precoreg.db` (pre-coreg), `data/npsketch.presynth.db`
 
 **E2 learning:** more synthetic (630 vs 500) + heavy low-weighting **over-skewed the model
 low** — it nailed 0–19 but pushed 20–29 (n=27) from 2.73 → 4.18 and overall MAE 1.54 → 1.69.
-So **balanced ~500 uniform (E1) is the better recipe**; don't over-weight the tail. Confound:
-E2 changed *both* generator (v1→v2) and distribution (uniform→low-weighted+more) — to isolate,
-a future run could test **v2 generator at 500 uniform** (like E1 but v2 strokes). v1 model
-`023227` remains best and deployed; DB restored to its state (500 v1 synthetic).
+So **balanced ~500 uniform (E1) is the better recipe**; don't over-weight the tail. v1 model
+`023227` remains best.
+
+**Step 0 (isotonic calibration, no retrain): rejected.** A monotone (PAVA) correction on
+`023227`'s NNLS readout left overall flat (R² 0.9264→0.9266) but made low bins **worse**
+(0–29 MAE 2.73→4.32) — it pulls predictions toward the dense high range. Confirms the floor is
+in the model's probabilities, not the readout → calibration can't fix it.
+
+**E3 (running): prior-driven generation.** Measured the real per-band presence structure: low
+scores keep memorable elements (circle E17 ~0.68 present at 0–9; frame ~0.23; rare details
+~0.05; mean 3.4/20), not a uniform subset. `gen_synth_image` now samples presence/accuracy/
+position from `data/element_priors.json` (real per-band conditionals, `--build-priors`) →
+structurally realistic synthetic. 500 rows, 0–35 (E1-safe amount). Compare to `023227`.
 
 ## 5. Decisions
 
