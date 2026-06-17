@@ -22,6 +22,11 @@ drawings are scarce) by generating synthetic low-score images with **exact** lab
   degradation). CLI `--preview / --insert / --purge`. Synthetic rows
   (`source_format='SYNTHETIC'`, `SYNTH_*` patient → forced to train) wired into component
   training (`data_loader` source filter → `.in_()`, `ai_training_base` → `('TELEFRED','SYNTHETIC')`).
+  - **v2 realism** (branch `feature/synthetic-gen`): label-preserving per-element affine jitter +
+    type-aware accuracy degradations — multiple tremor modes (sinusoidal + smoothed random
+    jitter), partial/incomplete strokes and pen-lift gaps for lines, and shape distortion
+    (anisotropic scale/rotation + dropped sector → open circle / missing star ray) for the
+    detail elements (circle/star/cross). Reduces synthetic-style overfit; labels stay exact.
 - **Result:** retraining with 500 synthetic low-score rows (same seed/val) cut derived-score
   MAE **−25 % on 0–29 / −46 % on 0–19** with **no overall cost** (calibrated R² 0.9256 → 0.9264).
   Model `model_Components_20260617_023227`. A GAN is unnecessary here — the recipe yields

@@ -63,29 +63,117 @@ def build_element_ink():
 
 
 # --------------------------------------------------------------- degradations
-def elastic(mask_u8, rng, amp):
+# v2: realistic, LABEL-PRESERVING degradations. Real impaired drawings show tremor,
+# incomplete/gapped strokes, pen overshoot, and distorted detail shapes — not a single
+# sinusoidal wobble. Variety here reduces synthetic-style overfit. Everything is applied
+# per element on its binary mask, then composited; labels stay exact by construction
+# (presence=drawn, accuracy=0 iff an accuracy-degradation was applied, position=0 iff
+# shifted > POS_TOL). Detail elements (circle/star/cross) degrade by shape, lines by stroke.
+DETAIL = {16, 17, 18}   # 0-indexed ELEM17/18/19 = circle / star / cross
+
+
+def _bbox(m):
+    ys, xs = np.where(m > 127)
+    return (xs.min(), ys.min(), xs.max(), ys.max()) if len(xs) else None
+
+
+def jitter_affine(m, rng, rot=4.0, smin=0.92, smax=1.08, tmax=7):
+    """small label-preserving affine (every element, for natural hand-drawn variation)."""
+    bb = _bbox(m)
+    if not bb:
+        return m
+    cx, cy = (bb[0] + bb[2]) / 2.0, (bb[1] + bb[3]) / 2.0
+    M = cv2.getRotationMatrix2D((cx, cy), rng.uniform(-rot, rot), rng.uniform(smin, smax))
+    M[0, 2] += rng.uniform(-tmax, tmax); M[1, 2] += rng.uniform(-tmax, tmax)
+    return cv2.warpAffine(m, M, (W, H), borderValue=0)
+
+
+def tremor_sin(m, rng, amp):
     ys, xs = np.mgrid[0:H, 0:W].astype(np.float32)
-    dx = amp * np.sin(ys / 11.0 + rng.uniform(0, 6))
-    dy = amp * np.sin(xs / 11.0 + rng.uniform(0, 6))
-    return cv2.remap(mask_u8, xs + dx, ys + dy, cv2.INTER_NEAREST, borderValue=0)
+    return cv2.remap(m, xs + amp * np.sin(ys / 11.0 + rng.uniform(0, 6)),
+                     ys + amp * np.sin(xs / 11.0 + rng.uniform(0, 6)), cv2.INTER_NEAREST, borderValue=0)
 
 
-def shift(mask_u8, rng):
+def tremor_jitter(m, rng, amp):
+    """smoothed random displacement field — irregular hand tremor."""
+    dx = cv2.GaussianBlur(rng.uniform(-1, 1, (H, W)).astype(np.float32), (0, 0), 7) * amp * 14
+    dy = cv2.GaussianBlur(rng.uniform(-1, 1, (H, W)).astype(np.float32), (0, 0), 7) * amp * 14
+    ys, xs = np.mgrid[0:H, 0:W].astype(np.float32)
+    return cv2.remap(m, xs + dx, ys + dy, cv2.INTER_NEAREST, borderValue=0)
+
+
+def partial_cut(m, rng):
+    """remove a contiguous band — incomplete stroke (line stops short / missing segment)."""
+    bb = _bbox(m)
+    if not bb:
+        return m
+    out = m.copy()
+    if rng.random() < 0.5:
+        cx = int(rng.integers(bb[0], bb[2] + 1)); w = int(rng.integers(10, 28))
+        out[:, max(0, cx - w):cx + w] = 0
+    else:
+        cy = int(rng.integers(bb[1], bb[3] + 1)); h = int(rng.integers(8, 22))
+        out[max(0, cy - h):cy + h, :] = 0
+    return out if (out > 127).sum() > 0.25 * (m > 127).sum() else m  # don't erase the whole thing
+
+
+def add_gaps(m, rng, n):
+    """small pen-lift gaps along the strokes (kept subtle; does not flip accuracy alone)."""
+    ys, xs = np.where(m > 127)
+    if len(xs) < 20:
+        return m
+    out = m.copy()
+    for i in rng.choice(len(xs), min(n, len(xs)), replace=False):
+        cv2.circle(out, (int(xs[i]), int(ys[i])), int(rng.integers(3, 7)), 0, -1)
+    return out
+
+
+def distort_detail(m, rng):
+    """anisotropic scale + rotation about the shape centroid, with an occasional dropped
+    sector (open circle / missing star ray / broken cross arm)."""
+    bb = _bbox(m)
+    if not bb:
+        return m
+    cx, cy = (bb[0] + bb[2]) / 2.0, (bb[1] + bb[3]) / 2.0
+    sx, sy = rng.uniform(0.6, 1.4), rng.uniform(0.6, 1.4)
+    S = np.float32([[sx, 0, cx * (1 - sx)], [0, sy, cy * (1 - sy)]])
+    m = cv2.warpAffine(m, S, (W, H), borderValue=0)
+    m = cv2.warpAffine(m, cv2.getRotationMatrix2D((cx, cy), rng.uniform(-25, 25), 1.0), (W, H), borderValue=0)
+    if rng.random() < 0.4:
+        ys, xs = np.mgrid[0:H, 0:W]
+        ang = (np.arctan2(ys - cy, xs - cx) - rng.uniform(0, 2 * np.pi)) % (2 * np.pi)
+        m = np.where(ang < rng.uniform(0.6, 1.4), 0, m).astype(np.uint8)
+    return m
+
+
+def shift(m, rng):
     ox = int(rng.integers(-45, 46)); oy = int(rng.integers(-22, 23))
-    if abs(ox) + abs(oy) <= POS_TOL:          # ensure the shift actually loses the point
+    if abs(ox) + abs(oy) <= POS_TOL:
         ox += POS_TOL + 5
-    M = np.float32([[1, 0, ox], [0, 1, oy]])
-    return cv2.warpAffine(mask_u8, M, (W, H), borderValue=0)
+    return cv2.warpAffine(m, np.float32([[1, 0, ox], [0, 1, oy]]), (W, H), borderValue=0)
+
+
+def degrade_accuracy(m, e, rng):
+    """apply an accuracy-breaking degradation appropriate to the element type."""
+    if e in DETAIL:
+        return distort_detail(m, rng)
+    mode = rng.choice(["sin", "jitter", "partial"], p=[0.4, 0.35, 0.25])
+    if mode == "sin":
+        return tremor_sin(m, rng, rng.uniform(3.0, 4.8))
+    if mode == "jitter":
+        return tremor_jitter(m, rng, rng.uniform(1.4, 2.6))
+    return partial_cut(m, rng)
 
 
 # --------------------------------------------------------------- generation
 def sample_spec(rng, target):
-    """Pick present elements + per-element acc/pos so the score lands near `target`."""
+    """Pick present elements + per-element acc/pos so the score lands near `target`.
+    Detail elements are a bit likelier to lose accuracy (harder to draw well)."""
     best = None
     for _ in range(300):
         n = int(np.clip(round(target / 2.2 + rng.normal(0, 1.2)), 1, 20))
         present = sorted(rng.choice(20, n, replace=False).tolist())
-        acc = (rng.random(n) > 0.45).astype(int)
+        acc = np.array([int(rng.random() > (0.55 if e in DETAIL else 0.42)) for e in present])
         pos = (rng.random(n) > 0.45).astype(int)
         score = int(n + acc.sum() + pos.sum())
         cand = (present, acc, pos, score)
@@ -101,9 +189,11 @@ def generate(masks, rng, target):
     canvas = np.zeros((H, W), bool)
     vec = np.zeros(60, np.float32)
     for k, e in enumerate(present):
-        m = (masks[e].astype(np.uint8)) * 255
+        m = jitter_affine(masks[e].astype(np.uint8) * 255, rng)   # natural variation (label-safe)
         if not acc[k]:
-            m = elastic(m, rng, rng.uniform(2.8, 4.5))
+            m = degrade_accuracy(m, e, rng)
+        elif rng.random() < 0.3:
+            m = add_gaps(m, rng, int(rng.integers(1, 3)))          # subtle, keeps accuracy=1
         if not pos[k]:
             m = shift(m, rng)
         canvas |= (m > 127)
@@ -116,10 +206,13 @@ def generate(masks, rng, target):
 
 # --------------------------------------------------------------- CNN read (eval)
 def load_cnn():
-    import torch
+    import glob
     from ai_training.component_calibration import load_model
-    meta = json.load(open(BASELINE + "_metadata.json"))
-    return load_model(BASELINE + ".pth", meta), meta
+    paths = sorted(glob.glob("/app/data/models/model_Components_*.pth"))
+    mp = paths[-1] if paths else BASELINE + ".pth"      # latest (best) component model
+    meta = json.load(open(mp.replace(".pth", "_metadata.json")))
+    print(f"eval model: {os.path.basename(mp)}", flush=True)
+    return load_model(mp, meta), meta
 
 
 def cnn_read(model, meta, img):
