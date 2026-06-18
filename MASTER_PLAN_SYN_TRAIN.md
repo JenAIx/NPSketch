@@ -1,9 +1,12 @@
 # MASTER_PLAN_SYN_TRAIN — Synthetic training for the component model
 
 Living document. Update the **Results log** and **TODO** after every experiment.
-Branch: `feature/synthetic-gen`. Last updated: E3 done. **Best = `023227` (E1, v1 recipe).**
-Conclusion: synthetic delivered its score win at E1; v2 realism helps component-F1 but not the
-score. Recommend shipping `023227`; further synthetic = diminishing returns (see Results log).
+Branch: `feature/synthetic-gen`. **STATUS: CONCLUDED & SHIPPED — `model_Components_20260617_023227`
+(E1, v1 recipe) is the deployed model** (it is now the latest in `data/models/`; the not-adopted
+coreg/E2/E3 models moved to `data/models/archive/`; baseline `005214` retained for reference).
+Synthetic delivered its score win at E1 (0–29 MAE −25 %, no overall cost); v2 realism helps
+component-F1 but not the score → diminishing returns, iteration stopped (see Results log).
+Reopen via the TODO levers if revisiting. DB is in the v1-consistent state (500 v1 synthetic).
 
 ---
 
