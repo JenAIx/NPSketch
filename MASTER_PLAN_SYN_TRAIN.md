@@ -105,6 +105,17 @@ real-only NNLS, hard@thr) don't bridge it. We've hit **diminishing returns on th
 generator realism**: synthetic delivered its win at E1 (−25 % on 0–29); the residual 0–9 error
 (~9.6, n=3 val) is bounded by real-data scarcity / measurement, not the generator.
 
+**Diagnostic (cheap, no train) + v3 redesign.** Probed the shipped model with matched-setting
+synthetic: **gentle vs full stroke-degradation is negligible** (prob-gap to real 0.183 vs 0.177)
+→ degrading template strokes can't close the realism gap; the planned E5 (gentle+prior) was
+skipped as predicted-low-value. **Pivot: generator v3 = real-stroke collage**
+(`api/ai_training/gen_synth_collage.py`): coregister real drawings → extract per-element **real**
+stroke crops (`element_region ∩ coreg_ink`) tagged with the drawing's real acc/pos/band → cache
+library → generate by pasting real crops sampled from the priors (crop's real acc/pos = label →
+exact labels, real human strokes, emergent score). Prototype (300 drawings) shows a large
+realism gain. Next: full library + insert + retrain (E6), eval vs `023227`. Branch
+`feature/synth-lowscore-realism`.
+
 ## 5. Decisions
 
 - **Coregistration: not adopted** — A/B was a wash / marginally worse; conflicts with the
