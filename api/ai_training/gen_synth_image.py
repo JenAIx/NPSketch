@@ -155,8 +155,12 @@ def shift(m, rng):
     return cv2.warpAffine(m, np.float32([[1, 0, ox], [0, 1, oy]]), (W, H), borderValue=0)
 
 
-def degrade_accuracy(m, e, rng):
-    """apply an accuracy-breaking degradation appropriate to the element type."""
+def degrade_accuracy(m, e, rng, style="full"):
+    """apply an accuracy-breaking degradation. style='gentle' = E1 behavior (mild
+    sinusoidal tremor only, all element types); 'full' = v2 type-aware (tremor modes /
+    partial for lines, shape distortion for details)."""
+    if style == "gentle":
+        return tremor_sin(m, rng, rng.uniform(2.8, 4.5))
     if e in DETAIL:
         return distort_detail(m, rng)
     mode = rng.choice(["sin", "jitter", "partial"], p=[0.4, 0.35, 0.25])
@@ -242,15 +246,19 @@ def sample_spec(rng, target, priors):
     return best
 
 
-def generate(masks, priors, rng, target):
+def generate(masks, priors, rng, target, style="full"):
+    """style='full' = v2 (per-element jitter + type-aware degradation + gaps);
+    'gentle' = E1 (mild sinusoidal tremor + shift only). Both use prior-driven presence."""
     present, acc, pos, score = sample_spec(rng, target, priors)
     canvas = np.zeros((H, W), bool)
     vec = np.zeros(60, np.float32)
     for k, e in enumerate(present):
-        m = jitter_affine(masks[e].astype(np.uint8) * 255, rng)   # natural variation (label-safe)
+        m = masks[e].astype(np.uint8) * 255
+        if style == "full":
+            m = jitter_affine(m, rng)                              # natural variation (label-safe)
         if not acc[k]:
-            m = degrade_accuracy(m, e, rng)
-        elif rng.random() < 0.3:
+            m = degrade_accuracy(m, e, rng, style)
+        elif style == "full" and rng.random() < 0.3:
             m = add_gaps(m, rng, int(rng.integers(1, 3)))          # subtle, keeps accuracy=1
         if not pos[k]:
             m = shift(m, rng)
@@ -292,11 +300,11 @@ def features_json(vec, score):
 
 
 # --------------------------------------------------------------- CLI actions
-def do_preview(n, scores):
+def do_preview(n, scores, style="full"):
     os.makedirs(OUT, exist_ok=True)
     _, _, masks = build_element_ink()
     sizes = [int(m.sum()) for m in masks]
-    print(f"element ink sizes (px): min {min(sizes)} med {int(np.median(sizes))} max {max(sizes)}", flush=True)
+    print(f"element ink sizes (px): min {min(sizes)} med {int(np.median(sizes))} max {max(sizes)}  | strokes={style}", flush=True)
     rng = np.random.default_rng(11)
     priors = load_priors()
     targets = scores if scores else [int(t) for t in np.linspace(4, 34, n)]
@@ -304,7 +312,7 @@ def do_preview(n, scores):
     tiles = []
     print(f"\n{'#':>2} {'target':>6} {'TRUE':>5} {'CNN':>5} {'|err|':>6} {'pres✓':>6}")
     for i, t in enumerate(targets):
-        img, vec, score = generate(masks, priors, rng, t)
+        img, vec, score = generate(masks, priors, rng, t, style)
         probs, cal, thr = cnn_read(model, meta, img)
         pred = (probs >= thr).astype(int)
         presM = int(np.sum((vec[0::3] == 1) & (pred[0::3] == 1)))
@@ -320,7 +328,7 @@ def do_preview(n, scores):
     print(f"\noutputs in {OUT} (ex_*.png + contact_sheet.png)", flush=True)
 
 
-def do_insert(n, smin, smax, seed):
+def do_insert(n, smin, smax, seed, style="full"):
     from database import SessionLocal, TrainingDataImage
     from datetime import datetime
     _, _, masks = build_element_ink()
@@ -330,7 +338,7 @@ def do_insert(n, smin, smax, seed):
     added = 0
     for i in range(n):
         target = int(rng.integers(smin, smax + 1))
-        img, vec, score = generate(masks, priors, rng, target)
+        img, vec, score = generate(masks, priors, rng, target, style)
         png = to_png_bytes(img)
         db.add(TrainingDataImage(
             uid=f"SYNTH-{seed}-{i}", patient_id=f"SYNTH_{seed}_{i}", task_type="COPY",
@@ -365,16 +373,18 @@ def main():
     ap.add_argument("--seed", type=int, default=101)
     ap.add_argument("--purge", action="store_true")
     ap.add_argument("--build-priors", action="store_true", help="(re)compute element_priors.json from real labels")
+    ap.add_argument("--strokes", choices=["gentle", "full"], default="full",
+                    help="gentle = E1-style mild tremor only; full = v2 type-aware degradations")
     args = ap.parse_args()
     if args.build_priors:
         build_priors()
     elif args.purge:
         do_purge()
     elif args.insert:
-        do_insert(args.insert, args.score_min, args.score_max, args.seed)
+        do_insert(args.insert, args.score_min, args.score_max, args.seed, args.strokes)
     else:
         scores = [int(x) for x in args.scores.split(",")] if args.scores else None
-        do_preview(args.preview or 9, scores)
+        do_preview(args.preview or 9, scores, args.strokes)
 
 
 if __name__ == "__main__":
