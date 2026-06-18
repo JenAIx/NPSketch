@@ -1,7 +1,9 @@
 # MASTER_PLAN_SYN_TRAIN — Synthetic training for the component model
 
 Living document. Update the **Results log** and **TODO** after every experiment.
-Branch: `feature/synthetic-gen`. Last updated: E2 done (not adopted; v1 `023227` remains best).
+Branch: `feature/synthetic-gen`. Last updated: E3 done. **Best = `023227` (E1, v1 recipe).**
+Conclusion: synthetic delivered its score win at E1; v2 realism helps component-F1 but not the
+score. Recommend shipping `023227`; further synthetic = diminishing returns (see Results log).
 
 ---
 
@@ -56,6 +58,7 @@ model. The real val is the honest measure; low bins have small n (read direction
 | `model_Components_20260616_015757` | + coregistration | 0.9199 | 2.718 | abandoned (wash) |
 | `model_Components_20260617_023227` | + 500 v1 synthetic (uniform 0–35) | 0.9264 | 2.607 | **current best** |
 | `model_Components_20260617_162212` | + 630 v2 synthetic (low-weighted) | 0.9064 | 2.939 | not adopted (E2; overall regressed) |
+| `model_Components_20260618_071805` | + 500 v2 synthetic (prior-driven) | 0.9102 | 2.879 | not adopted (E3; best component-F1 but score MAE worse) |
 
 DB backups: `data/npsketch.precoreg.db` (pre-coreg), `data/npsketch.presynth.db`
 (pre-any-synthetic), `data/npsketch.prev2.db` (pre-E2). Revert synthetic anytime:
@@ -68,6 +71,7 @@ DB backups: `data/npsketch.precoreg.db` (pre-coreg), `data/npsketch.presynth.db`
 | E0 | baseline `005214` | 14.39/0.20 | 8.11/0.25 | 2.74/0.62 | 4.51/0.604 | 1.55/0.974 | reference |
 | E1 | +500 v1 synth (0–35) → `023227` | 9.65/0.06 | 3.31/0.29 | 2.73/0.65 | **3.40/0.635** | 1.54/0.973 | **adopted** (MAE −25 % on 0–29, no overall cost) |
 | E2 | +630 **v2** synth, low-weighted (380@0–18, 250@18–35) → `162212` | **5.74**/0.10 | 3.35/0.29 | 4.18/0.63 | 4.19/0.627 | 1.69/0.974 | **not adopted** — won extreme 0–19 (n=3/8) but regressed 20–29 + overall |
+| E3 | +500 **v2 prior-driven** synth (0–35) → `071805` | 10.35/0.07 | 5.69/0.36 | 3.43/0.66 | 4.35/**0.655** | 1.65/0.974 | **not adopted** — best component-F1 but score MAE worse; no readout (real-only NNLS / hard@thr) recovers it |
 
 (0–9 F1 is degenerate at n=3 — ignore; track the 0–29 derived-score MAE + overall.)
 
@@ -81,11 +85,22 @@ So **balanced ~500 uniform (E1) is the better recipe**; don't over-weight the ta
 (0–29 MAE 2.73→4.32) — it pulls predictions toward the dense high range. Confirms the floor is
 in the model's probabilities, not the readout → calibration can't fix it.
 
-**E3 (running): prior-driven generation.** Measured the real per-band presence structure: low
-scores keep memorable elements (circle E17 ~0.68 present at 0–9; frame ~0.23; rare details
-~0.05; mean 3.4/20), not a uniform subset. `gen_synth_image` now samples presence/accuracy/
-position from `data/element_priors.json` (real per-band conditionals, `--build-priors`) →
-structurally realistic synthetic. 500 rows, 0–35 (E1-safe amount). Compare to `023227`.
+**E3 (done): prior-driven generation — not adopted for the score.** The generator now samples
+presence/accuracy/position from real per-band conditionals (`data/element_priors.json`,
+`--build-priors`) — structurally realistic (circle/frame survive at low scores). Result: E3 has
+the **best component-F1** in the low range (0–29 F1 0.655) — the realism *did* teach better
+component recognition — **but worse derived-score MAE** (0–29 4.35 vs v1 3.40; overall 1.65 vs
+1.54). Cheap readout retries on E3 (NNLS real-train-only, hard@thr) did **not** recover the
+score (real-only made 0–9 worse: 14.5).
+
+**CONSOLIDATED LEARNING (E1–E3 + Step 0).** For the **derived Total_Score**, the **v1 recipe
+(`023227`: 500 uniform-presence + gentle sinusoidal tremor) is the winner and stays deployed.**
+Both v2-generator runs (E2 aggressive+low-weighted, E3 aggressive+prior-driven) **improved
+component-F1 but hurt the score** — the heavier v2 stroke degradations shift the synthetic
+probability signature, mis-aligning the NNLS readout on real val. Calibration tricks (isotonic,
+real-only NNLS, hard@thr) don't bridge it. We've hit **diminishing returns on the score via
+generator realism**: synthetic delivered its win at E1 (−25 % on 0–29); the residual 0–9 error
+(~9.6, n=3 val) is bounded by real-data scarcity / measurement, not the generator.
 
 ## 5. Decisions
 
@@ -97,16 +112,19 @@ structurally realistic synthetic. 500 rows, 0–35 (E1-safe amount). Compare to 
 
 ## 6. TODO / next experiments
 
-- [x] **E2** (done): v2 low-weighted 630 → regressed overall; **not adopted**. v1 `023227` best.
-- [ ] **E3 — isolate the confound**: v2 generator at **500 uniform 0–35** (match E1's
-      distribution, only the generator differs). Tells us whether v2 strokes alone help/hurt.
-- [ ] **Better low-score eval FIRST**: the real blocker is measurement — 0–9 n=3, 0–29 n=35.
-      Without more real low-score eval (cross-val folds, or holding out more real low rows) we
-      can't trust low-bin deltas. Consider before more 10 h trains.
-- [ ] **Amount sweep** (informed): 500 looks near the sweet spot; test 350 / 500 / 700 *uniform*
-      (not low-weighted — E2 showed low-weighting hurts 20–29).
-- [ ] **CNN-in-the-loop hard-mining**: best model → hardest cases → generate → retrain.
-- [ ] **Beyond TELEFRED**: extend the component head / synthetic to other sources.
+- [x] **E2, E3, Step 0** (done): all not adopted; **v1 `023227` remains the best score model.**
+- [x] **Confound resolved**: v2 generator (aggressive degradations) consistently hurts the
+      derived score (E2, E3) even when it helps component-F1 → keep v1's gentle strokes.
+- **RECOMMENDATION: ship `023227`.** The synthetic-low-score effort succeeded at E1
+  (0–29 MAE −25 %, no overall cost). Further generator realism doesn't improve the *score*.
+- Remaining levers (only if pushing further, managed expectations — each ~10 h):
+  - [ ] **E4 — low-score oversampling** (`WeightedRandomSampler` for components) on the **v1**
+        dataset (not v2). Orthogonal model-side lever; untested. Modest expected gain.
+  - [ ] **Measurement** is the real ceiling: 0–9 n=3 is unmeasurable. Cross-val folds would be
+        needed to trust further low-bin deltas — expensive (multiple trains).
+  - [ ] **Component-F1 product angle**: E3 shows realism improves component recognition; if the
+        product values per-element accuracy over the summed score, E3-style data is worth it.
+  - [ ] **Beyond TELEFRED**: extend the component head / synthetic to other sources.
 
 ## 7. Risks / open questions
 
