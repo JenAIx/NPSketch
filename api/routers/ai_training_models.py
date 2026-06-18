@@ -1068,3 +1068,76 @@ async def rebuild_component_map():
 async def component_map_status():
     """Current status of the component-map rebuild job."""
     return _component_map_job
+
+
+# --------------------------------------------------------------------------- #
+# Element definitions — hand-PAINTED regions of the 20 OCS-Plus elements on the
+# reference figure. Each element holds a list of brush strokes; a stroke is
+# {width, points:[[x,y],...]} in the 568x274 reference/model frame (resolution
+# matters: this is exactly the frame the heatmaps and the CNN use). Rasterizing
+# the strokes gives a per-element region mask; mask ∩ reference-ink yields that
+# element's clean strokes for structured low-score generation. Stored as a JSON
+# file on the data volume (the old reference_images table was removed).
+# --------------------------------------------------------------------------- #
+import os as _os
+
+ELEMENT_DEFS_PATH = "/app/data/element_definitions.json"
+ELEMENT_FRAME = [568, 274]
+
+
+def _empty_element_defs():
+    return {
+        "image_size": ELEMENT_FRAME,
+        "updated_at": None,
+        "elements": [{"element": e, "strokes": []} for e in range(1, 21)],
+    }
+
+
+@router.get("/element-definitions")
+async def get_element_definitions():
+    """Return the hand-painted 20-element regions (or an empty template)."""
+    if _os.path.exists(ELEMENT_DEFS_PATH):
+        try:
+            return json.load(open(ELEMENT_DEFS_PATH))
+        except (ValueError, OSError) as e:
+            logger.error(f"element-definitions read failed: {e}")
+    return _empty_element_defs()
+
+
+def _clean_stroke(s):
+    """Accept {width, erase, points:[[x,y]...]} (region brush) or a bare [[x,y]...] list.
+    The erase flag lets a rasterizer replay strokes in order (paint vs. cut-out)."""
+    if isinstance(s, dict):
+        width = float(s.get("width", 12) or 12)
+        erase = bool(s.get("erase", False))
+        raw = s.get("points") or []
+    else:
+        width, erase, raw = 12.0, False, s
+    pts = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in raw if len(p) >= 2]
+    return {"width": max(1.0, min(80.0, width)), "erase": erase, "points": pts} if pts else None
+
+
+@router.post("/element-definitions")
+async def save_element_definitions(payload: dict = Body(...)):
+    """Persist the hand-painted 20-element regions. Always stored in the 568x274 frame."""
+    elements = payload.get("elements")
+    if not isinstance(elements, list) or not elements:
+        raise HTTPException(status_code=400, detail="payload.elements must be a non-empty list")
+    out = {"image_size": ELEMENT_FRAME, "updated_at": _dt.now().isoformat(), "elements": []}
+    n_strokes = 0
+    for el in elements:
+        try:
+            eid = int(el.get("element"))
+        except (TypeError, ValueError):
+            continue
+        strokes = [cs for cs in (_clean_stroke(s) for s in (el.get("strokes") or [])) if cs]
+        n_strokes += len(strokes)
+        out["elements"].append({"element": eid, "strokes": strokes})
+    try:
+        json.dump(out, open(ELEMENT_DEFS_PATH, "w"), indent=2)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"write failed: {e}")
+    annotated = sum(1 for el in out["elements"] if el["strokes"])
+    logger.info(f"Saved element definitions: {annotated}/20 elements, {n_strokes} strokes")
+    return {"success": True, "elements_annotated": annotated, "total_strokes": n_strokes,
+            "updated_at": out["updated_at"]}

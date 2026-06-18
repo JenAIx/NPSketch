@@ -42,15 +42,20 @@ NPSketch/
 │   │   └── ai_training_models.py     # Model list / metadata / test / predict-single / run-on-test-images
 │   │
 │   ├── data_consolidation/           # consolidate_templates.py + import_unified.py (the single import)
+│   │   ├── coregistration.py         # shared gated RIGID_BODY pystackreg align (feature/coreg; not adopted)
+│   │   ├── extract_elements_from_manual.py  # 20-element geometry from the scoring-manual PDF
+│   │   └── map_elements_by_correlation.py   # validate element identity → model ELEM01-20 order
 │   ├── ai_training/                  # ML pipeline
 │   │   ├── model.py                  # ResNet-18 CNN
 │   │   ├── trainer.py                # Training orchestration (regression / classification / components)
 │   │   ├── data_loader.py            # DB → augmented training set
 │   │   ├── dataset.py                # PyTorch Dataset / DataLoader
 │   │   ├── data_augmentation.py      # Diversity-controlled augmentation
-│   │   ├── split_strategy.py         # Patient-level stratified split (stratified_group_split)
+│   │   ├── split_strategy.py         # Patient-level stratified split (stratified_group_split; SYNTH_ → train)
 │   │   ├── normalization.py / preprocessing.py
-│   │   ├── synthetic_score_based.py  # Score-targeted synthetic images (current)
+│   │   ├── gen_synth_image.py        # element-grounded synthetic low-score generator (current; exact labels)
+│   │   ├── synthetic_score_based.py  # OLD score-targeted generator — BROKEN (ReferenceImage table gone)
+│   │   ├── component_calibration.py / component_heatmaps.py  # post-hoc calibration + element maps
 │   │   ├── warmup_scheduler.py / visualization.py
 │   │   └── *.md                      # CONTENT_PROTECTION, MODEL_METADATA, TRAINING_PIPELINE_ANALYSIS
 │   │
@@ -129,8 +134,8 @@ db.close()
 Some ML scripts need `PYTHONPATH=/app`:
 
 ```bash
-docker exec -e PYTHONPATH=/app npsketch-api python3 /app/ai_training/synthetic_score_based.py \
-  --scores 0,10,20,30,40 --samples-per-score 10
+docker exec -e PYTHONPATH=/app npsketch-api python3 /app/ai_training/gen_synth_image.py \
+  --preview 9 --scores 5,10,15,20,25,30   # generate + CNN-read, no DB write
 ```
 
 ---
@@ -214,7 +219,8 @@ on white, line thickness **2.00 px** (Zhang-Suen thinning + dilation), ~5–7px 
 `templates/labels.csv` + `templates/img/` (built by `api/data_consolidation/consolidate_templates.py`).
 The **single** DB import path is `api/data_consolidation/import_unified.py` (auto-detects red vs black
 image style, dedups by SHA256, skips blanks, writes the 60 sub-labels into `features_data.components`).
-`source_format` ∈ {TELEFRED, OXFORD, ALGORITHM, OCS_MACHINE}; `task_type` ∈ {COPY, RECALL}.
+`source_format` ∈ {TELEFRED, OXFORD, ALGORITHM, OCS_MACHINE} (+ **SYNTHETIC** for generated
+low-score images, see §7); `task_type` ∈ {COPY, RECALL}.
 - The old per-source CLI populators (`telefred_import.py`, `oxford_db_populator.py`,
   `algorithm_db_populator.py`) were **deleted**; the bulk web endpoints
   `/api/extract-training-data[-oxford]` were **retired (HTTP 410)**.
@@ -243,8 +249,21 @@ checkpoint):
 patience 5, min 1e-6), differential LR (backbone ×0.1), dropout 0.5, weight-decay 1e-4, early stopping.
 (Regression uses a **linear** head now — the old sigmoid saturated on the skewed score distribution.)
 
-**Synthetic score-based images (v1.2.0):** generate images targeting scores 0–40 to fix low-score
-imbalance; added before the split and augmented like real data. See `synthetic_score_based.py`.
+**Synthetic low-score images (current):** the component CNN was blind below ~18 (real low-score
+drawings are scarce). Fixed by **element-grounded generation** — the 20-element geometry is
+extracted from the official scoring manual into `data/element_definitions.json` (see
+`docs/SCORING_CRITERIA.md`; hand-editable via the annotation tool in `component_map.html`), then
+`gen_synth_image.py` composes low-score figures as `element region ∩ reference ink = real strokes`
+with **exact** 60-component labels (type-aware position/accuracy degradation). `--insert` writes rows
+as `source_format='SYNTHETIC'`, `patient_id='SYNTH_*'` (forced into train via `split_strategy`);
+component training picks them up (`data_loader` source filter is now `.in_(('TELEFRED','SYNTHETIC'))`).
+Adding 500 synthetic low-score rows cut derived-score MAE −25 % (0–29) with no overall cost
+(model `model_Components_20260617_023227`). `--purge` removes them. (The old `synthetic_score_based.py`
+is broken — it loads the removed `ReferenceImage` table.)
+
+> **Branches:** `feature/coreg` holds the (not-adopted) coregistration experiment + the element/
+> synthetic work; `feature/synthetic-gen` continues the synthetic generator (v2 realism). DB backups:
+> `data/npsketch.precoreg.db`, `data/npsketch.presynth.db`.
 
 ---
 

@@ -452,8 +452,9 @@ class TrainingDataLoader:
             TrainingDataImage.features_data.isnot(None)
         )
         if source_filter:
-            query = query.filter(TrainingDataImage.source_format == source_filter)
-            logger.info(f"Restricting to source_format == {source_filter}")
+            srcs = [source_filter] if isinstance(source_filter, str) else list(source_filter)
+            query = query.filter(TrainingDataImage.source_format.in_(srcs))
+            logger.info(f"Restricting to source_format in {srcs}")
         images = query.all()
 
         # Filter images with target feature

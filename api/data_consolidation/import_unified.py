@@ -149,8 +149,17 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--dry-run", action="store_true",
                     help="run detection/dedup/curation + report, but do not write the DB")
+    ap.add_argument("--coregister", action="store_true",
+                    help="coregister each rendered image to the OCS-Plus reference "
+                         "(gated RIGID_BODY pystackreg) before storing")
     args = ap.parse_args()
     os.makedirs(TMP_DIR, exist_ok=True)
+
+    coreg_ref = None
+    if args.coregister:
+        from coregistration import coregister_processed, load_reference
+        coreg_ref = load_reference()
+        print("Coregistration: ON (gated RIGID_BODY -> OCS-Plus reference)")
 
     labels = os.path.join(args.templates, "labels.csv")
     img_dir = os.path.join(args.templates, "img")
@@ -225,6 +234,14 @@ def main():
             proc = process_red(orig) if style == "red" else process_black(orig)
             if proc is None:
                 stats["skip_no_content"] += 1; continue
+
+            if coreg_ref is not None:
+                coreg = coregister_processed(proc, coreg_ref)
+                if coreg is not None:
+                    proc = coreg
+                    stats["coregistered"] += 1
+                else:
+                    stats["coreg_failed"] += 1
 
             # unscored placeholders are kept as images but get NO features (NULL)
             feats = None if unscored else build_features(r)

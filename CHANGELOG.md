@@ -4,6 +4,72 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [Unreleased] — Element definitions + synthetic low-score generator
+
+Fixes the component model's low-score blindness (it floored at ~18 because real low-score
+drawings are scarce) by generating synthetic low-score images with **exact** labels.
+
+- **Canonical 20-element geometry** extracted from the official scoring manual
+  (`api/data_consolidation/extract_elements_from_manual.py`): each record-form cell highlights
+  one element in red → mapped to the 568×274 reference; identity validated to the model's
+  ELEM01–20 order by label-correlation over 5403 images (`map_elements_by_correlation.py`).
+  Stored in `data/element_definitions.json`. `docs/SCORING_CRITERIA.md` captures the rubric.
+- **Hand-annotation tool** in `component_map.html`: paint each element's region on the
+  reference (works for circle/star/cross); GET/POST `/api/ai-training/element-definitions`.
+  Centroid composites removed; intro rewritten; rebuild bar moved to the heatmaps section.
+- **`gen_synth_image.py`** — element-grounded generator: `element region ∩ reference ink =
+  real strokes`; composes low-score figures with exact 60-component labels (position/accuracy
+  degradation). CLI `--preview / --insert / --purge`. Synthetic rows
+  (`source_format='SYNTHETIC'`, `SYNTH_*` patient → forced to train) wired into component
+  training (`data_loader` source filter → `.in_()`, `ai_training_base` → `('TELEFRED','SYNTHETIC')`).
+  - **v2 realism** (branch `feature/synthetic-gen`): label-preserving per-element affine jitter +
+    type-aware accuracy degradations — multiple tremor modes (sinusoidal + smoothed random
+    jitter), partial/incomplete strokes and pen-lift gaps for lines, and shape distortion
+    (anisotropic scale/rotation + dropped sector → open circle / missing star ray) for the
+    detail elements (circle/star/cross). Reduces synthetic-style overfit; labels stay exact.
+- **Result:** retraining with 500 synthetic low-score rows (same seed/val) cut derived-score
+  MAE **−25 % on 0–29 / −46 % on 0–19** with **no overall cost** (calibrated R² 0.9256 → 0.9264).
+  Model `model_Components_20260617_023227`. A GAN is unnecessary here — the recipe yields
+  unlimited exact-label data; the next lever is CNN-in-the-loop hard-example mining.
+
+## [Unreleased] (branch `feature/coreg`) — Drawing→reference coregistration (experimental)
+
+Aligns every normalized drawing to the OCS-Plus reference figure so the CNN sees a
+consistently framed/oriented figure. **Experimental — evaluated and NOT adopted.**
+A/B test (component model, identical seed=42 / 1077-image val split): coregistered model
+calibrated R² **0.9199** vs. baseline **0.9256** (RMSE 2.72 vs. 2.62) — a net wash / marginally
+worse on the derived score, a hair better on component-F1. Root cause is *not* a coreg or
+augmentation bug: coreg QA is clean and a controlled test (40 matched images) shows augmentation
+is unharmed (6/6 augs accepted, coreg data slightly *more* diverse, SSIM→orig 0.725 vs. 0.757).
+Coreg simply adds no signal — the ResNet+augmentation already learns spatial invariance, and
+alignment likely removes mildly diagnostic framing/size/tilt cues. Code kept on this branch for
+the record (reproduce via `import_unified --coregister`); live DB restored to the non-coreg state.
+
+- **`coregistration.py`** (shared core): anisotropic **bbox prealign** (drawing ink-bbox →
+  reference ink-bbox, no shear) → **overlap-gated `RIGID_BODY`** pystackreg refine →
+  recenter+margin → re-binarize@175 + 2px line-renormalize. Two hard-won constraints:
+  - **RIGID_BODY only (no scaling).** Any StackReg mode with scale < 1 bilinearly resamples
+    the 2px lines and *spatially spreads* thin near-vertical edges until they fragment and
+    vanish (e.g. the rectangle's right side in id122). A higher overlap score does **not**
+    imply the line survived, so overlap cannot police scaling — scaling is simply forbidden;
+    the bbox prealign already matches scale.
+  - **Overlap-gate.** StackReg readily invents a spurious 1–2° rotation that *lowers* the true
+    ink-overlap (it over-fits internal structure). The rigid refine is kept only when symmetric
+    ink-overlap actually improves vs. the prealign; otherwise the prealign stands.
+  - `fit_margin` now **always recenters** (not only when shrinking): a wide figure that already
+    "fits" could still sit flush against an edge and be clipped (fixed id4932's right-edge clip).
+- **`import_unified.py --coregister`**: optional step that coregisters each rendered image to the
+  reference before storing (all sources draw the same OCS-Plus figure — one reference fits all).
+- **Tooling**: `coreg_id122.py` (single-image, from-scratch demo: red-extract → content → align →
+  overlay, with numeric verification) and `coreg_batch.py` (50 random per source → original +
+  blue/red overlay + contact sheet for human review). Random review-batch overlap improved
+  consistently ≈ **+0.10** across all four sources.
+- **Known limitation (pre-existing, not caused by coreg):** thick / overdrawn strokes skeletonize
+  into loops/"circles" in `normalize_line_thickness` (visible in id4932). Affects the current
+  dataset too; flagged as a follow-up to the line-normalizer.
+
+---
+
 ## [2.2.0] - 2026-06-15 — Calibration, preprocessing consistency, explainability
 
 - **Post-hoc calibration of the component model** (`component_calibration.py`, no retraining):
