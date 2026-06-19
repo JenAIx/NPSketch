@@ -251,7 +251,7 @@
         <div class="section-label" style="margin-top:30px;">2. Action</div>
         <div class="tab-bar">
             <button class="tab-btn active" id="tabPredict" onclick="switchAction('predict')">🤖 Predict</button>
-            <button class="tab-btn" id="tabTrain" onclick="switchAction('train')">🎓 Learn / Label</button>
+            <button class="tab-btn" id="tabTrain" onclick="switchAction('train')" style="display:none;" title="Available after a successful prediction of a new (not-yet-saved) image">🎓 Learn / Label</button>
         </div>
 
         <!-- Predict panel -->
@@ -277,20 +277,11 @@
                     </div>
                     <div class="form-group">
                         <label>Evaluation — 20 elements × Presence / Accuracy / Position</label>
-                        <div style="display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start;">
-                            <div style="flex:0 0 300px; max-width:100%;">
-                                <div style="font-size:.74em; color:#999; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">
-                                    Reference — element locations <span style="color:#667eea;">(click an E-cell)</span>
-                                </div>
-                                <canvas id="evRef" width="568" height="274" style="width:100%; border:1px solid #ddd; border-radius:8px; background:#fff;"></canvas>
-                            </div>
-                            <div style="flex:1; min-width:300px;">
-                                <div id="componentEditor"></div>
-                            </div>
-                        </div>
+                        <div id="prefillInfo" style="margin:0 0 8px; font-size:0.82em; color:#666;"></div>
+                        <div id="labelEditor"></div>
                         <div style="margin-top:6px; color:#999; font-size:0.85em;">
-                            Click each cell to toggle. Total_Score = sum
-                            (<strong id="componentTotal">0</strong>/60). Saved as the image's component labels.
+                            Pre-filled from the AI prediction — click each cell to correct. Total_Score = sum
+                            (<strong id="componentTotal">0</strong>/60). Click an E-cell to highlight it on the image &amp; reference.
                         </div>
                     </div>
                     <button class="save-btn" id="saveBtn" onclick="saveLabelled()">💾 Save to Training Database</button>
@@ -315,6 +306,7 @@
     </div>
 
     <script src="/js/component_result.js?v=3"></script>
+    <script src="/js/component_editor.js?v=7"></script>
     <script>
     /* ============================================================= STATE */
     let inputMode = 'upload';     // 'upload' | 'draw'
@@ -343,13 +335,16 @@
     let loadedTestId = null, loadedTestName = null;
 
     /* ============================================================= TABS */
-    function switchInput(mode) {
+    function switchInput(mode, keepState) {
         inputMode = mode;
         document.getElementById('tabUpload').classList.toggle('active', mode === 'upload');
         document.getElementById('tabDraw').classList.toggle('active', mode === 'draw');
         document.getElementById('uploadPanel').style.display = mode === 'upload' ? 'block' : 'none';
         document.getElementById('drawPanel').style.display = mode === 'draw' ? 'block' : 'none';
         document.getElementById('saveSourceHint').textContent = mode === 'upload' ? 'UPLOAD' : 'DRAWN';
+        // switching the input source abandons any pending prediction/labelling (prevents mixing
+        // a draw's prediction with an upload, etc.). Programmatic callers pass keepState=true.
+        if (!keepState) resetPredictionState();
     }
     function switchAction(mode) {
         actionMode = mode;
@@ -357,13 +352,38 @@
         document.getElementById('tabTrain').classList.toggle('active', mode === 'train');
         document.getElementById('predictPanel').style.display = mode === 'predict' ? 'block' : 'none';
         document.getElementById('trainPanel').style.display = mode === 'train' ? 'block' : 'none';
-        if (mode === 'train') { renderComponentEditor(); loadEvRefAssets(); }
+        if (mode === 'train') {
+            ensureLabelEditor();
+            applyEditorImages();
+            if (prefillPending) {                 // first entry after a prediction → adopt its values
+                labelEditor.setState(lastPredictedComponents || blankComponents());
+                prefillPending = false;
+            } else {
+                labelEditor.refresh();
+            }
+            updatePrefillInfo();
+        }
+    }
+    // consistency note: which model produced the pre-filled labels
+    function updatePrefillInfo() {
+        const el = document.getElementById('prefillInfo'); if (!el) return;
+        if (loadedTestId) { el.innerHTML = `✏️ Editing saved drawing <strong>#${loadedTestId}</strong> — labels loaded from the database.`; return; }
+        if (lastPredictModel) {
+            el.innerHTML = `🤖 Pre-filled from model <strong>${lastPredictModel.name}</strong> ` +
+                `<span style="color:#999;">(${lastPredictModel.feature} · ${lastPredictModel.mode})</span> — verify before saving.`;
+        } else { el.textContent = ''; }
     }
 
     // Returns a Promise<Blob> of the currently active 568×274 input canvas
     function getActiveImageBlob() {
         const cv = inputMode === 'upload' ? uploadCanvas : drawCanvas;
         return new Promise(res => cv.toBlob(res, 'image/png'));
+    }
+    // The RAW original used for predict + save (so original & normalized are stored like the
+    // training-data import): the uploaded file for uploads, the drawing canvas for draw.
+    function getOriginalBlob() {
+        if (inputMode === 'upload' && originalFileBlob) return Promise.resolve(originalFileBlob);
+        return getActiveImageBlob();
     }
     function activeHasContent() {
         return inputMode === 'upload' ? !!uploadedImage : hasContent;
@@ -381,6 +401,7 @@
 
     async function handleFileUpload(file) {
         try {
+            resetPredictionState();   // new image → require a fresh prediction before labelling
             originalFileBlob = file;
             originalFileName = file.name || 'drawing.png';
             updateFileInfoBar(file, null);
@@ -496,6 +517,7 @@
         fileInput.value = '';
         uploadWorkspace.style.display = 'none';
         uploadArea.style.display = 'block';
+        resetPredictionState();
     }
     function updateFileInfoBar(file, image) {
         const bar = document.getElementById('fileInfoBar');
@@ -570,7 +592,7 @@
         loadedTestId = null; loadedTestName = null;
         document.getElementById('testName').value = '';
         document.getElementById('editingHint').textContent = '';
-        setComponentState(null);
+        resetPredictionState();   // back to Predict, clear components + AI result, hide Learn tab
         updateRotationDisplay();
     }
     function rotateCanvas(deg) {
@@ -599,81 +621,61 @@
         p.style.width = (brushSize * 2) + 'px'; p.style.height = (brushSize * 2) + 'px';
     }
 
-    /* ============================================ COMPONENT EDITOR (shared) */
-    const ASPECTS = [['presence', 'P'], ['accuracy', 'A'], ['position', 'Pos']];
-    // element colours (same scheme as the Component Map / Review Queue) + reference panel
-    const elColor = e => `hsl(${Math.round(e * 360 / 20)}, 75%, 46%)`;
-    let evElDefs = null, evRefImg = null, evHl = null;
-    async function loadEvRefAssets() {
-        if (evElDefs && evRefImg) { drawEvRef(evHl); return; }
-        try {
-            const d = await (await fetch('/api/ai-training/element-definitions?_=' + Date.now())).json();
-            evElDefs = {}; (d.elements || []).forEach(el => { evElDefs[el.element - 1] = el.strokes || []; });
-        } catch (e) { evElDefs = {}; }
-        evRefImg = new Image(); evRefImg.onload = () => drawEvRef(evHl);
-        evRefImg.src = '/api/reference-image?_=' + Date.now();
-    }
-    function drawEvRef(hl) {
-        const c = document.getElementById('evRef'); if (!c) return; const x = c.getContext('2d');
-        x.clearRect(0, 0, 568, 274); x.fillStyle = '#fff'; x.fillRect(0, 0, 568, 274);
-        if (evRefImg && evRefImg.complete) { x.globalAlpha = 0.18; x.drawImage(evRefImg, 0, 0, 568, 274); x.globalAlpha = 1; }
-        if (!evElDefs) return; x.lineCap = 'round'; x.lineJoin = 'round';
-        for (let e = 0; e < 20; e++) {
-            const strokes = evElDefs[e] || [];
-            x.globalAlpha = (hl == null) ? 0.9 : (e === hl ? 1 : 0.08);
-            x.strokeStyle = x.fillStyle = elColor(e);
-            for (const s of strokes) {
-                if (s.erase) continue;
-                const w = (e === hl ? (s.width || 6) + 2 : (s.width || 6)), p = s.points || [];
-                if (p.length === 1) { x.beginPath(); x.arc(p[0][0], p[0][1], w / 2, 0, 7); x.fill(); continue; }
-                x.lineWidth = w; x.beginPath(); x.moveTo(p[0][0], p[0][1]);
-                for (let i = 1; i < p.length; i++) x.lineTo(p[i][0], p[i][1]);
-                x.stroke();
-            }
-        }
-        x.globalAlpha = 1;
-    }
-    function highlightElEv(e) { evHl = (evHl === e ? null : e); drawEvRef(evHl); renderComponentEditor(); }
+    /* ===================================== COMPONENT EDITOR (shared module) */
+    // Learn/Label uses the shared ComponentEditor: normalized image (top) + reference (below)
+    // with E01–E20 highlight reactivity, and the editable grid.
+    let labelEditor = null;
+    let lastPredictedComponents = null;   // hard components from the latest AI prediction
+    let lastNormalizedImage = null;       // server-normalized 568×274 PNG (data URL) from predict
+    let lastOriginalBlob = null;          // the exact RAW original that was predicted (saved verbatim)
+    let lastPredictModel = null;          // {name, feature, mode} of the model used for the prefill
+    let prefillPending = false;           // initialise the grid from the prediction on next entry
+    const blankComponents = () => ({ presence: Array(20).fill(0), accuracy: Array(20).fill(0), position: Array(20).fill(0) });
 
-    let componentState = { presence: Array(20).fill(0), accuracy: Array(20).fill(0), position: Array(20).fill(0) };
-    function componentTotal() {
-        return componentState.presence.reduce((a, b) => a + b, 0)
-             + componentState.accuracy.reduce((a, b) => a + b, 0)
-             + componentState.position.reduce((a, b) => a + b, 0);
+    // data: URL → Blob (to POST the exact normalized image the user saw)
+    function dataUrlToBlob(dataUrl) {
+        const [head, b64] = dataUrl.split(',');
+        const mime = (head.match(/:(.*?);/) || [, 'image/png'])[1];
+        const bin = atob(b64), arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        return new Blob([arr], { type: mime });
     }
-    function setComponentState(comp) {
-        componentState = {
-            presence: (comp && comp.presence) ? comp.presence.slice() : Array(20).fill(0),
-            accuracy: (comp && comp.accuracy) ? comp.accuracy.slice() : Array(20).fill(0),
-            position: (comp && comp.position) ? comp.position.slice() : Array(20).fill(0),
-        };
-        renderComponentEditor();
+
+    function ensureLabelEditor() {
+        if (labelEditor) return labelEditor;
+        labelEditor = ComponentEditor.create('labelEditor', {
+            showImage: true, showReference: true, showScores: false, showComparison: false,
+            showHeaderTotal: true, externalTotalEl: 'componentTotal',
+        });
+        return labelEditor;
     }
-    function renderComponentEditor() {
-        const host = document.getElementById('componentEditor');
-        if (!host) return;
-        const cell = (e, k) => {
-            const on = componentState[k][e] === 1;
-            return `<td onclick="toggleComponent('${k}',${e})" style="cursor:pointer;text-align:center;padding:2px;">
-                <div style="background:${on ? '#2e7d32' : '#bdbdbd'};color:#fff;border-radius:4px;padding:3px 0;font-size:.82em;font-weight:700;">${on ? '✓' : '✗'}</div></td>`;
-        };
-        let rows = '';
-        for (let e = 0; e < 20; e++) {
-            const sub = componentState.presence[e] + componentState.accuracy[e] + componentState.position[e];
-            const elc = `<td onclick="highlightElEv(${e})" title="highlight on reference"
-                style="cursor:pointer;padding:3px 6px;font-weight:700;color:#fff;text-align:center;background:${elColor(e)};${evHl === e ? 'outline:3px solid #111;outline-offset:-1px;' : ''}">E${String(e + 1).padStart(2, '0')}</td>`;
-            rows += `<tr>${elc}${cell(e, 'presence')}${cell(e, 'accuracy')}${cell(e, 'position')}<td style="text-align:center;font-weight:700;">${sub}</td></tr>`;
+    // Feed the editor the toggle pair: Normalized = the server-normalized preview from predict
+    // (what will be stored as processed_image_data); Original = the raw input (uploaded file for
+    // uploads, the drawing for draw). No crop — the image isn't in the DB yet.
+    let _labelOrigUrl = null;
+    function applyEditorImages() {
+        const ed = ensureLabelEditor();
+        if (loadedTestId) {                          // editing a saved row → show the stored pair
+            const b = Date.now();
+            ed.setImages({ processed: `/api/training-data-image/${loadedTestId}/processed?_=${b}`,
+                           original: `/api/training-data-image/${loadedTestId}/original?_=${b}`, imageId: loadedTestId });
+            return;
         }
-        host.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:.9em;">
-            <thead><tr style="background:#f8f9fa;"><th>El</th><th>Presence</th><th>Accuracy</th><th>Position</th><th>Σ</th></tr></thead>
-            <tbody>${rows}</tbody></table>`;
-        const tot = document.getElementById('componentTotal');
-        if (tot) tot.textContent = componentTotal();
+        if (_labelOrigUrl) { URL.revokeObjectURL(_labelOrigUrl); _labelOrigUrl = null; }
+        let original;
+        if (inputMode === 'upload' && originalFileBlob) {
+            _labelOrigUrl = URL.createObjectURL(originalFileBlob);
+            original = _labelOrigUrl;
+        } else {
+            original = drawCanvas.toDataURL('image/png');   // the drawing is the original
+        }
+        // normalized first (so you can verify normalization); fall back to original if absent
+        ed.setImages({ processed: lastNormalizedImage || original, original, imageId: null });
     }
-    function toggleComponent(aspect, idx) {
-        componentState[aspect][idx] = componentState[aspect][idx] ? 0 : 1;
-        renderComponentEditor();
-    }
+    // back-compat shims used by save/load flows
+    function componentTotal() { return labelEditor ? labelEditor.total() : 0; }
+    function getComponentState() { return labelEditor ? labelEditor.getState() : blankComponents(); }
+    function setComponentState(comp) { ensureLabelEditor().setState(comp || blankComponents()); }
 
     /* ============================================================= MODELS */
     async function loadAvailableModels() {
@@ -750,19 +752,56 @@
         predictBtn.disabled = true; predictBtn.textContent = '⏳ Predicting...';
         document.getElementById('aiResults').style.display = 'none';
         try {
-            const blob = await getActiveImageBlob();
+            const blob = await getOriginalBlob();
             const fd = new FormData();
             fd.append('file', blob, 'drawing.png');
             fd.append('model_filename', select.value);
+            fd.append('return_normalized', 'true');
             const r = await fetch('/api/ai-training/models/predict-single', { method: 'POST', body: fd });
             const data = await r.json();
-            if (data.success) displayAIResults(data);
-            else throw new Error(data.detail || 'AI prediction failed');
+            if (!data.success) throw new Error(data.detail || 'AI prediction failed');
+            // capture the exact original + normalized that were predicted, so save persists THESE
+            lastOriginalBlob = blob;
+            lastNormalizedImage = data.normalized_image || null;   // server-normalized preview
+            lastPredictModel = { name: data.model, feature: data.target_feature, mode: data.training_mode };
+            displayAIResults(data);
+            // Reveal Learn/Label only for a new (not-yet-saved) image; pre-fill from the prediction.
+            const inDb = await isActiveInDb();
+            if (!inDb) { revealLearnTab(true); prefillPending = true; }
+            else { revealLearnTab(false); }
         } catch (e) {
             alert('❌ Error: ' + e.message);
         } finally {
             predictBtn.disabled = false; predictBtn.textContent = '🤖 Predict with AI Model';
         }
+    }
+
+    // is the active image already stored in the training DB? (gates the Learn/Label tab)
+    async function isActiveInDb() {
+        try {
+            const blob = await getOriginalBlob();   // DB hash is of the original
+            const fd = new FormData();
+            fd.append('file', blob, originalFileName || 'image.png');
+            const r = await fetch('/api/check-duplicate', { method: 'POST', body: fd });
+            if (r.ok) { const d = await r.json(); return !!(d.is_duplicate && d.source === 'training_data'); }
+        } catch (e) { /* treat as not-in-db */ }
+        return false;
+    }
+    // show/hide the Learn/Label tab; when hiding, fall back to the Predict tab
+    function revealLearnTab(show) {
+        document.getElementById('tabTrain').style.display = show ? '' : 'none';
+        if (!show && actionMode === 'train') switchAction('predict');
+    }
+    // reset prediction + labelling state (new/cleared image): back to Predict, drop the AI result
+    function resetPredictionState() {
+        lastPredictedComponents = null; lastNormalizedImage = null; lastOriginalBlob = null;
+        lastPredictModel = null; prefillPending = false;
+        loadedTestId = null; loadedTestName = null;
+        const hint = document.getElementById('editingHint'); if (hint) hint.textContent = '';
+        if (labelEditor) labelEditor.setState(blankComponents());
+        const box = document.getElementById('aiResults'); if (box) box.style.display = 'none';
+        const content = document.getElementById('aiResultsContent'); if (content) content.innerHTML = '';
+        revealLearnTab(false);
     }
     function displayAIResults(data) {
         const box = document.getElementById('aiResults');
@@ -770,6 +809,7 @@
         const prediction = data.prediction;
         const isClassification = data.training_mode === 'classification';
         const isComponents = data.training_mode === 'components';
+        lastPredictedComponents = null;
         const modeLabel = isComponents ? 'Components (60 sub-labels)' : (isClassification ? 'Classification' : 'Regression');
 
         let html = `<h4 style="color:#28a745; margin-bottom:12px;">🤖 AI Prediction Results</h4>
@@ -780,8 +820,24 @@
             </div>`;
 
         if (isComponents) {
-            html += renderComponentBreakdown(prediction);
-            content.innerHTML = html; box.style.display = 'block'; return;
+            // table-only view in the shared component design; cells are the thresholded
+            // hard prediction (prob ≥ per-label threshold), Total_Score = derived sum.
+            content.innerHTML = html + '<div id="aiCompGrid"></div>';
+            box.style.display = 'block';
+            const st = { presence: Array(20).fill(0), accuracy: Array(20).fill(0), position: Array(20).fill(0) };
+            (prediction.elements || []).forEach(el => {
+                const e = el.element - 1;
+                st.presence[e] = el.presence >= el.thr_presence ? 1 : 0;
+                st.accuracy[e] = el.accuracy >= el.thr_accuracy ? 1 : 0;
+                st.position[e] = el.position >= el.thr_position ? 1 : 0;
+            });
+            const ed = ComponentEditor.create('aiCompGrid', {
+                showImage: false, showReference: false, showScores: false, showComparison: false, showHeaderTotal: true,
+            });
+            ed.setState(st);
+            ed.setLocked(true, '');   // read-only display, no "validated" hint
+            lastPredictedComponents = st;   // used to pre-fill Learn/Label
+            return;
         }
         if (isClassification) {
             html += `<div style="text-align:center; margin:20px 0;">
@@ -859,19 +915,28 @@
         const saveBtn = document.getElementById('saveBtn');
         saveBtn.disabled = true;
         try {
-            const blob = await getActiveImageBlob();
-            const fd = new FormData();
-            fd.append('file', blob, name + '.png');
-            fd.append('name', name);
-            fd.append('total_score', componentTotal());
-            fd.append('components', JSON.stringify(componentState));
-            fd.append('source_format', inputMode === 'upload' ? 'UPLOAD' : 'DRAWN');
-            fd.append('task_type', inputMode === 'upload' ? 'UPLOAD' : 'DRAWN');
-
+            let r;
             if (isUpdate) {
-                await fetch(`/api/training-data-image/${loadedTestId}`, { method: 'DELETE' });
+                // Editing an existing row: only the labels change. The image (original + crop +
+                // normalization) stays exactly as stored — just update Total_Score + components.
+                r = await fetch(`/api/training-data-image/${loadedTestId}/features`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ Total_Score: componentTotal(), components: getComponentState() }),
+                });
+            } else {
+                // New row: persist the EXACT original + normalized image that were predicted/labelled
+                // (no second/different normalization on the backend), plus score + components.
+                const original = lastOriginalBlob || await getOriginalBlob();
+                const fd = new FormData();
+                fd.append('file', original, name + '.png');
+                if (lastNormalizedImage) fd.append('normalized_file', dataUrlToBlob(lastNormalizedImage), name + '_norm.png');
+                fd.append('name', name);
+                fd.append('total_score', componentTotal());
+                fd.append('components', JSON.stringify(getComponentState()));
+                fd.append('source_format', inputMode === 'upload' ? 'UPLOAD' : 'DRAWN');
+                fd.append('task_type', inputMode === 'upload' ? 'UPLOAD' : 'DRAWN');
+                r = await fetch('/api/save-drawn-image', { method: 'POST', body: fd });
             }
-            const r = await fetch('/api/save-drawn-image', { method: 'POST', body: fd });
             if (r.ok) {
                 showBadge(isUpdate ? 'Updated' : 'Saved', '#d4edda', '#155724');
                 loadedTestId = null; loadedTestName = null;
@@ -945,10 +1010,13 @@
     }
     async function loadTestImage(testId, name) {
         try {
-            // switch to Draw input so we can show/edit it on the draw canvas
-            switchInput('draw');
+            // show it on the draw canvas (keepState so switchInput doesn't reset what we set below)
+            switchInput('draw', true);
+            loadedTestId = testId; loadedTestName = name;
+            lastNormalizedImage = null; lastPredictModel = null; prefillPending = false;
             const r = await fetch(`/api/training-data-image/${testId}/original`);
             const blob = await r.blob();
+            lastOriginalBlob = blob;               // for a possible "save as new"; backend re-derives normalized
             const url = URL.createObjectURL(blob);
             const img = new Image();
             img.onload = () => {
@@ -956,12 +1024,14 @@
                 ctx.drawImage(img, 0, 0, drawCanvas.width, drawCanvas.height);
                 URL.revokeObjectURL(url);
                 hasContent = true; drawRotation = 0;
-                loadedTestId = testId; loadedTestName = name;
-                document.getElementById('testName').value = name;
-                document.getElementById('editingHint').textContent = `(editing #${testId} — same name overwrites)`;
                 showBadge('Loaded', '#d1ecf1', '#0c5460');
             };
             img.src = url;
+            document.getElementById('testName').value = name;
+            document.getElementById('editingHint').textContent = `(editing #${testId} — same name overwrites)`;
+            revealLearnTab(true);                  // editing is allowed regardless of predict gating
+            applyEditorImages();                   // shows the stored original/normalized (uses loadedTestId)
+            updatePrefillInfo();
             try {
                 const fr = await fetch(`/api/training-data-image/${testId}/features`);
                 if (fr.ok) setComponentState((await fr.json())?.features?.components || null);
@@ -991,7 +1061,6 @@
         if (wanted === 'draw') switchInput('draw'); else switchInput('upload');
         switchAction('predict');
         updateBrushPreview();
-        renderComponentEditor();
         loadAvailableModels();
         loadTestImages();
     })();

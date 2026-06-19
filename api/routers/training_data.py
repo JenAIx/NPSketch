@@ -1315,6 +1315,7 @@ async def save_drawn_image(
     components: Optional[str] = Form(None),  # JSON {presence:[20], accuracy:[20], position:[20]}
     source_format: str = Form('DRAWN'),
     task_type: str = Form('DRAWN'),
+    normalized_file: UploadFile = File(None),  # optional: store this exact normalized image as-is
     db: Session = Depends(get_db)
 ):
     """
@@ -1367,70 +1368,18 @@ async def save_drawn_image(
         if existing_name:
             raise HTTPException(status_code=400, detail=f"Name '{name}' already exists (ID: {existing_name.id})")
         
-        # Load image for processing
-        image = Image.open(io.BytesIO(content))
-        
-        # Convert to RGB if needed (canvas may send RGBA)
-        if image.mode == 'RGBA':
-            # Create white background
-            background = Image.new('RGB', image.size, (255, 255, 255))
-            background.paste(image, mask=image.split()[3])  # Use alpha channel as mask
-            image = background
-        elif image.mode != 'RGB':
-            image = image.convert('RGB')
-        
-        image_array = np.array(image)
-        
-        # Step 1: Auto-crop to content with 5px padding (like MAT/OCS)
-        # Find bounding box of drawn content
-        gray = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
-        _, binary = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
-        
-        # Find non-white pixels
-        coords = cv2.findNonZero(binary)
-        
-        if coords is not None:
-            # Calculate bounding box with padding
-            x, y, w, h = cv2.boundingRect(coords)
-            padding = 5
-            
-            # Add padding (with bounds checking)
-            x = max(0, x - padding)
-            y = max(0, y - padding)
-            w = min(image_array.shape[1] - x, w + 2 * padding)
-            h = min(image_array.shape[0] - y, h + 2 * padding)
-            
-            # Crop to bounding box
-            cropped_array = image_array[y:y+h, x:x+w]
-            
-            # Step 2: Scale to 568×274 (preserving aspect ratio, centered)
-            scale = min(568 / w, 274 / h)
-            new_w = int(w * scale)
-            new_h = int(h * scale)
-            
-            # Resize cropped content
-            cropped_img = Image.fromarray(cropped_array)
-            resized_img = cropped_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-            
-            # Center on 568×274 canvas
-            final_canvas = np.ones((274, 568, 3), dtype=np.uint8) * 255
-            offset_x = (568 - new_w) // 2
-            offset_y = (274 - new_h) // 2
-            final_canvas[offset_y:offset_y+new_h, offset_x:offset_x+new_w] = np.array(resized_img)
-            
-            image_array = final_canvas
-        
-        # Step 3: Normalize line thickness to 2px (CNN-ready)
-        # This ensures consistency with MAT/OCS images
-        normalized_array = normalize_line_thickness(image_array, target_thickness=2)
-        
-        # Convert normalized array back to bytes
-        normalized_image = Image.fromarray(normalized_array, mode='RGB')
-        normalized_buffer = io.BytesIO()
-        normalized_image.save(normalized_buffer, format='PNG')
-        normalized_content = normalized_buffer.getvalue()
-        
-        # Get final dimensions
+        # Normalized image: prefer the exact one the caller already computed/showed (frontend
+        # passes the predict-preview), so what's stored == what was labelled. Otherwise derive it
+        # here via the shared pipeline (same as the import & predict-single's preview).
+        norm_bytes = await normalized_file.read() if normalized_file is not None else None
+        if norm_bytes:
+            normalized_content = io.BytesIO()
+            Image.open(io.BytesIO(norm_bytes)).convert('RGB').save(normalized_content, format='PNG')
+            normalized_content = normalized_content.getvalue()
+        else:
+            from line_normalizer import normalize_to_canvas
+            normalized_content = normalize_to_canvas(content)
+        normalized_array = np.array(Image.open(io.BytesIO(normalized_content)).convert('RGB'))
         height, width = normalized_array.shape[:2]
         
         feats = {}

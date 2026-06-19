@@ -429,6 +429,7 @@ async def test_model(
 async def predict_single_image(
     file: UploadFile = File(...),
     model_filename: str = Form(...),
+    return_normalized: bool = Form(False),
     db: Session = Depends(get_db)
 ):
     """
@@ -507,6 +508,17 @@ async def predict_single_image(
         # Load and preprocess image using shared preprocessing pipeline
         # This ensures consistency with training: resize, binarize, line normalize, pre-shrink
         image_bytes = await file.read()
+
+        # Optionally return the canonical 568×274 normalized image (same pipeline the DB stores),
+        # so the caller can preview "did normalization work?" and reuse it without a second request.
+        normalized_b64 = None
+        if return_normalized:
+            try:
+                import base64
+                from line_normalizer import normalize_to_canvas
+                normalized_b64 = 'data:image/png;base64,' + base64.b64encode(normalize_to_canvas(image_bytes)).decode()
+            except Exception as e:
+                logger.warning(f"Normalized-image preview failed: {e}")
         
         # Get preprocessing config from model metadata
         preproc_config = get_preprocessing_config_from_metadata(metadata)
@@ -583,6 +595,7 @@ async def predict_single_image(
                     'model': model_filename,
                     'target_feature': 'Components',
                     'training_mode': 'components',
+                    'normalized_image': normalized_b64,
                     'prediction': {
                         'total_score': total_score,
                         'calibrated': calibrated is not None,
@@ -622,6 +635,7 @@ async def predict_single_image(
                     'model': model_filename,
                     'target_feature': target_feature,
                     'training_mode': 'classification',
+                    'normalized_image': normalized_b64,
                     'num_classes': num_outputs,
                     'class_names': class_names,
                     'boundaries': class_boundaries,
@@ -662,6 +676,7 @@ async def predict_single_image(
                     'model': model_filename,
                     'target_feature': target_feature,
                     'training_mode': 'regression',
+                    'normalized_image': normalized_b64,
                     'normalization': {
                         'applied': bool(norm_config.get('method')),
                         'min': norm_config.get('min_value'),

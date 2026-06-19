@@ -139,7 +139,8 @@ window.ComponentEditor = (function () {
     const root = resolve(container);
     if (!root) throw new Error('ComponentEditor: container not found');
     ensureTip();
-    const showImage = opts.showImage !== false;   // default true
+    const showImage = opts.showImage !== false;       // default true
+    const showReference = opts.showReference !== false; // default true; false → grid-only
     const showScores = !!opts.showScores;
     const showComparison = !!opts.showComparison;
     const showHeaderTotal = !!opts.showHeaderTotal;
@@ -178,11 +179,13 @@ window.ComponentEditor = (function () {
             <button type="button" class="ce-cropcancel">✕ Cancel</button>
           </div>
         </div>
-        ${refBlock('margin-top:12px;')}
+        ${showReference ? refBlock('margin-top:12px;') : ''}
       </div>`;
+    const leftCol = showImage ? imageCol
+      : (showReference ? `<div class="ce-left" style="flex:0 0 320px; max-width:100%;">${refBlock('')}</div>` : '');
     root.innerHTML =
       `<div class="ce-root" style="display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start;">
-         ${showImage ? imageCol : `<div class="ce-left" style="flex:0 0 320px; max-width:100%;">${refBlock('')}</div>`}
+         ${leftCol}
          <div class="ce-right" style="flex:1; min-width:340px;">
            ${showScores ? `<div class="ce-scores" style="margin-bottom:10px; font-size:.95em;"></div>` : ''}
            <div class="ce-lockbar" style="display:none; margin-bottom:6px; font-size:.85em; color:#b8860b;">🔒 validated — read-only</div>
@@ -317,16 +320,18 @@ window.ComponentEditor = (function () {
       const r = cropCanvas.getBoundingClientRect();
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     }
-    cropCanvas.addEventListener('click', e => {
-      if (!crop.active) return;
-      if (!crop.p1) { crop.p1 = cropPt(e); }
-      else if (!crop.p2) { crop.p2 = cropPt(e); cropApply.disabled = false; }
-      else { crop.p1 = cropPt(e); crop.p2 = null; cropApply.disabled = true; }
-      drawCrop();
-    });
-    cropCanvas.addEventListener('mousemove', e => {
-      if (crop.active && crop.p1 && !crop.p2) drawCrop(cropPt(e));
-    });
+    if (cropCanvas) {
+      cropCanvas.addEventListener('click', e => {
+        if (!crop.active) return;
+        if (!crop.p1) { crop.p1 = cropPt(e); }
+        else if (!crop.p2) { crop.p2 = cropPt(e); cropApply.disabled = false; }
+        else { crop.p1 = cropPt(e); crop.p2 = null; cropApply.disabled = true; }
+        drawCrop();
+      });
+      cropCanvas.addEventListener('mousemove', e => {
+        if (crop.active && crop.p1 && !crop.p2) drawCrop(cropPt(e));
+      });
+    }
     function drawCrop(temp) {
       const x = cropCanvas.getContext('2d');
       x.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
@@ -374,7 +379,14 @@ window.ComponentEditor = (function () {
     function getState() { return clone(st); }
     function setComparison(c) { c = c || {}; model = c.model ? clone(c.model) : null; orig = c.orig ? clone(c.orig) : null; render(); }
     function setScores(html) { if (scoresEl) scoresEl.innerHTML = html || ''; }
-    function setLocked(on) { locked = !!on; if (lockBar) lockBar.style.display = (locked && gridEl.style.display !== 'none') ? 'block' : 'none'; render(); }
+    function setLocked(on, hint) {
+      locked = !!on;
+      if (lockBar) {
+        if (hint != null) lockBar.textContent = hint;
+        lockBar.style.display = (locked && lockBar.textContent && gridEl.style.display !== 'none') ? 'block' : 'none';
+      }
+      render();
+    }
     // hide the grid (e.g. an image with no component labels) and show a host-supplied prompt instead
     function setGridVisible(visible, html) {
       if (gridEl) gridEl.style.display = visible ? 'block' : 'none';
@@ -408,7 +420,7 @@ window.ComponentEditor = (function () {
     function refresh() { drawReference(refEl, hl); if (imgSrc === 'processed') drawImgOverlay(ovEl, hl); render(); }
 
     render();
-    loadRefAssets().then(() => { drawReference(refEl, hl); if (imgSrc === 'processed') drawImgOverlay(ovEl, hl); });
+    if (showReference || showImage) loadRefAssets().then(() => { drawReference(refEl, hl); if (imgSrc === 'processed') drawImgOverlay(ovEl, hl); });
 
     return { setImage, setImages, setState, getState, setComparison, setScores, setLocked, setGridVisible, total, highlight, toggle, refresh };
   }

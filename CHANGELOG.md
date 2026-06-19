@@ -4,6 +4,36 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [Unreleased] — evaluate.html: prediction-gated labelling + correct original/normalized storage
+
+Reworks the Evaluate page so labelling is driven by the AI prediction and new training data is
+stored exactly like the import (**original + normalized**), with no second/divergent normalization.
+
+- **Learn/Label gated behind Predict.** The 🎓 Learn/Label tab is hidden until **Predict with AI**
+  succeeds *and* the image isn't already in the DB (`/api/check-duplicate`). On open, the editor is
+  **pre-filled from the prediction** (thresholded hard components) and shows a consistency note —
+  *which model* produced the prefill (name · feature · mode).
+- **Shared ComponentEditor in Learn/Label** (`showImage`): normalized image on top, reference below,
+  editable grid right, with E01–E20 highlight reactivity. The old bespoke editor was removed.
+- **Original ⇄ Normalized toggle.** The "Normalized" view is the **server-normalized image returned
+  by predict** (new `return_normalized` param on `/api/ai-training/models/predict-single`), so you
+  can verify normalization; "Original" is the raw input. Works for draw and upload.
+- **Correct storage.** Predict + save + dup-check all key off the **raw original**
+  (`getOriginalBlob`). Save sends the raw original **and** the exact normalized image it previewed;
+  `/api/save-drawn-image` stores them verbatim (new optional `normalized_file`), falling back to the
+  shared `normalize_to_canvas()` in `api/line_normalizer.py` (also now used by the import-style path).
+  Result: `original_file_data` = raw upload/drawing, `processed_image_data` = the previewed normalized.
+- **Update = labels only.** Editing a saved row writes just Total_Score + components via
+  `/features` (no delete+recreate, so crop/normalization are untouched). Clicking a saved drawing
+  refills original/normalized (from the DB), score and components.
+- **No state mixing.** Switching the input source, clearing the canvas, or uploading a new file
+  resets the prediction/label state (and hides the tab); the predicted original+normalized are
+  captured at predict time so later canvas edits can't desync what gets saved.
+- **ComponentEditor additions** (`webapp/js/component_editor.js`): `showReference:false` grid-only
+  mode (used by the predict result table), header tooltips with the OCS-Plus Presence/Accuracy/
+  Position definitions, a live resolution readout on the Processed/Original toggle, and an optional
+  lock-hint argument to `setLocked`.
+
 ## [Unreleased] — Shared ComponentEditor + data-view labelling/stats overhaul
 
 Extracts the Review & Label reviewer into one reusable component and reuses it across the

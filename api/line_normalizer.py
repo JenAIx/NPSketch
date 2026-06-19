@@ -76,10 +76,46 @@ def normalize_line_thickness(image_array, target_thickness=2, threshold=127):
     return result_rgb
 
 
+def normalize_to_canvas(raw_bytes, canvas=(568, 274), padding=5, target_thickness=2):
+    """Produce the canonical CNN-ready image from arbitrary input bytes:
+    auto-crop to content (+padding), scale & center onto a `canvas`, normalize line
+    thickness. Mirrors the training-data import / save-drawn-image normalization so the
+    preview (predict) and the stored `processed_image_data` are identical. Returns PNG bytes.
+    """
+    import io
+    W, H = canvas
+    img = Image.open(io.BytesIO(raw_bytes))
+    if img.mode == 'RGBA':
+        bg = Image.new('RGB', img.size, (255, 255, 255)); bg.paste(img, mask=img.split()[3]); img = bg
+    elif img.mode != 'RGB':
+        img = img.convert('RGB')
+    arr = np.array(img)
+
+    gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+    _, binary = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
+    coords = cv2.findNonZero(binary)
+
+    final = np.ones((H, W, 3), dtype=np.uint8) * 255
+    if coords is not None:
+        x, y, w, h = cv2.boundingRect(coords)
+        x = max(0, x - padding); y = max(0, y - padding)
+        w = min(arr.shape[1] - x, w + 2 * padding); h = min(arr.shape[0] - y, h + 2 * padding)
+        crop = arr[y:y + h, x:x + w]
+        scale = min(W / w, H / h)
+        nw, nh = max(1, int(w * scale)), max(1, int(h * scale))
+        resized = np.array(Image.fromarray(crop).resize((nw, nh), Image.Resampling.LANCZOS))
+        ox, oy = (W - nw) // 2, (H - nh) // 2
+        final[oy:oy + nh, ox:ox + nw] = resized
+
+    normalized = normalize_line_thickness(final, target_thickness=target_thickness)
+    out = io.BytesIO(); Image.fromarray(normalized, mode='RGB').save(out, format='PNG')
+    return out.getvalue()
+
+
 def normalize_image_file(input_path, output_path, target_thickness=2):
     """
     Normalize line thickness in an image file.
-    
+
     Args:
         input_path: Path to input PNG
         output_path: Path to output PNG
