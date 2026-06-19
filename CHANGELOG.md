@@ -4,6 +4,40 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [Unreleased] — Shared ComponentEditor + data-view labelling/stats overhaul
+
+Extracts the Review & Label reviewer into one reusable component and reuses it across the
+training-data tools, plus a reworked stats row.
+
+- **New shared component** `webapp/js/component_editor.js` (`ComponentEditor.create`): the
+  reviewer UI — switchable Processed⇄Original image (with live resolution readout) + crop tool,
+  element-highlight overlay, colour-coded reference element-locations canvas, and the editable
+  20×(Presence/Accuracy/Position) grid with model/“was” comparison badges. Reference assets
+  (element definitions + reference image) load once via a shared singleton; cells use event
+  delegation so multiple instances coexist. Header cells carry a **custom tooltip** (native
+  `title` was unreliable) with the OCS-Plus definitions of Presence/Accuracy/Position.
+- **Review & Label Queue** (`ai_training_data_view.html`) reworked onto the shared component
+  (scores moved beside the grid); ~150 lines of duplicated drawing/grid code removed.
+- **Training-data preview modal** now uses the same component: click an image to view + **edit**
+  its components. No components yet → grid hidden with **“Mit Modell initialisieren / Leer
+  anlegen”**; **Revert** and **Save** appear only once something changes; ⚠️ notes that
+  Total_Score is recomputed from the components. Save **merges** into existing features (other
+  keys survive) and is **gated to component sources**, so a blank grid can’t wipe a
+  non-component score. Validated images are read-only behind a 🔓 unlock. The old bespoke crop
+  code + the generic “Other features” editor were removed.
+- **Validated column** in the images table (compact 🔒 / —, sortable). `validated` = manually
+  validated **or** real (non-synthetic) ground-truth labels — synthetic auto-labels stay
+  unvalidated unless explicitly validated.
+- **Stats row redesigned** (smaller cards): **Total · Validated · Missing · Best Model · Best
+  Model Performance · Deviation from Truth (MAE)**. Best model is picked automatically by
+  validation score (components: macro-F1; regression: R²); the card shows version/date and opens
+  a **model-details modal** (validation metrics, training config, dataset sizes) like the model
+  overview. The old MAT/OCS/Patients cards are gone (those legacy source labels read 0).
+- **Backend** (`api/routers/training_data.py`): `/training-data-stats` rewritten from a
+  hardcoded stub to real COUNT queries (`total`, `validated`, `unvalidated_labelled`,
+  `with_features`, `without_features`, `patients`, real `by_source`); the images-list endpoint
+  now returns the `validated` flag per row.
+
 ## [Unreleased] — Element definitions + synthetic low-score generator
 
 Fixes the component model's low-score blindness (it floored at ~18 because real low-score

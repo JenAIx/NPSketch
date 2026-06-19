@@ -820,7 +820,10 @@ async def get_training_data_images(
             "session_id": img.session_id,
             "has_features": has_features,
             "total_score": total_score,
-            "has_components": has_components
+            "has_components": has_components,
+            # validated = manually validated, OR real (non-synthetic) ground-truth labels.
+            # Synthetic auto-labels stay UNvalidated unless explicitly validated.
+            "validated": bool(img.validated) or (has_features and img.source_format != 'SYNTHETIC')
         })
     
     return {
@@ -905,18 +908,34 @@ async def review_queue(
 
 @router.get("/training-data-stats")
 def get_training_data_stats(db: Session = Depends(get_db)):
-    """Get aggregated statistics using fast ORM count query."""
-    from sqlalchemy import func
-    
-    # Single fast count query (avoid multiple queries that cause blocking)
-    total = db.query(func.count(TrainingDataImage.id)).scalar() or 0
-    
+    """Aggregated dataset statistics (fast COUNT queries)."""
+    from sqlalchemy import func, or_, and_, distinct
+    T = TrainingDataImage
+
+    # a row counts as "labelled" if it has a non-empty features_data blob
+    feat_present = and_(T.features_data.isnot(None),
+                        T.features_data != '{}', T.features_data != 'null')
+
+    total = db.query(func.count(T.id)).scalar() or 0
+    with_features = db.query(func.count(T.id)).filter(feat_present).scalar() or 0
+    # validated = manually validated OR real (non-synthetic) ground-truth labels
+    validated = db.query(func.count(T.id)).filter(
+        or_(T.validated == True, and_(feat_present, T.source_format != 'SYNTHETIC'))).scalar() or 0
+    # labelled but NOT validated = synthetic auto-labels not yet human-validated
+    unvalidated_labelled = db.query(func.count(T.id)).filter(
+        and_(feat_present, T.validated == False, T.source_format == 'SYNTHETIC')).scalar() or 0
+    patients = db.query(func.count(distinct(T.patient_id))).scalar() or 0
+    by_source = {s or 'UNKNOWN': c for s, c in
+                 db.query(T.source_format, func.count(T.id)).group_by(T.source_format).all()}
+
     return {
         "total": total,
-        "by_source": {"MAT": 0, "OCS": 0, "OXFORD": 0, "DRAWN": 0},
-        "patients": 0,
-        "with_features": 0,
-        "without_features": total
+        "validated": validated,
+        "unvalidated_labelled": unvalidated_labelled,
+        "with_features": with_features,
+        "without_features": total - with_features,   # "missing"
+        "patients": patients,
+        "by_source": by_source,
     }
 
 
