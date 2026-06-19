@@ -688,7 +688,7 @@
     </div>
 
     <script src="/js/component_result.js?v=3"></script>
-    <script src="/js/component_editor.js?v=7"></script>
+    <script src="/js/component_editor.js?v=8"></script>
     <script>
         let existingData = [];
         let allData = [];  // Store all loaded data for client-side search
@@ -1425,14 +1425,8 @@
             <div id="rqProg" style="height:100%; width:0; background:#667eea;"></div>
           </div>
           <div id="rqProgTxt" style="font-size:.85em; color:#666; margin-bottom:8px;"></div>
-          <!-- shared ComponentEditor mounts here: image+reference (left), scores+grid (right) -->
+          <!-- shared ComponentEditor mounts here: image+reference+action-bar (left), scores+grid (right) -->
           <div id="rqEditor"></div>
-          <div style="display:flex; gap:10px; margin-top:14px; align-items:center;">
-            <button onclick="RQ.prev()" style="padding:8px 14px; border:none; border-radius:7px; background:#e9ecef; cursor:pointer;">← Prev</button>
-            <button onclick="RQ.skip()" style="padding:8px 14px; border:none; border-radius:7px; background:#e9ecef; cursor:pointer;">Skip</button>
-            <button onclick="RQ.saveNext()" style="padding:10px 20px; border:none; border-radius:7px; background:#2e7d32; color:#fff; font-weight:700; cursor:pointer;">💾 Save &amp; Next  (Enter)</button>
-            <span id="rqSaveMsg" style="color:#2e7d32; font-size:.9em;"></span>
-          </div>
         </div>
       </div>
     </div>
@@ -1447,13 +1441,21 @@
         if (ed) return ed;
         ed = ComponentEditor.create('rqEditor', {
           showImage: true, showScores: true, showComparison: true, showHeaderTotal: true,
-          allowCrop: true,
+          allowCrop: true, leftFooter: true,
           onCrop: async box => {
             await fetch(`/api/training-data-image/${curId}/crop-and-reprocess`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(box) });
             setImages(curId);   // reload processed + original (cache-busted)
           },
         });
+        // action bar directly under the reference image (reachable on tablets)
+        ed.setLeftFooter(
+          `<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:10px 12px; background:#f1f3f5; border:1px solid #dee2e6; border-radius:8px;">
+             <button onclick="RQ.prev()" style="padding:8px 14px; border:none; border-radius:7px; background:#e9ecef; cursor:pointer;">← Prev</button>
+             <button onclick="RQ.skip()" style="padding:8px 14px; border:none; border-radius:7px; background:#e9ecef; cursor:pointer;">Skip</button>
+             <button onclick="RQ.saveNext()" style="padding:10px 20px; border:none; border-radius:7px; background:#2e7d32; color:#fff; font-weight:700; cursor:pointer;">💾 Save &amp; Next  (Enter)</button>
+             <span id="rqSaveMsg" style="color:#2e7d32; font-size:.9em;"></span>
+           </div>`);
         return ed;
       }
       function setImages(id) {
@@ -1497,13 +1499,14 @@
         setStart(queue.length > 0);
       }
 
-      function start() { if (!queue.length) return; $('rqFilter').style.display = 'none'; $('rqReviewer').style.display = 'block'; load(0); }
+      function start() { if (!queue.length) return; $('rqFilter').style.display = 'none'; $('rqReviewer').style.display = 'block'; editor(); load(0); }
 
       async function load(i) {
         idx = i; const it = queue[i]; curId = it.id;
+        editor();   // ensure the editor + its action-bar (rqSaveMsg) exist
         $('rqProg').style.width = `${(i / queue.length) * 100}%`;
         $('rqProgTxt').textContent = `Image ${i + 1} / ${queue.length}  ·  id ${it.id}  ·  ${it.task_type}`;
-        $('rqSaveMsg').textContent = '';
+        const sm = $('rqSaveMsg'); if (sm) sm.textContent = '';
         setImages(it.id);
         const f = await (await fetch(`/api/training-data-image/${it.id}/features`)).json();
         const realC = (f.features && f.features.components) || null;

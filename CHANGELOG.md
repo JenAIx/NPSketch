@@ -25,6 +25,9 @@ score-only sources.
 - **Review & Label Queue — new "Total score, no components (batch)" mode**: `no_components` queue
   mode returns score-only rows (e.g. OXFORD) within a score range and **includes** the formally
   validated ones; each image is **live-predicted** to pre-fill the grid for fast batch correction.
+- **Queue action bar moved under the reference image** (tablet-friendly): ComponentEditor gained an
+  optional `leftFooter` slot; the Prev/Skip/Save&Next bar now renders there instead of at the
+  bottom of a tall layout.
 
 ## [Unreleased] — evaluate.html: prediction-gated labelling + correct original/normalized storage
 

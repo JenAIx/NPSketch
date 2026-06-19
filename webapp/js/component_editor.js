@@ -145,7 +145,9 @@ window.ComponentEditor = (function () {
     const showComparison = !!opts.showComparison;
     const showHeaderTotal = !!opts.showHeaderTotal;
     const allowCrop = !!opts.allowCrop;
+    const leftFooter = !!opts.leftFooter;   // a host-fillable row under the reference (e.g. action bar)
     const externalTotalEl = opts.externalTotalEl ? resolve(opts.externalTotalEl) : null;
+    const footerTag = leftFooter ? '<div class="ce-leftfooter" style="margin-top:12px;"></div>' : '';
 
     let st = blank(), model = null, orig = null, hl = null, locked = false;
     let imgSrc = 'processed', imgs = { processed: null, original: null, imageId: null };
@@ -180,9 +182,10 @@ window.ComponentEditor = (function () {
           </div>
         </div>
         ${showReference ? refBlock('margin-top:12px;') : ''}
+        ${footerTag}
       </div>`;
     const leftCol = showImage ? imageCol
-      : (showReference ? `<div class="ce-left" style="flex:0 0 320px; max-width:100%;">${refBlock('')}</div>` : '');
+      : (showReference ? `<div class="ce-left" style="flex:0 0 320px; max-width:100%;">${refBlock('')}${footerTag}</div>` : '');
     root.innerHTML =
       `<div class="ce-root" style="display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start;">
          ${leftCol}
@@ -201,6 +204,7 @@ window.ComponentEditor = (function () {
     const gridEl = root.querySelector('.ce-grid');
     const lockBar = root.querySelector('.ce-lockbar');
     const placeholderEl = root.querySelector('.ce-placeholder');
+    const leftFooterEl = root.querySelector('.ce-leftfooter');
     const tabsEl = root.querySelector('.ce-imgtabs');
     const cropBtn = root.querySelector('.ce-cropbtn');
     const cropCanvas = root.querySelector('.ce-crop');
@@ -379,6 +383,7 @@ window.ComponentEditor = (function () {
     function getState() { return clone(st); }
     function setComparison(c) { c = c || {}; model = c.model ? clone(c.model) : null; orig = c.orig ? clone(c.orig) : null; render(); }
     function setScores(html) { if (scoresEl) scoresEl.innerHTML = html || ''; }
+    function setLeftFooter(html) { if (leftFooterEl) leftFooterEl.innerHTML = html || ''; }
     function setLocked(on, hint) {
       locked = !!on;
       if (lockBar) {
@@ -422,7 +427,7 @@ window.ComponentEditor = (function () {
     render();
     if (showReference || showImage) loadRefAssets().then(() => { drawReference(refEl, hl); if (imgSrc === 'processed') drawImgOverlay(ovEl, hl); });
 
-    return { setImage, setImages, setState, getState, setComparison, setScores, setLocked, setGridVisible, total, highlight, toggle, refresh };
+    return { setImage, setImages, setState, getState, setComparison, setScores, setLeftFooter, setLocked, setGridVisible, total, highlight, toggle, refresh };
   }
 
   return { create, loadRefAssets, elColor };
