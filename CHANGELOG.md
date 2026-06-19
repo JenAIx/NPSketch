@@ -4,6 +4,28 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [Unreleased] — data-view filters + label any source (incl. OXFORD)
+
+More ways to slice the Training-data list, a match-count chip, and component labelling for
+score-only sources.
+
+- **New filters** on `/api/training-data-images` (all server-side): `scored_only` (has a
+  Total_Score but no components — matches on the `presence` array, so OXFORD's `components:null`
+  counts), `validated` (`true`/`false`), `score_min`/`score_max` (SQLite `json_extract` on
+  Total_Score), and `recent_hours` (rows validated/edited in the last N hours, via `validated_at`).
+- **Filter row redesigned**: own line below the heading; **Only Missing**, a grouped
+  **Σ only | Score** box (with an off-by-default dual-range slider), a **Validated** lock-cycle
+  button (all → 🔒 only → 🔓 only), and **🕒 Last 24h**. A heading chip shows
+  **matched / total** images and turns green when filtered.
+- **Label any source in the preview modal**: dropped the "not applicable for OXFORD" gate. Images
+  with a Total_Score but no components can now be component-labelled — **model-fill** uses the
+  stored prediction or a **live** one (`predict-single` on the stored image via the best
+  components model). The stored Total_Score stays shown; saving recomputes it (with a clear
+  warning that it replaces the stored value).
+- **Review & Label Queue — new "Total score, no components (batch)" mode**: `no_components` queue
+  mode returns score-only rows (e.g. OXFORD) within a score range and **includes** the formally
+  validated ones; each image is **live-predicted** to pre-fill the grid for fast batch correction.
+
 ## [Unreleased] — evaluate.html: prediction-gated labelling + correct original/normalized storage
 
 Reworks the Evaluate page so labelling is driven by the AI prediction and new training data is

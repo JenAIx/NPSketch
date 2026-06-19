@@ -552,33 +552,56 @@
 
         <!-- Data Table -->
         <div class="section">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; gap: 20px; flex-wrap: wrap;">
-                <h2 style="margin: 0;">Training Data Images</h2>
-                <div id="filterControls" style="display: flex; gap: 10px; flex: 1; max-width: 700px; align-items: center;">
-                    <label id="loadLimitLabel" style="display: flex; align-items: center; gap: 6px; background: #e7e3ff; padding: 6px 10px; border-radius: 6px; font-size: 0.9em; white-space: nowrap;">
-                        <span style="color: #5a3d99; font-weight: 600;">Load</span>
-                        <select id="loadLimitSelect" onchange="changeLoadLimit(this.value)" style="padding: 4px 8px; border: 1px solid #dee2e6; border-radius: 4px; cursor: pointer;">
-                            <option value="10" selected>10</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                            <option value="1000">1000</option>
-                            <option value="5000">5000</option>
-                            <option value="10000">10000</option>
-                        </select>
+            <h2 style="margin: 0 0 14px; display: flex; align-items: center; gap: 12px;">Training Data Images
+                <span id="resultCount" title="Images matching the current filters / total in DB"
+                      style="font-size: 0.6em; font-weight: 600; color: #fff; background: #667eea; padding: 3px 10px; border-radius: 12px;">–</span>
+            </h2>
+            <div id="filterControls" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 15px;">
+                <label id="loadLimitLabel" style="display: flex; align-items: center; gap: 6px; background: #e7e3ff; padding: 6px 10px; border-radius: 6px; font-size: 0.9em; white-space: nowrap;">
+                    <span style="color: #5a3d99; font-weight: 600;">Load</span>
+                    <select id="loadLimitSelect" onchange="changeLoadLimit(this.value)" style="padding: 4px 8px; border: 1px solid #dee2e6; border-radius: 4px; cursor: pointer;">
+                        <option value="10" selected>10</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="1000">1000</option>
+                        <option value="5000">5000</option>
+                        <option value="10000">10000</option>
+                    </select>
+                </label>
+                <label id="filterMissingLabel" style="display: flex; align-items: center; gap: 6px; background: #fff3cd; padding: 6px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; font-size: 0.9em;">
+                    <input type="checkbox" id="filterMissing" onchange="searchData()" style="cursor: pointer;">
+                    <span style="color: #856404; font-weight: 600;">Only Missing</span>
+                </label>
+                <!-- Score group: Σ-only + Total_Score range belong together -->
+                <div id="filterScoreGroup" style="display: flex; align-items: center; gap: 10px; background: #e2f0e6; padding: 6px 12px; border-radius: 6px; white-space: nowrap; font-size: 0.9em;">
+                    <label title="Has a Total_Score but no component labels" style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #155724; font-weight: 600;">
+                        <input type="checkbox" id="filterScored" onchange="searchData()" style="cursor: pointer;"> Σ only
                     </label>
-                    <label id="filterMissingLabel" style="display: flex; align-items: center; gap: 6px; background: #fff3cd; padding: 6px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; font-size: 0.9em;">
-                        <input type="checkbox" id="filterMissing" onchange="searchData()" style="cursor: pointer;">
-                        <span style="color: #856404; font-weight: 600;">Only Missing</span>
+                    <span style="color: #a9cdb5;">|</span>
+                    <label title="Filter by Total_Score range" style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #155724; font-weight: 600;">
+                        <input type="checkbox" id="filterScoreRange" onchange="toggleScoreRange()" style="cursor: pointer;"> Score
+                        <span id="scoreRangeControls" style="display: none; align-items: center; gap: 6px;">
+                            <input type="range" id="scoreMin" min="0" max="60" value="0" step="1" oninput="onScoreRange('min')" style="width: 90px; cursor: pointer;">
+                            <span id="scoreRangeVal" style="color: #155724; font-weight: 700; min-width: 56px; text-align: center;">0–60</span>
+                            <input type="range" id="scoreMax" min="0" max="60" value="60" step="1" oninput="onScoreRange('max')" style="width: 90px; cursor: pointer;">
+                        </span>
                     </label>
-                    <input type="text"
-                           id="searchInput" 
-                           placeholder="🔍 Search ID, Patient, Task, Source, Date..." 
-                           style="flex: 1; padding: 10px; border: 2px solid #dee2e6; border-radius: 6px; font-size: 0.95em;"
-                           oninput="searchData()">
-                    <button id="clearBtn" class="btn btn-secondary btn-small" onclick="clearSearch()" style="white-space: nowrap;">Clear</button>
                 </div>
+                <button id="filterValidatedBtn" type="button" onclick="cycleValidatedFilter()"
+                        title="Validated filter — click to cycle: all → validated only → unvalidated only"
+                        style="padding: 6px 12px; border: 1px solid #dee2e6; border-radius: 6px; background: #f1f3f5; cursor: pointer; white-space: nowrap; font-size: 0.9em; font-weight: 600;">🔓 Validated: all</button>
+                <label id="filterRecentLabel" title="Only images you validated/edited in the last 24 hours" style="display: flex; align-items: center; gap: 6px; background: #ffe3ec; padding: 6px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; font-size: 0.9em;">
+                    <input type="checkbox" id="filterRecent" onchange="searchData()" style="cursor: pointer;">
+                    <span style="color: #a61e4d; font-weight: 600;">🕒 Last 24h</span>
+                </label>
+                <input type="text"
+                       id="searchInput"
+                       placeholder="🔍 Search ID, Patient, Task, Source, Date..."
+                       style="flex: 1; min-width: 200px; padding: 10px; border: 2px solid #dee2e6; border-radius: 6px; font-size: 0.95em;"
+                       oninput="searchData()">
+                <button id="clearBtn" class="btn btn-secondary btn-small" onclick="clearSearch()" style="white-space: nowrap;">Clear</button>
             </div>
-            
+
             <div class="data-table">
                 <div class="data-row header">
                     <div class="data-cell" onclick="sortBy('id')">
@@ -677,6 +700,37 @@
         let sortDirection = 'desc';  // 'asc' or 'desc'
         let loadLimit = 10;
         let searchDebounceTimer = null;
+        let validatedFilter = '';   // '' = all · 'true' = validated only · 'false' = unvalidated only
+        let lastMatchedTotal = 0;   // images matching current filters (from API total)
+        let dbTotal = null;         // total images in DB (from stats)
+
+        // cycle the validated filter: all → validated only → unvalidated only → all
+        function cycleValidatedFilter() {
+            validatedFilter = validatedFilter === '' ? 'true' : (validatedFilter === 'true' ? 'false' : '');
+            const b = document.getElementById('filterValidatedBtn');
+            if (validatedFilter === 'true') {
+                b.textContent = '🔒 Validated only'; b.style.background = '#d4edda'; b.style.borderColor = '#2e7d32'; b.style.color = '#155724';
+            } else if (validatedFilter === 'false') {
+                b.textContent = '🔓 Unvalidated only'; b.style.background = '#f8d7da'; b.style.borderColor = '#dc3545'; b.style.color = '#721c24';
+            } else {
+                b.textContent = '🔓 Validated: all'; b.style.background = '#f1f3f5'; b.style.borderColor = '#dee2e6'; b.style.color = '#333';
+            }
+            searchData();
+        }
+
+        let scoreRangeOn = false;   // Total_Score range filter (off by default)
+        function toggleScoreRange() {
+            scoreRangeOn = document.getElementById('filterScoreRange').checked;
+            document.getElementById('scoreRangeControls').style.display = scoreRangeOn ? 'inline-flex' : 'none';
+            searchData();
+        }
+        function onScoreRange(which) {
+            const lo = document.getElementById('scoreMin'), hi = document.getElementById('scoreMax');
+            // keep min ≤ max by nudging the other handle
+            if (+lo.value > +hi.value) { if (which === 'min') hi.value = lo.value; else lo.value = hi.value; }
+            document.getElementById('scoreRangeVal').textContent = `${lo.value}–${hi.value}`;
+            if (scoreRangeOn) searchData();
+        }
 
         async function loadData() {
             try {
@@ -690,18 +744,23 @@
                     params.set('search', searchTerm.trim());
                 }
                 
-                // Add "only missing" filter (server-side)
-                const onlyMissing = document.getElementById('filterMissing').checked;
-                if (onlyMissing) {
-                    params.set('only_missing', 'true');
+                // Feature-state + validation filters (all server-side)
+                if (document.getElementById('filterMissing').checked) params.set('only_missing', 'true');
+                if (document.getElementById('filterScored').checked) params.set('scored_only', 'true');
+                if (validatedFilter) params.set('validated', validatedFilter);   // 'true' | 'false'
+                if (scoreRangeOn) {
+                    params.set('score_min', document.getElementById('scoreMin').value);
+                    params.set('score_max', document.getElementById('scoreMax').value);
                 }
+                if (document.getElementById('filterRecent').checked) params.set('recent_hours', '24');
 
                 const response = await fetch(`/api/training-data-images?${params.toString()}`);
                 const data = await response.json();
                 
                 allData = data.images;
                 existingData = data.images;  // No client-side filtering needed
-                
+                lastMatchedTotal = (typeof data.total === 'number') ? data.total : data.images.length;
+
                 // Apply current sort
                 sortData();
                 
@@ -722,6 +781,42 @@
 
         // best model is cached so the card click can open its details modal
         let bestModel = null, bestModelMeta = null;
+        let bestComponentModel = null;   // filename of the best components model (live model-fill)
+
+        // resolve a components model filename (use the cached best, else discover one on demand)
+        async function getComponentModelFilename() {
+            if (bestComponentModel) return bestComponentModel;
+            try {
+                const md = await (await fetch('/api/ai-training/models')).json();
+                const ms = (md.models || md || []);
+                const cm = ms.find(m => (m.feature || '').toLowerCase() === 'components' && m.has_metadata)
+                        || ms.find(m => (m.feature || '').toLowerCase() === 'components');
+                if (cm) bestComponentModel = cm.filename;
+            } catch (e) { /* ignore */ }
+            return bestComponentModel;
+        }
+
+        // run a live component prediction on a stored image → hard 0/1 component state (or null)
+        async function predictComponentsForImage(imageId) {
+            const modelFile = await getComponentModelFilename();
+            if (!modelFile) return null;
+            try {
+                const blob = await (await fetch(`/api/training-data-image/${imageId}/processed`)).blob();
+                const fd = new FormData();
+                fd.append('file', blob, 'img.png');
+                fd.append('model_filename', modelFile);
+                const pr = await (await fetch('/api/ai-training/models/predict-single', { method: 'POST', body: fd })).json();
+                if (!pr.success || pr.training_mode !== 'components') return null;
+                const st = { presence: Array(20).fill(0), accuracy: Array(20).fill(0), position: Array(20).fill(0) };
+                (pr.prediction.elements || []).forEach(el => {
+                    const e = el.element - 1;
+                    st.presence[e] = el.presence >= el.thr_presence ? 1 : 0;
+                    st.accuracy[e] = el.accuracy >= el.thr_accuracy ? 1 : 0;
+                    st.position[e] = el.position >= el.thr_position ? 1 : 0;
+                });
+                return st;
+            } catch (e) { return null; }
+        }
         // "20260617_023227" -> "2026-06-17 · 02:32"
         function fmtTimestamp(ts) {
             const m = /^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})/.exec(ts || '');
@@ -735,6 +830,7 @@
                 setStat('totalImages', stats.total);
                 setStat('validatedCount', stats.validated);
                 setStat('missingCount', stats.without_features);
+                dbTotal = stats.total; updateResultCount();   // chip shows matched / total
             } catch (error) {
                 console.error('Error loading dataset stats:', error);
             }
@@ -743,13 +839,18 @@
                 const md = await (await fetch('/api/ai-training/models')).json();
                 const models = (md.models || md || []).filter(m => m.has_metadata);
                 let best = null, bestMeta = null, bestScore = -Infinity;
+                let bestComp = null, bestCompScore = -Infinity;
                 for (const m of models) {
                     const meta = await (await fetch(`/api/ai-training/models/${m.filename}/metadata`)).json();
                     const v = meta.val_metrics || {};
                     const score = (v.macro_f1 != null) ? v.macro_f1 : (v.r2_score != null ? v.r2_score : -Infinity);
                     if (score > bestScore) { bestScore = score; best = m; bestMeta = meta; }
+                    // best components model — used for live "model-fill" in the editor
+                    if (meta.training_mode === 'components' && (v.macro_f1 ?? -Infinity) > bestCompScore) {
+                        bestCompScore = v.macro_f1 ?? -Infinity; bestComp = m.filename;
+                    }
                 }
-                bestModel = best; bestModelMeta = bestMeta;
+                bestModel = best; bestModelMeta = bestMeta; bestComponentModel = bestComp;
                 if (best) {
                     const v = bestMeta.val_metrics || {};
                     const mode = bestMeta.training_mode;
@@ -858,16 +959,17 @@
             if (!countElement) {
                 return;
             }
-            const count = existingData.length;
-            countElement.textContent = `${count} ${count === 1 ? 'item' : 'items'}`;
-            
-            // Change color if filtered
-            const onlyMissing = document.getElementById('filterMissing').checked;
-            if (searchTerm && searchTerm.trim() !== '' || onlyMissing) {
-                countElement.style.background = '#28a745';  // Green when filtering
-            } else {
-                countElement.style.background = '#667eea';  // Default blue
-            }
+            // Change color if any filter is active
+            const anyFilter = (searchTerm && searchTerm.trim() !== '')
+                || document.getElementById('filterMissing').checked
+                || document.getElementById('filterScored').checked
+                || document.getElementById('filterRecent').checked
+                || !!validatedFilter || scoreRangeOn;
+            // matched (of total) — "matched" is the full filtered count from the API, not the page
+            countElement.textContent = anyFilter
+                ? `${lastMatchedTotal} of ${dbTotal ?? '…'} images`
+                : `${dbTotal ?? lastMatchedTotal} images`;
+            countElement.style.background = anyFilter ? '#28a745' : '#667eea';
         }
         
         function searchData() {
@@ -889,6 +991,16 @@
         function clearSearch() {
             document.getElementById('searchInput').value = '';
             document.getElementById('filterMissing').checked = false;
+            document.getElementById('filterScored').checked = false;
+            document.getElementById('filterRecent').checked = false;
+            validatedFilter = '';
+            const vb = document.getElementById('filterValidatedBtn');
+            vb.textContent = '🔓 Validated: all'; vb.style.background = '#f1f3f5'; vb.style.borderColor = '#dee2e6'; vb.style.color = '#333';
+            scoreRangeOn = false;
+            document.getElementById('filterScoreRange').checked = false;
+            document.getElementById('scoreRangeControls').style.display = 'none';
+            document.getElementById('scoreMin').value = 0; document.getElementById('scoreMax').value = 60;
+            document.getElementById('scoreRangeVal').textContent = '0–60';
             searchTerm = '';
             currentPage = 0;
             loadData();
@@ -1102,6 +1214,7 @@
                     <p style="margin:0; color:#777; font-size:.85em;">
                         Image ID ${img.id} · ${img.source_format || '—'} · ${sourceDesc}
                         ${img.width ? ` · ${img.width}×${img.height}px` : ''}
+                        ${featuresData.Total_Score != null ? ` · <strong style="color:#2e7d32;">stored Total_Score: ${featuresData.Total_Score}</strong>` : ''}
                     </p>
                     <div id="modalLockBar" style="font-size:.9em;"></div>
                 </div>
@@ -1133,16 +1246,16 @@
                             original: `/api/training-data-image/${img.id}/original?v=${cacheBuster}`, imageId: img.id });
             med.setComparison({ model: modelComp, orig: comp });
 
-            // Component labels only apply to component sources (Total_Score = component sum). For
-            // others (e.g. OXFORD) the grid is hidden — components there would be meaningless.
-            const COMPONENT_SOURCES = ['TELEFRED', 'ALGORITHM', 'OCS_MACHINE', 'SYNTHETIC'];
-            const componentCapable = !!comp || !!modelComp || COMPONENT_SOURCES.includes(img.source_format);
+            // Any image can be component-labelled (incl. OXFORD, which has a Total_Score but no
+            // components). The stored Total_Score stays shown above; saving recomputes it from the
+            // components. Model-fill uses the stored model_prediction, else a live prediction.
             const lockBar = document.getElementById('modalLockBar');
-            let mode = '';                                   // '', 'edit', 'locked', 'create', 'na'
+            let mode = '';                                   // '', 'edit', 'locked', 'create'
             let savedState = comp ? cloneComp(comp) : null;  // what is persisted in the DB
             let baseline = comp ? cloneComp(comp) : null;    // "Ausgang" for Revert (start of this edit)
 
-            const WARN = `<div style="margin-top:5px; color:#b26a00; font-size:.82em;">⚠️ Total_Score wird aus den Komponenten berechnet &amp; gespeichert.</div>`;
+            const storedTS = featuresData.Total_Score;
+            const WARN = `<div style="margin-top:5px; color:#b26a00; font-size:.82em;">⚠️ Saving recomputes Total_Score from the components${storedTS != null ? ` (replaces the stored value <strong>${storedTS}</strong>)` : ''}.</div>`;
             const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
             // editable grid — Save shows only when there are unsaved changes, Revert only when
@@ -1167,20 +1280,27 @@
                     <button class="btn btn-small" id="mUnlock" style="margin-left:8px;">🔓 Unlock to edit</button>`;
                 document.getElementById('mUnlock').onclick = showEdit;
             }
-            // no components yet: offer to create (from model or empty)
+            // no components yet: offer to create (from model — stored or live — or empty)
             function showCreate() {
                 mode = 'create';
-                const modelBtn = modelComp
+                const canModel = !!modelComp || !!bestComponentModel;
+                const modelBtn = canModel
                     ? `<button class="btn btn-small" id="mInitModel" style="background:#667eea; color:#fff;">✨ Mit Modell initialisieren</button>` : '';
                 med.setGridVisible(false,
                     `<div style="padding:22px; text-align:center; color:#666; border:1px dashed #ccc; border-radius:8px;">
-                        <p style="margin:0 0 12px;">Keine Komponenten-Labels vorhanden.</p>
+                        <p style="margin:0 0 12px;">Keine Komponenten-Labels vorhanden${img.source_format ? ` (Quelle: ${img.source_format})` : ''}.</p>
                         <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
                             ${modelBtn}<button class="btn btn-small" id="mInitEmpty">Leer anlegen</button>
                         </div>
                      </div>`);
                 lockBar.innerHTML = '';
-                if (modelComp) document.getElementById('mInitModel').onclick = () => { baseline = cloneComp(modelComp); med.setState(modelComp); showEdit(); };
+                if (canModel) document.getElementById('mInitModel').onclick = async () => {
+                    const btn = document.getElementById('mInitModel'); btn.disabled = true; btn.textContent = '⏳ predicting…';
+                    const st = modelComp ? cloneComp(modelComp) : await predictComponentsForImage(img.id);
+                    if (!st) { showAlert('error', 'Model prediction unavailable'); btn.disabled = false; btn.textContent = '✨ Mit Modell initialisieren'; return; }
+                    med.setComparison({ model: st, orig: comp });   // M-badges vs the model fill
+                    baseline = cloneComp(st); med.setState(st); showEdit();
+                };
                 document.getElementById('mInitEmpty').onclick = () => { baseline = blankComp(); med.setState(blankComp()); showEdit(); };
             }
             async function saveComponents() {
@@ -1197,17 +1317,12 @@
                 } else if (msg) { msg.textContent = '❌ save failed'; }
             }
 
-            // pick the initial state
-            if (!componentCapable) {
-                mode = 'na';
-                med.setState(null);
-                med.setGridVisible(false, `<div style="padding:22px; color:#999;">Komponenten-Labels für ${img.source_format || 'diese Quelle'} nicht anwendbar.</div>`);
-                lockBar.innerHTML = '';
-            } else if (comp) {
+            // pick the initial state — any image can be labelled now
+            if (comp) {
                 med.setState(comp);
                 isValidated ? showLocked() : showEdit();
             } else {
-                med.setState(modelComp || null);   // for the comparison frame; grid is hidden until created
+                med.setState(modelComp || blankComp());   // grid hidden until created
                 showCreate();
             }
 
@@ -1289,12 +1404,13 @@
               <select id="rqMode" onchange="RQ.modeChange()">
                 <option value="discrepancy">Review discrepancies (scored)</option>
                 <option value="missing">Score unscored / missing</option>
+                <option value="nocomp">Total score, no components (batch)</option>
               </select></label>
             <label>Task <select id="rqTask"><option value="">any</option><option>COPY</option><option>RECALL</option></select></label>
             <span id="rqScoredFilters">
               <label>Real min <input id="rqMin" type="number" value="0" style="width:56px;"></label>
               <label>max <input id="rqMax" type="number" value="29" style="width:56px;"></label>
-              <label>min |diff| <input id="rqDiff" type="number" value="3" style="width:56px;"></label>
+              <span id="rqDiffWrap"><label>min |diff| <input id="rqDiff" type="number" value="3" style="width:56px;"></label></span>
             </span>
             <button onclick="RQ.build()" style="padding:8px 14px; background:#667eea; color:#fff; border:none; border-radius:7px; font-weight:600; cursor:pointer;">Build queue</button>
             <span id="rqCount" style="color:#444; font-weight:600;"></span>
@@ -1323,7 +1439,7 @@
 
     <script>
     const RQ = (function () {
-      let queue = [], idx = 0, curId = null, ed = null;
+      let queue = [], idx = 0, curId = null, ed = null, qmode = '';
       const $ = id => document.getElementById(id);
 
       // the shared ComponentEditor is created once, the first time the reviewer is shown
@@ -1357,17 +1473,25 @@
         b.disabled = !on; b.style.background = on ? '#2e7d32' : '#9bb89b'; b.style.cursor = on ? 'pointer' : 'not-allowed';
       }
       function invalidate() { queue = []; setStart(false); $('rqCount').textContent = 'click “Build queue” first'; }
-      function modeChange() { $('rqScoredFilters').style.display = $('rqMode').value === 'missing' ? 'none' : ''; invalidate(); }
+      function modeChange() {
+        const m = $('rqMode').value;
+        $('rqScoredFilters').style.display = (m === 'missing') ? 'none' : '';   // range used by discrepancy + nocomp
+        $('rqDiffWrap').style.display = (m === 'discrepancy') ? '' : 'none';     // |diff| only for discrepancy
+        invalidate();
+      }
 
       async function build() {
         const mode = $('rqMode').value, task = $('rqTask').value;
-        let q = `source_format=TELEFRED`;
+        let q;
+        if (mode === 'missing') q = `source_format=TELEFRED&only_missing=true`;
+        else if (mode === 'nocomp')   // any source with a score but no components (e.g. OXFORD)
+          q = `source_format=&no_components=true&real_min=${$('rqMin').value}&real_max=${$('rqMax').value}`;
+        else
+          q = `source_format=TELEFRED&real_min=${$('rqMin').value}&real_max=${$('rqMax').value}&min_diff=${$('rqDiff').value}`;
         if (task) q += `&task_type=${task}`;
-        if (mode === 'missing') q += `&only_missing=true`;
-        else q += `&real_min=${$('rqMin').value}&real_max=${$('rqMax').value}&min_diff=${$('rqDiff').value}`;
         setStart(false); $('rqCount').textContent = '⏳ building…';
         const d = await (await fetch(`/api/training-data/review-queue?${q}`)).json();
-        queue = d.items || [];
+        queue = d.items || []; qmode = mode;
         const skip = d.validated_skipped ? ` · ${d.validated_skipped} validated 🔒 excluded` : '';
         $('rqCount').textContent = (queue.length ? `${queue.length} images in queue — ready` : 'no images match these filters') + skip;
         setStart(queue.length > 0);
@@ -1383,17 +1507,25 @@
         setImages(it.id);
         const f = await (await fetch(`/api/training-data-image/${it.id}/features`)).json();
         const realC = (f.features && f.features.components) || null;
-        const model = (f.model_prediction && f.model_prediction.components) || null;
+        let model = (f.model_prediction && f.model_prediction.components) || null;
+        const rs = f.features ? f.features.Total_Score : null;
+        const ms = f.model_prediction ? f.model_prediction.Total_Score : null;
+        // nocomp batch mode: no stored components/prediction → live model-fill as the starting point
+        let liveFill = false;
+        if (qmode === 'nocomp' && !realC && !model && typeof predictComponentsForImage === 'function') {
+          editor().setScores(`<b>Real:</b> ${rs ?? '—'} &nbsp;|&nbsp; <span style="color:#b8860b;">⏳ running model…</span>`);
+          model = await predictComponentsForImage(it.id); liveFill = !!model;
+        }
         const prefillModel = !realC && !!model;
         editor().setComparison({ model, orig: realC });          // orig = previously-saved (for "was")
         editor().setState(realC || model || null);
-        const rs = f.features ? f.features.Total_Score : null;
-        const ms = f.model_prediction ? f.model_prediction.Total_Score : null;
         editor().setScores(
           `<b>Real:</b> ${rs ?? '—'} &nbsp;|&nbsp; <b>Model:</b> ${ms ?? '—'} ` +
-          (f.validated ? `<span style="color:#2e7d32;">🔒 validated</span>` : '') +
-          (prefillModel ? `<br><span style="color:#b8860b;">grid pre-filled from model (suggestion)</span>`
-                        : (realC ? `<br><span style="color:#2e7d32;">grid = current real labels</span>` : '')));
+          (qmode === 'nocomp' && rs != null ? `<span style="color:#b26a00;">— saving replaces the stored score with the component sum</span>` : '') +
+          (f.validated ? ` <span style="color:#2e7d32;">🔒 validated</span>` : '') +
+          (liveFill ? `<br><span style="color:#b8860b;">grid pre-filled from a live model prediction (suggestion)</span>`
+                    : prefillModel ? `<br><span style="color:#b8860b;">grid pre-filled from model (suggestion)</span>`
+                    : (realC ? `<br><span style="color:#2e7d32;">grid = current real labels</span>` : '')));
       }
 
       async function saveNext() {

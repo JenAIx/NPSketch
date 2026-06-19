@@ -698,6 +698,11 @@ async def get_training_data_images(
     source_format: str = None,
     search: str = None,
     only_missing: bool = False,
+    scored_only: bool = False,
+    validated: str = None,        # 'true' = validated only · 'false' = unvalidated only · None = all
+    score_min: int = None,
+    score_max: int = None,
+    recent_hours: int = None,     # only rows validated/edited within the last N hours
     ids: str = None,
     db: Session = Depends(get_db)
 ):
@@ -718,7 +723,7 @@ async def get_training_data_images(
     Returns:
         List of training data images with metadata
     """
-    from sqlalchemy import or_, cast, String, func
+    from sqlalchemy import or_, and_, not_, cast, String, Integer, func
     from sqlalchemy.orm import load_only
     
     # Build filter conditions (shared between count and fetch queries)
@@ -753,16 +758,50 @@ async def get_training_data_images(
             )
         )
     
+    # a row is "labelled" if it has a non-empty features_data blob
+    feat_present = and_(
+        TrainingDataImage.features_data.isnot(None),
+        TrainingDataImage.features_data != '{}',
+        TrainingDataImage.features_data != 'null',
+        TrainingDataImage.features_data != '',
+    )
+
     # Only missing features filter
     if only_missing:
-        filters.append(
-            or_(
-                TrainingDataImage.features_data.is_(None),
-                TrainingDataImage.features_data == '{}',
-                TrainingDataImage.features_data == 'null',
-                TrainingDataImage.features_data == '',
-            )
+        filters.append(not_(feat_present))
+
+    # Total-score-only: has labels but no real component sub-labels. Real components carry a
+    # "presence" array; OXFORD etc. store "components": null, so match on the presence array
+    # (consistent with has_components in the row payload below).
+    if scored_only:
+        filters.append(and_(feat_present, not_(TrainingDataImage.features_data.like('%"presence"%'))))
+
+    # Validated filter — same definition as the list column / stats:
+    # explicitly validated, OR real (non-synthetic) ground-truth labels.
+    if validated is not None:
+        validated_clause = or_(
+            TrainingDataImage.validated == True,
+            and_(feat_present, TrainingDataImage.source_format != 'SYNTHETIC'),
         )
+        if str(validated).lower() == 'true':
+            filters.append(validated_clause)
+        elif str(validated).lower() == 'false':
+            filters.append(not_(validated_clause))
+
+    # Total_Score range filter (SQLite json_extract on the stored features blob)
+    if score_min is not None or score_max is not None:
+        ts = cast(func.json_extract(TrainingDataImage.features_data, '$.Total_Score'), Integer)
+        if score_min is not None:
+            filters.append(ts >= score_min)
+        if score_max is not None:
+            filters.append(ts <= score_max)
+
+    # Recently changed: rows validated/edited within the last N hours (validated_at is set on save)
+    if recent_hours and recent_hours > 0:
+        from datetime import datetime as _dt, timedelta as _td
+        cutoff = _dt.utcnow() - _td(hours=recent_hours)
+        filters.append(and_(TrainingDataImage.validated_at.isnot(None),
+                            TrainingDataImage.validated_at >= cutoff))
 
     # Get total count using func.count (fast - doesn't load data)
     count_query = db.query(func.count(TrainingDataImage.id))
@@ -834,6 +873,17 @@ async def get_training_data_images(
     }
 
 
+def _has_components(img):
+    """True if the row has real component sub-labels (a presence array), not just a Total_Score."""
+    if not img.features_data:
+        return False
+    try:
+        c = json.loads(img.features_data).get("components")
+        return bool(c and c.get("presence"))
+    except (ValueError, AttributeError):
+        return False
+
+
 def _scores(img):
     """(real_total, has_real, model_total) from an image's features_data + model_prediction."""
     real, has_real, model = None, False, None
@@ -858,13 +908,17 @@ async def review_queue(
     real_max: int = None,
     min_diff: float = None,
     only_missing: bool = False,
+    no_components: bool = False,
     include_validated: bool = False,
     limit: int = 3000,
     db: Session = Depends(get_db),
 ):
-    """Worklist for the human-in-the-loop review/labeling tool. Two modes:
-      - only_missing=true  -> unscored images to label (model prediction as a suggestion);
-      - else               -> scored images, filtered by real-score range and/or |real-model|
+    """Worklist for the human-in-the-loop review/labeling tool. Modes:
+      - only_missing=true   -> unscored images to label (model prediction as a suggestion);
+      - no_components=true   -> images with a Total_Score but NO component sub-labels (e.g. OXFORD),
+                               filtered by real-score range. These are formally validated, so
+                               validated rows are INCLUDED (batch-add components to them);
+      - else                -> scored images, filtered by real-score range and/or |real-model|
                               diff, sorted by largest discrepancy first.
     Real (features_data) and model (model_prediction) are read in parallel; neither is altered."""
     from sqlalchemy.orm import load_only
@@ -879,10 +933,22 @@ async def review_queue(
     items = []
     n_validated_skipped = 0
     for r in q.all():
-        if r.validated and not include_validated:   # already human-validated -> done, exclude
+        # no_components mode targets formally-validated rows (OXFORD), so don't skip them there
+        if r.validated and not (include_validated or no_components):   # already human-validated -> done
             n_validated_skipped += 1
             continue
         real, has_real, model = _scores(r)
+        if no_components:
+            if not has_real or _has_components(r):
+                continue
+            if real_min is not None and real < real_min:
+                continue
+            if real_max is not None and real > real_max:
+                continue
+            items.append({"id": r.id, "task_type": r.task_type, "real_score": real,
+                          "model_score": model, "diff": None, "has_real": True,
+                          "validated": bool(r.validated)})
+            continue
         if only_missing:
             if has_real:
                 continue
