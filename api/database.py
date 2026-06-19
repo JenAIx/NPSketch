@@ -76,6 +76,13 @@ class TrainingDataImage(Base):
 
     # CNN training labels (nullable - only if available)
     features_data = Column(String, nullable=True)  # JSON: Total_Score + optional components
+    # Best-model prediction, stored IN PARALLEL with the human features_data (never overwritten
+    # by human edits). JSON: {model, Total_Score, components:{presence,accuracy,position}}.
+    model_prediction = Column(String, nullable=True)
+    # Write-protect: True once a human has manually validated/corrected the labels. Protected
+    # rows must survive DB cleans (e.g. dropping synthetic) and not be overwritten by reimport.
+    validated = Column(Boolean, default=False, index=True)
+    validated_at = Column(DateTime, nullable=True)
 
     # Metadata
     session_id = Column(String, index=True)
@@ -104,7 +111,9 @@ def _run_migrations():
     from sqlalchemy import text
     
     migrations = [
-        # (no column migrations currently)
+        ("training_data_images", "model_prediction", "TEXT"),
+        ("training_data_images", "validated", "BOOLEAN DEFAULT 0"),
+        ("training_data_images", "validated_at", "DATETIME"),
     ]
 
     # Indexes to create for performance

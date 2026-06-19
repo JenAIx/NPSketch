@@ -251,7 +251,7 @@
         <div class="section-label" style="margin-top:30px;">2. Action</div>
         <div class="tab-bar">
             <button class="tab-btn active" id="tabPredict" onclick="switchAction('predict')">🤖 Predict</button>
-            <button class="tab-btn" id="tabTrain" onclick="switchAction('train')">🏷️ Train / Label</button>
+            <button class="tab-btn" id="tabTrain" onclick="switchAction('train')">🎓 Learn / Label</button>
         </div>
 
         <!-- Predict panel -->
@@ -277,9 +277,19 @@
                     </div>
                     <div class="form-group">
                         <label>Evaluation — 20 elements × Presence / Accuracy / Position</label>
-                        <div id="componentEditor"></div>
+                        <div style="display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start;">
+                            <div style="flex:0 0 300px; max-width:100%;">
+                                <div style="font-size:.74em; color:#999; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">
+                                    Reference — element locations <span style="color:#667eea;">(click an E-cell)</span>
+                                </div>
+                                <canvas id="evRef" width="568" height="274" style="width:100%; border:1px solid #ddd; border-radius:8px; background:#fff;"></canvas>
+                            </div>
+                            <div style="flex:1; min-width:300px;">
+                                <div id="componentEditor"></div>
+                            </div>
+                        </div>
                         <div style="margin-top:6px; color:#999; font-size:0.85em;">
-                            Click P / A / Pos to toggle each sub-label. Total_Score = sum
+                            Click each cell to toggle. Total_Score = sum
                             (<strong id="componentTotal">0</strong>/60). Saved as the image's component labels.
                         </div>
                     </div>
@@ -347,6 +357,7 @@
         document.getElementById('tabTrain').classList.toggle('active', mode === 'train');
         document.getElementById('predictPanel').style.display = mode === 'predict' ? 'block' : 'none';
         document.getElementById('trainPanel').style.display = mode === 'train' ? 'block' : 'none';
+        if (mode === 'train') { renderComponentEditor(); loadEvRefAssets(); }
     }
 
     // Returns a Promise<Blob> of the currently active 568×274 input canvas
@@ -590,6 +601,40 @@
 
     /* ============================================ COMPONENT EDITOR (shared) */
     const ASPECTS = [['presence', 'P'], ['accuracy', 'A'], ['position', 'Pos']];
+    // element colours (same scheme as the Component Map / Review Queue) + reference panel
+    const elColor = e => `hsl(${Math.round(e * 360 / 20)}, 75%, 46%)`;
+    let evElDefs = null, evRefImg = null, evHl = null;
+    async function loadEvRefAssets() {
+        if (evElDefs && evRefImg) { drawEvRef(evHl); return; }
+        try {
+            const d = await (await fetch('/api/ai-training/element-definitions?_=' + Date.now())).json();
+            evElDefs = {}; (d.elements || []).forEach(el => { evElDefs[el.element - 1] = el.strokes || []; });
+        } catch (e) { evElDefs = {}; }
+        evRefImg = new Image(); evRefImg.onload = () => drawEvRef(evHl);
+        evRefImg.src = '/api/reference-image?_=' + Date.now();
+    }
+    function drawEvRef(hl) {
+        const c = document.getElementById('evRef'); if (!c) return; const x = c.getContext('2d');
+        x.clearRect(0, 0, 568, 274); x.fillStyle = '#fff'; x.fillRect(0, 0, 568, 274);
+        if (evRefImg && evRefImg.complete) { x.globalAlpha = 0.18; x.drawImage(evRefImg, 0, 0, 568, 274); x.globalAlpha = 1; }
+        if (!evElDefs) return; x.lineCap = 'round'; x.lineJoin = 'round';
+        for (let e = 0; e < 20; e++) {
+            const strokes = evElDefs[e] || [];
+            x.globalAlpha = (hl == null) ? 0.9 : (e === hl ? 1 : 0.08);
+            x.strokeStyle = x.fillStyle = elColor(e);
+            for (const s of strokes) {
+                if (s.erase) continue;
+                const w = (e === hl ? (s.width || 6) + 2 : (s.width || 6)), p = s.points || [];
+                if (p.length === 1) { x.beginPath(); x.arc(p[0][0], p[0][1], w / 2, 0, 7); x.fill(); continue; }
+                x.lineWidth = w; x.beginPath(); x.moveTo(p[0][0], p[0][1]);
+                for (let i = 1; i < p.length; i++) x.lineTo(p[i][0], p[i][1]);
+                x.stroke();
+            }
+        }
+        x.globalAlpha = 1;
+    }
+    function highlightElEv(e) { evHl = (evHl === e ? null : e); drawEvRef(evHl); renderComponentEditor(); }
+
     let componentState = { presence: Array(20).fill(0), accuracy: Array(20).fill(0), position: Array(20).fill(0) };
     function componentTotal() {
         return componentState.presence.reduce((a, b) => a + b, 0)
@@ -607,20 +652,21 @@
     function renderComponentEditor() {
         const host = document.getElementById('componentEditor');
         if (!host) return;
-        let html = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px 18px;">';
+        const cell = (e, k) => {
+            const on = componentState[k][e] === 1;
+            return `<td onclick="toggleComponent('${k}',${e})" style="cursor:pointer;text-align:center;padding:2px;">
+                <div style="background:${on ? '#2e7d32' : '#bdbdbd'};color:#fff;border-radius:4px;padding:3px 0;font-size:.82em;font-weight:700;">${on ? '✓' : '✗'}</div></td>`;
+        };
+        let rows = '';
         for (let e = 0; e < 20; e++) {
-            html += `<div style="display:flex;align-items:center;gap:6px;">
-                <span style="width:34px;color:#555;font-weight:600;font-size:.85em;">E${String(e + 1).padStart(2, '0')}</span>`;
-            for (const [asp, lbl] of ASPECTS) {
-                const on = componentState[asp][e] === 1;
-                html += `<button type="button" onclick="toggleComponent('${asp}',${e})"
-                    style="flex:1;padding:4px 0;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:.8em;
-                           background:${on ? '#28a745' : '#f1f1f1'};color:${on ? '#fff' : '#666'};font-weight:600;">${lbl}</button>`;
-            }
-            html += '</div>';
+            const sub = componentState.presence[e] + componentState.accuracy[e] + componentState.position[e];
+            const elc = `<td onclick="highlightElEv(${e})" title="highlight on reference"
+                style="cursor:pointer;padding:3px 6px;font-weight:700;color:#fff;text-align:center;background:${elColor(e)};${evHl === e ? 'outline:3px solid #111;outline-offset:-1px;' : ''}">E${String(e + 1).padStart(2, '0')}</td>`;
+            rows += `<tr>${elc}${cell(e, 'presence')}${cell(e, 'accuracy')}${cell(e, 'position')}<td style="text-align:center;font-weight:700;">${sub}</td></tr>`;
         }
-        html += '</div>';
-        host.innerHTML = html;
+        host.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:.9em;">
+            <thead><tr style="background:#f8f9fa;"><th>El</th><th>Presence</th><th>Accuracy</th><th>Position</th><th>Σ</th></tr></thead>
+            <tbody>${rows}</tbody></table>`;
         const tot = document.getElementById('componentTotal');
         if (tot) tot.textContent = componentTotal();
     }

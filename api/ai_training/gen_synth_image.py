@@ -357,10 +357,15 @@ def do_insert(n, smin, smax, seed, style="full"):
 
 def do_purge():
     from database import SessionLocal, TrainingDataImage
+    from sqlalchemy import or_
     db = SessionLocal()
-    nrm = db.query(TrainingDataImage).filter(TrainingDataImage.source_format == "SYNTHETIC").delete()
+    # never delete human-validated rows (write-protect)
+    nrm = db.query(TrainingDataImage).filter(
+        TrainingDataImage.source_format == "SYNTHETIC",
+        or_(TrainingDataImage.validated == False, TrainingDataImage.validated.is_(None))
+    ).delete(synchronize_session=False)
     db.commit(); db.close()
-    print(f"purged {nrm} SYNTHETIC rows", flush=True)
+    print(f"purged {nrm} SYNTHETIC rows (validated rows preserved)", flush=True)
 
 
 def main():

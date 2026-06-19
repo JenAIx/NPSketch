@@ -191,6 +191,13 @@ def main():
 
     # --- pass 2: curate + preprocess + insert ---
     db = None if args.dry_run else SessionLocal()
+    # Write-protect: never overwrite human-validated rows on reimport (preserve corrections).
+    validated_uids = set()
+    if db is not None:
+        validated_uids = {u for (u,) in db.query(TrainingDataImage.uid).filter(
+            TrainingDataImage.validated == True).all() if u}
+        if validated_uids:
+            print(f"preserving {len(validated_uids)} human-validated rows (skipped on import)")
     stats = defaultdict(int)
     style_by_source = defaultdict(lambda: defaultdict(int))
     mismatches = []
@@ -198,6 +205,8 @@ def main():
     try:
         for r in reps:
             src = r["source"]
+            if r["uid"] in validated_uids:        # preserve human-validated rows (write-protect)
+                stats["skip_validated"] += 1; continue
             # Unscored placeholders: label_status='zero' marks rows that were never
             # actually scored (all components 0, total_score 0) — they are NOT genuine
             # zero-score drawings (e.g. id 6006 is a near-complete figure). We KEEP the

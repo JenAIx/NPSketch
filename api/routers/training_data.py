@@ -831,6 +831,78 @@ async def get_training_data_images(
     }
 
 
+def _scores(img):
+    """(real_total, has_real, model_total) from an image's features_data + model_prediction."""
+    real, has_real, model = None, False, None
+    if img.features_data and img.features_data not in ('{}', 'null', ''):
+        try:
+            real = json.loads(img.features_data).get("Total_Score"); has_real = real is not None
+        except (ValueError, AttributeError):
+            pass
+    if img.model_prediction:
+        try:
+            model = json.loads(img.model_prediction).get("Total_Score")
+        except (ValueError, AttributeError):
+            pass
+    return real, has_real, model
+
+
+@router.get("/training-data/review-queue")
+async def review_queue(
+    source_format: str = "TELEFRED",
+    task_type: str = None,
+    real_min: int = None,
+    real_max: int = None,
+    min_diff: float = None,
+    only_missing: bool = False,
+    include_validated: bool = False,
+    limit: int = 3000,
+    db: Session = Depends(get_db),
+):
+    """Worklist for the human-in-the-loop review/labeling tool. Two modes:
+      - only_missing=true  -> unscored images to label (model prediction as a suggestion);
+      - else               -> scored images, filtered by real-score range and/or |real-model|
+                              diff, sorted by largest discrepancy first.
+    Real (features_data) and model (model_prediction) are read in parallel; neither is altered."""
+    from sqlalchemy.orm import load_only
+    q = db.query(TrainingDataImage).options(load_only(
+        TrainingDataImage.id, TrainingDataImage.task_type,
+        TrainingDataImage.features_data, TrainingDataImage.model_prediction,
+        TrainingDataImage.validated))
+    if source_format:
+        q = q.filter(TrainingDataImage.source_format == source_format)
+    if task_type:
+        q = q.filter(TrainingDataImage.task_type == task_type)
+    items = []
+    n_validated_skipped = 0
+    for r in q.all():
+        if r.validated and not include_validated:   # already human-validated -> done, exclude
+            n_validated_skipped += 1
+            continue
+        real, has_real, model = _scores(r)
+        if only_missing:
+            if has_real:
+                continue
+            items.append({"id": r.id, "task_type": r.task_type, "real_score": None,
+                          "model_score": model, "diff": None, "has_real": False,
+                          "validated": bool(r.validated)})
+            continue
+        if not has_real:
+            continue
+        diff = abs(real - model) if model is not None else None
+        if real_min is not None and real < real_min:
+            continue
+        if real_max is not None and real > real_max:
+            continue
+        if min_diff is not None and (diff is None or diff < min_diff):
+            continue
+        items.append({"id": r.id, "task_type": r.task_type, "real_score": real,
+                      "model_score": model, "diff": diff, "has_real": True,
+                      "validated": bool(r.validated)})
+    items.sort(key=lambda x: (x["diff"] if x["diff"] is not None else -1), reverse=True)
+    return {"count": len(items), "items": items[:limit], "validated_skipped": n_validated_skipped}
+
+
 @router.get("/training-data-stats")
 def get_training_data_stats(db: Session = Depends(get_db)):
     """Get aggregated statistics using fast ORM count query."""
@@ -1005,23 +1077,29 @@ async def get_training_data_features(image_id: int, db: Session = Depends(get_db
             TrainingDataImage.id,
             TrainingDataImage.patient_id,
             TrainingDataImage.task_type,
-            TrainingDataImage.features_data
+            TrainingDataImage.features_data,
+            TrainingDataImage.model_prediction,
+            TrainingDataImage.validated
         )
     ).filter(TrainingDataImage.id == image_id).first()
     if not img:
         raise HTTPException(status_code=404, detail="Image not found")
-    
+
     if img.features_data:
         features = json.loads(img.features_data)
     else:
         features = {}
-    
+    # model prediction is stored in parallel (never altered by human edits)
+    model_prediction = json.loads(img.model_prediction) if img.model_prediction else None
+
     return {
         "image_id": img.id,
         "patient_id": img.patient_id,
         "task_type": img.task_type,
         "features": features,
-        "has_features": bool(img.features_data and img.features_data != '{}')
+        "has_features": bool(img.features_data and img.features_data != '{}'),
+        "model_prediction": model_prediction,
+        "validated": bool(img.validated)
     }
 
 
@@ -1031,19 +1109,26 @@ async def update_training_data_features(
     features: dict,
     db: Session = Depends(get_db)
 ):
-    """Update features/labels for a training data image."""
+    """Update features/labels for a training data image. A human save marks the row
+    `validated` (write-protected) so it survives DB cleans and is not overwritten by reimport.
+    Pass {"_validated": false} in the body to save without locking (programmatic use)."""
+    from datetime import datetime
     img = db.query(TrainingDataImage).filter(TrainingDataImage.id == image_id).first()
     if not img:
         raise HTTPException(status_code=404, detail="Image not found")
-    
-    # Store features as JSON
+
+    lock = features.pop("_validated", True)   # human edit validates by default
     img.features_data = json.dumps(features)
+    if lock:
+        img.validated = True
+        img.validated_at = datetime.utcnow()
     db.commit()
-    
+
     return {
         "success": True,
         "image_id": img.id,
-        "features": features
+        "features": features,
+        "validated": bool(img.validated)
     }
 
 
@@ -1344,6 +1429,11 @@ async def save_drawn_image(
             except (ValueError, TypeError):
                 pass
         features_data = json.dumps(feats) if feats else None
+        # A human evaluation here is a manual label → write-protect it (survives DB cleans /
+        # reimport), consistent with the Review & Label tool.
+        from datetime import datetime as _dt
+        is_validated = feats != {}
+        validated_at = _dt.utcnow() if is_validated else None
 
         # Create entry
         training_image = TrainingDataImage(
@@ -1355,6 +1445,8 @@ async def save_drawn_image(
             processed_image_data=normalized_content,  # CNN-ready (normalized 2px lines)
             image_hash=image_hash,
             features_data=features_data,
+            validated=is_validated,
+            validated_at=validated_at,
             test_name=name,
             session_id=f'{source_format.lower()}_upload',  # e.g., 'upload_upload' or 'drawn_upload'
             extraction_metadata=json.dumps({

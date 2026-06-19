@@ -449,7 +449,8 @@ def run_training_job(config):
                     add_synthetic_bad_images=config.get('add_synthetic_bad_images', False),
                     synthetic_n_samples=config.get('synthetic_n_samples', 50),
                     max_images=config.get('max_images'),
-                    source_filter=(('TELEFRED', 'SYNTHETIC') if is_components else None)
+                    source_filter=(('TELEFRED', 'SYNTHETIC') if is_components else None),
+                    val_patient_ids=config.get('val_patient_ids')
                 )
 
                 train_loader, val_loader, stats = create_augmented_dataloaders(

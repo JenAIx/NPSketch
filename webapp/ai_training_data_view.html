@@ -509,7 +509,12 @@
         
         <h1>📊 View Training Data</h1>
         <p class="subtitle">Browse and manage uploaded AI training images</p>
-        
+
+        <button id="rqOpenBtn" onclick="RQ.open()"
+            style="margin:4px 0 14px; padding:10px 16px; background:#667eea; color:#fff; border:none; border-radius:8px; font-weight:600; cursor:pointer;">
+            🔎 Review &amp; Label Queue
+        </button>
+
         <div class="alert" id="alert"></div>
         
         <!-- Statistics Dashboard -->
@@ -1479,6 +1484,249 @@
         
         // Load data on page load
         loadData();
+    </script>
+    <!-- ===================== Review & Label Queue ===================== -->
+    <div id="rqOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:1000; overflow:auto;">
+      <div style="max-width:1100px; margin:24px auto; background:#fff; border-radius:12px; padding:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h2 style="margin:0; color:#333;">🔎 Review &amp; Label Queue</h2>
+          <button onclick="RQ.close()" style="border:none; background:#eee; border-radius:6px; padding:6px 12px; cursor:pointer; font-size:1.1em;">×</button>
+        </div>
+
+        <!-- filter panel -->
+        <div id="rqFilter" style="margin-top:14px;">
+          <p style="color:#666; font-size:.9em;">Real (ground-truth) vs. the best model's prediction. Score unscored images, or review large discrepancies. The model's components are pre-filled as a suggestion; correct and Save &amp; Next. <strong>Already-validated 🔒 images are excluded</strong> (you've reviewed them).</p>
+          <div style="display:flex; flex-wrap:wrap; gap:14px; align-items:center; margin:12px 0; font-size:.9em;">
+            <label>Mode
+              <select id="rqMode" onchange="RQ.modeChange()">
+                <option value="discrepancy">Review discrepancies (scored)</option>
+                <option value="missing">Score unscored / missing</option>
+              </select></label>
+            <label>Task <select id="rqTask"><option value="">any</option><option>COPY</option><option>RECALL</option></select></label>
+            <span id="rqScoredFilters">
+              <label>Real min <input id="rqMin" type="number" value="0" style="width:56px;"></label>
+              <label>max <input id="rqMax" type="number" value="29" style="width:56px;"></label>
+              <label>min |diff| <input id="rqDiff" type="number" value="3" style="width:56px;"></label>
+            </span>
+            <button onclick="RQ.build()" style="padding:8px 14px; background:#667eea; color:#fff; border:none; border-radius:7px; font-weight:600; cursor:pointer;">Build queue</button>
+            <span id="rqCount" style="color:#444; font-weight:600;"></span>
+          </div>
+          <button id="rqStartBtn" onclick="RQ.start()" disabled
+            style="padding:9px 18px; background:#2e7d32; color:#fff; border:none; border-radius:7px; font-weight:700; cursor:pointer;">▶ Start review</button>
+        </div>
+
+        <!-- reviewer -->
+        <div id="rqReviewer" style="display:none; margin-top:8px;">
+          <div style="height:8px; background:#eee; border-radius:4px; overflow:hidden; margin-bottom:6px;">
+            <div id="rqProg" style="height:100%; width:0; background:#667eea;"></div>
+          </div>
+          <div id="rqProgTxt" style="font-size:.85em; color:#666; margin-bottom:8px;"></div>
+          <div style="display:flex; gap:18px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:300px;">
+              <div style="position:relative; line-height:0;">
+                <img id="rqImg" style="width:100%; border:1px solid #ddd; border-radius:8px; background:#fff;">
+                <canvas id="rqImgOv" width="568" height="274" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none;"></canvas>
+              </div>
+              <div id="rqScores" style="margin-top:10px; font-size:.95em;"></div>
+              <div style="margin-top:12px;">
+                <div style="font-size:.78em; color:#888; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">
+                  Reference — element locations <span id="rqRefHint" style="color:#667eea;">(click an E-cell to highlight)</span>
+                </div>
+                <canvas id="rqRef" width="568" height="274" style="width:100%; max-width:420px; border:1px solid #ddd; border-radius:8px; background:#fff;"></canvas>
+              </div>
+            </div>
+            <div style="flex:1; min-width:340px;">
+              <div id="rqGrid"></div>
+            </div>
+          </div>
+          <div style="display:flex; gap:10px; margin-top:14px; align-items:center;">
+            <button onclick="RQ.prev()" style="padding:8px 14px; border:none; border-radius:7px; background:#e9ecef; cursor:pointer;">← Prev</button>
+            <button onclick="RQ.skip()" style="padding:8px 14px; border:none; border-radius:7px; background:#e9ecef; cursor:pointer;">Skip</button>
+            <button onclick="RQ.saveNext()" style="padding:10px 20px; border:none; border-radius:7px; background:#2e7d32; color:#fff; font-weight:700; cursor:pointer;">💾 Save &amp; Next  (Enter)</button>
+            <span id="rqSaveMsg" style="color:#2e7d32; font-size:.9em;"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    const RQ = (function () {
+      let queue = [], idx = 0, st = null, model = null, orig = null, hadReal = false, curId = null, prefillModel = false;
+      let elDefs = null, refImg = null, hlEl = null;
+      const $ = id => document.getElementById(id);
+      const ELS = Array.from({length: 20}, (_, i) => i);
+      const blank = () => ({ presence: Array(20).fill(0), accuracy: Array(20).fill(0), position: Array(20).fill(0) });
+      const elColor = e => `hsl(${Math.round(e * 360 / 20)}, 75%, 46%)`;   // e is 0-based; matches component map
+
+      function open() { $('rqOverlay').style.display = 'block'; modeChange(); loadRefAssets(); }
+      function close() { $('rqOverlay').style.display = 'none'; $('rqReviewer').style.display = 'none'; $('rqFilter').style.display = 'block'; }
+      // Start is only enabled right after a successful Build; any filter change invalidates it.
+      function setStart(on) {
+        const b = $('rqStartBtn'); if (!b) return;
+        b.disabled = !on; b.style.background = on ? '#2e7d32' : '#9bb89b'; b.style.cursor = on ? 'pointer' : 'not-allowed';
+      }
+      function invalidate() { queue = []; setStart(false); $('rqCount').textContent = 'click “Build queue” first'; }
+      function modeChange() { $('rqScoredFilters').style.display = $('rqMode').value === 'missing' ? 'none' : ''; invalidate(); }
+
+      // ---- reference panel: color-coded element locations (from the manual definitions) ----
+      async function loadRefAssets() {
+        if (elDefs && refImg) return;
+        try {
+          const d = await (await fetch('/api/ai-training/element-definitions?_=' + Date.now())).json();
+          elDefs = {}; (d.elements || []).forEach(el => { elDefs[el.element - 1] = el.strokes || []; });
+        } catch (e) { elDefs = {}; }
+        refImg = new Image();
+        refImg.onload = () => drawRef(null);
+        refImg.src = '/api/reference-image?_=' + Date.now();
+      }
+      function drawRef(hl) {
+        const c = $('rqRef'); if (!c) return; const x = c.getContext('2d');
+        x.clearRect(0, 0, 568, 274); x.fillStyle = '#fff'; x.fillRect(0, 0, 568, 274);
+        if (refImg && refImg.complete) { x.globalAlpha = 0.18; x.drawImage(refImg, 0, 0, 568, 274); x.globalAlpha = 1; }
+        if (!elDefs) return;
+        x.lineCap = 'round'; x.lineJoin = 'round';
+        for (const e of ELS) {
+          const strokes = elDefs[e] || [];
+          x.globalAlpha = (hl == null) ? 0.9 : (e === hl ? 1 : 0.08);
+          x.strokeStyle = x.fillStyle = elColor(e);
+          for (const s of strokes) {
+            if (s.erase) continue;
+            const w = (e === hl ? (s.width || 6) + 2 : (s.width || 6)), p = s.points || [];
+            if (p.length === 1) { x.beginPath(); x.arc(p[0][0], p[0][1], w / 2, 0, 7); x.fill(); continue; }
+            x.lineWidth = w; x.beginPath(); x.moveTo(p[0][0], p[0][1]);
+            for (let i = 1; i < p.length; i++) x.lineTo(p[i][0], p[i][1]);
+            x.stroke();
+          }
+        }
+        x.globalAlpha = 1;
+      }
+      function drawStrokes(x, e, extra) {
+        const strokes = (elDefs && elDefs[e]) || [];
+        x.lineCap = 'round'; x.lineJoin = 'round'; x.strokeStyle = x.fillStyle = elColor(e);
+        for (const s of strokes) {
+          if (s.erase) continue;
+          const w = (s.width || 6) + extra, p = s.points || [];
+          if (p.length === 1) { x.beginPath(); x.arc(p[0][0], p[0][1], w / 2, 0, 7); x.fill(); continue; }
+          x.lineWidth = w; x.beginPath(); x.moveTo(p[0][0], p[0][1]);
+          for (let i = 1; i < p.length; i++) x.lineTo(p[i][0], p[i][1]);
+          x.stroke();
+        }
+      }
+      // mark the highlighted element ON THE DRAWING (same 568×274 frame as the reference)
+      function drawImgOverlay(hl) {
+        const c = $('rqImgOv'); if (!c) return; const x = c.getContext('2d');
+        x.clearRect(0, 0, 568, 274);
+        if (hl == null || !elDefs) return;
+        x.globalAlpha = 0.9; drawStrokes(x, hl, 3); x.globalAlpha = 1;
+      }
+      function highlightEl(e) { hlEl = (hlEl === e ? null : e); drawRef(hlEl); drawImgOverlay(hlEl); renderGrid(); }
+
+      async function build() {
+        const mode = $('rqMode').value, task = $('rqTask').value;
+        let q = `source_format=TELEFRED`;
+        if (task) q += `&task_type=${task}`;
+        if (mode === 'missing') q += `&only_missing=true`;
+        else q += `&real_min=${$('rqMin').value}&real_max=${$('rqMax').value}&min_diff=${$('rqDiff').value}`;
+        setStart(false); $('rqCount').textContent = '⏳ building…';
+        const d = await (await fetch(`/api/training-data/review-queue?${q}`)).json();
+        queue = d.items || [];
+        const skip = d.validated_skipped ? ` · ${d.validated_skipped} validated 🔒 excluded` : '';
+        $('rqCount').textContent = (queue.length ? `${queue.length} images in queue — ready` : 'no images match these filters') + skip;
+        setStart(queue.length > 0);
+      }
+
+      function start() { if (!queue.length) return; $('rqFilter').style.display = 'none'; $('rqReviewer').style.display = 'block'; load(0); }
+
+      async function load(i) {
+        idx = i; const it = queue[i]; curId = it.id;
+        $('rqProg').style.width = `${(i / queue.length) * 100}%`;
+        $('rqProgTxt').textContent = `Image ${i + 1} / ${queue.length}  ·  id ${it.id}  ·  ${it.task_type}`;
+        $('rqImg').src = `/api/training-data-image/${it.id}/processed?_=${Date.now()}`;
+        $('rqSaveMsg').textContent = '';
+        const f = await (await fetch(`/api/training-data-image/${it.id}/features`)).json();
+        const realC = (f.features && f.features.components) || null;
+        model = (f.model_prediction && f.model_prediction.components) || null;
+        hadReal = !!realC;
+        prefillModel = !realC && !!model;
+        orig = realC ? clone(realC) : null;                 // previously-saved values (for "was")
+        st = realC ? clone(realC) : (model ? clone(model) : blank());
+        hlEl = null; drawRef(null); drawImgOverlay(null);
+        const rs = f.features ? f.features.Total_Score : null;
+        const ms = f.model_prediction ? f.model_prediction.Total_Score : null;
+        $('rqScores').innerHTML =
+          `<b>Real:</b> ${rs ?? '—'} &nbsp;|&nbsp; <b>Model:</b> ${ms ?? '—'} ` +
+          (f.validated ? `<span style="color:#2e7d32;">🔒 validated</span>` : '') +
+          (prefillModel ? `<br><span style="color:#b8860b;">grid pre-filled from model (suggestion)</span>`
+                        : (hadReal ? `<br><span style="color:#2e7d32;">grid = current real labels</span>` : ''));
+        renderGrid();
+      }
+      function clone(c) { return { presence: [...c.presence], accuracy: [...c.accuracy], position: [...c.position] }; }
+
+      const KEYS = ['presence', 'accuracy', 'position'];
+      function renderGrid() {
+        const cell = (e, k) => {
+          const c = st[k][e], m = model ? model[k][e] : null, o = orig ? orig[k][e] : null;
+          const contradict = m != null && m !== c, changed = o != null && o !== c;
+          const mb = m == null ? '' : `<span style="color:${contradict ? '#e67e22' : '#cbcbcb'};font-weight:${contradict ? 700 : 400}">M${m ? '✓' : '✗'}</span>`;
+          const sb = changed ? ` <span style="color:#2c7be5;font-weight:700">was${o ? '✓' : '✗'}</span>` : '';
+          return `<td onclick="RQ.toggle(${e},'${k}')" style="cursor:pointer;text-align:center;padding:2px;">
+            <div style="background:${c ? '#2e7d32' : '#bdbdbd'};color:#fff;border-radius:4px;padding:2px 0;border:${contradict ? '2px solid #e67e22' : '2px solid transparent'};">
+              <div style="font-size:.85em;font-weight:700;">${c ? '✓' : '✗'}</div>
+              <div style="font-size:.6em;line-height:1.1;height:.9em;">${mb}${sb}</div>
+            </div></td>`;
+        };
+        let rows = '', contra = 0, chg = 0;
+        for (const e of ELS) {
+          for (const k of KEYS) {
+            if (model && model[k][e] !== st[k][e]) contra++;
+            if (orig && orig[k][e] !== st[k][e]) chg++;
+          }
+          const sub = st.presence[e] + st.accuracy[e] + st.position[e];
+          const elc = `<td onclick="RQ.highlightEl(${e})" title="highlight on reference"
+            style="cursor:pointer;padding:3px 5px;font-weight:700;color:#fff;text-align:center;background:${elColor(e)};${hlEl === e ? 'outline:3px solid #111;outline-offset:-1px;' : ''}">E${String(e + 1).padStart(2, '0')}</td>`;
+          rows += `<tr>${elc}${cell(e, 'presence')}${cell(e, 'accuracy')}${cell(e, 'position')}
+            <td style="text-align:center;font-weight:700;">${sub}</td></tr>`;
+        }
+        $('rqGrid').innerHTML =
+          `<div style="font-size:1.05em;margin-bottom:4px;">Total_Score: <b>${score()}</b>/60
+             &nbsp;·&nbsp;<span style="color:#e67e22;font-size:.85em;">${contra} differ from model</span>
+             ${orig ? `&nbsp;·&nbsp;<span style="color:#2c7be5;font-size:.85em;">${chg} changed from saved</span>` : ''}</div>
+           <div style="font-size:.72em;color:#888;margin-bottom:6px;">green ✓ present / grey ✗ absent · <span style="color:#e67e22;">orange = disagrees with model (M)</span> · <span style="color:#2c7be5;">blue = changed from saved</span> · click E-cell → highlight on reference</div>
+           <table style="width:100%;border-collapse:collapse;font-size:.9em;">
+             <thead><tr style="background:#f8f9fa;"><th>El</th><th>Presence</th><th>Accuracy</th><th>Position</th><th>Σ</th></tr></thead>
+             <tbody>${rows}</tbody></table>`;
+      }
+      function score() { return ELS.reduce((s, e) => s + st.presence[e] + st.accuracy[e] + st.position[e], 0); }
+      function toggle(e, k) { st[k][e] = st[k][e] ? 0 : 1; renderGrid(); }
+
+      async function saveNext() {
+        const body = { Total_Score: score(), components: st };
+        $('rqSaveMsg').textContent = '⏳ saving…';
+        const r = await fetch(`/api/training-data-image/${curId}/features`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (r.ok) { $('rqSaveMsg').textContent = '✅ saved'; queue[idx].saved = true; advance(); }
+        else { $('rqSaveMsg').textContent = '❌ save failed'; }
+      }
+      function skip() { advance(); }
+      function prev() { if (idx > 0) load(idx - 1); }
+      function advance() { if (idx + 1 >= queue.length) finish(); else load(idx + 1); }
+      function finish() {
+        const n = queue.filter(x => x.saved).length;
+        $('rqReviewer').style.display = 'none'; $('rqFilter').style.display = 'block';
+        setStart(false);
+        $('rqCount').textContent = `Done — ${n} saved this session. Re-build queue to continue.`;
+        if (window.loadData) loadData();   // refresh the table
+      }
+      document.addEventListener('keydown', e => {
+        if ($('rqReviewer').style.display !== 'block') return;
+        if (e.key === 'Enter') { e.preventDefault(); saveNext(); }
+      });
+      // any filter change invalidates a previously-built queue
+      ['rqTask', 'rqMin', 'rqMax', 'rqDiff'].forEach(id => {
+        const el = $(id); if (el) el.addEventListener('input', invalidate);
+      });
+      return { open, close, modeChange, build, start, toggle, saveNext, skip, prev, highlightEl };
+    })();
     </script>
 </body>
 </html>

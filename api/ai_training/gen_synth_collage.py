@@ -45,45 +45,78 @@ def element_regions():
 
 
 # --------------------------------------------------------------- build library
-def build_library(limit=0, max_per_elem=400):
+def _load_verifier():
+    """deployed (latest) component model, used to verify each extracted element is recognizable."""
+    import glob, torch
+    from ai_training.component_calibration import load_model
+    mp = sorted(glob.glob("/app/data/models/model_Components_*.pth"))[-1]
+    meta = json.load(open(mp.replace(".pth", "_metadata.json")))
+    print(f"verifier model: {os.path.basename(mp)}", flush=True)
+    return load_model(mp, meta), meta
+
+
+def build_library(limit=0, max_per_elem=400, verify=True):
+    """Curate a persistent per-element real-stroke library. A crop is kept only if the human
+    E1-20 label says the element is present AND (if verify) the component model also reads it as
+    present in the coregistered drawing — i.e. the extraction is confirmed correct. Each crop is
+    tagged with the real (accuracy, position) and score band, so generation can reuse correct/
+    poor, well-placed/misplaced renditions on demand."""
+    import torch
     from database import get_db, TrainingDataImage
+    from ai_training.preprocessing import preprocess_bytes_for_prediction
     ref = load_reference(); regions = element_regions()
+    model = meta = pthr = None
+    if verify:
+        model, meta = _load_verifier()
+        thr = meta.get("thresholds") or [0.5] * 60
+        pthr = np.array([thr[e * 3] for e in range(20)], np.float32)   # per-element presence threshold
     db = next(get_db())
-    q = db.query(TrainingDataImage).filter(TrainingDataImage.source_format == "TELEFRED",
-                                           TrainingDataImage.features_data.isnot(None))
-    rows = q.all(); db.close()
+    rows = db.query(TrainingDataImage).filter(TrainingDataImage.source_format == "TELEFRED",
+                                              TrainingDataImage.features_data.isnot(None)).all()
+    db.close()
     rng = np.random.default_rng(0); rng.shuffle(rows)
     if limit:
         rows = rows[:limit]
-    lib = {e: [] for e in range(20)}      # lib[e] = list of (coords int16[N,2], acc, pos, band)
-    n = 0
+    lib = {e: [] for e in range(20)}
+    n = kept = rej_label = rej_verify = rej_ink = 0
     for r in rows:
         try:
             f = json.loads(r.features_data); c = f.get("components")
             if not c:
                 continue
             band = band_of(f["Total_Score"])
-            aligned, _ = align(gray(r.processed_image_data), ref)   # coregister real ink -> ref grid
+            aligned, _ = align(gray(r.processed_image_data), ref)     # coregister real ink -> ref grid
             aink = ink(aligned)
+            mpres = None
+            if verify:
+                arr = preprocess_bytes_for_prediction(to_png_bytes(aligned), metadata=meta, debug=False)
+                with torch.no_grad():
+                    probs = torch.sigmoid(model(torch.from_numpy(arr).unsqueeze(0).unsqueeze(0).float())).numpy()[0]
+                mpres = probs[0::3]                                    # model presence prob per element
         except Exception:
             continue
         for e in range(20):
-            if c["presence"][e] != 1 or len(lib[e]) >= max_per_elem * len(BANDS):
+            if len(lib[e]) >= max_per_elem * len(BANDS):
                 continue
+            if c["presence"][e] != 1:
+                rej_label += 1; continue
+            if verify and mpres[e] < pthr[e]:                         # model must confirm the element
+                rej_verify += 1; continue
             crop = regions[e] & aink
             if crop.sum() < MIN_CROP_INK:
-                continue
+                rej_ink += 1; continue
             ys, xs = np.where(crop)
             lib[e].append((np.stack([ys, xs], 1).astype(np.int16),
                            int(c["accuracy"][e]), int(c["position"][e]), band))
+            kept += 1
         n += 1
         if n % 500 == 0:
-            print(f"  coregistered {n} drawings...", flush=True)
+            print(f"  processed {n} drawings (kept {kept} crops)...", flush=True)
     pickle.dump(lib, open(LIB_PATH, "wb"))
     sizes = {e: len(v) for e, v in lib.items()}
-    print(f"built stroke library from {n} drawings -> {LIB_PATH}", flush=True)
-    print(f"  crops/element: min {min(sizes.values())} med {int(np.median(list(sizes.values())))} "
-          f"max {max(sizes.values())}", flush=True)
+    print(f"built VERIFIED stroke library from {n} drawings -> {LIB_PATH}", flush=True)
+    print(f"  kept {kept} crops | rejected: not-present {rej_label}, model-unconfirmed {rej_verify}, too-little-ink {rej_ink}", flush=True)
+    print(f"  crops/element: min {min(sizes.values())} med {int(np.median(list(sizes.values())))} max {max(sizes.values())}", flush=True)
     return lib
 
 
@@ -164,10 +197,14 @@ def do_insert(n, smin, smax, seed):
 
 def do_purge():
     from database import SessionLocal, TrainingDataImage
+    from sqlalchemy import or_
     db = SessionLocal()
-    nrm = db.query(TrainingDataImage).filter(TrainingDataImage.source_format == "SYNTHETIC").delete()
+    nrm = db.query(TrainingDataImage).filter(
+        TrainingDataImage.source_format == "SYNTHETIC",
+        or_(TrainingDataImage.validated == False, TrainingDataImage.validated.is_(None))
+    ).delete(synchronize_session=False)
     db.commit(); db.close()
-    print(f"purged {nrm} SYNTHETIC rows", flush=True)
+    print(f"purged {nrm} SYNTHETIC rows (validated rows preserved)", flush=True)
 
 
 def main():
@@ -175,6 +212,7 @@ def main():
     ap.add_argument("--build-library", action="store_true")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--max-per-elem", type=int, default=400)
+    ap.add_argument("--no-verify", action="store_true", help="skip the component-model verification gate")
     ap.add_argument("--preview", type=int, metavar="N")
     ap.add_argument("--scores", type=str)
     ap.add_argument("--insert", type=int, metavar="N")
@@ -184,7 +222,7 @@ def main():
     ap.add_argument("--purge", action="store_true")
     args = ap.parse_args()
     if args.build_library:
-        build_library(args.limit, args.max_per_elem)
+        build_library(args.limit, args.max_per_elem, verify=not args.no_verify)
     elif args.purge:
         do_purge()
     elif args.insert:

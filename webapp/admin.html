@@ -54,10 +54,21 @@
             </div>
         </div>
 
+        <!-- External Access -->
+        <div class="card">
+            <h2>🌐 External Access (Cloudflare Tunnel)</h2>
+            <p class="desc">Public URL to reach this instance from outside (e.g. your tablet).
+                <button class="btn btn-secondary" style="padding:4px 10px; font-size:0.8em; margin-left:6px;" onclick="loadCloudflare()">🔄 Refresh</button>
+            </p>
+            <div class="result" id="cfStatus">Loading…</div>
+            <p class="desc" style="margin-top:8px; font-size:.82em; color:#999;">⚠️ A quick-tunnel URL is <strong>public</strong> (no login) and changes whenever the tunnel restarts. Stop it with <code>docker compose stop cloudflared</code>.</p>
+        </div>
+
         <!-- Maintenance -->
         <div class="card">
             <h2>🧹 Clean Temporary Files</h2>
-            <p class="desc">Delete leftover extraction/preprocessing files in <code>/app/data/tmp</code>.
+            <p class="desc">Delete <strong>all</strong> scratch under <code>/app/data/tmp</code> — every file
+                <strong>and all subfolders</strong> (preview images, coreg/synth outputs, etc.).
                 Safe — does not touch the database, models, or visualizations.</p>
             <button class="btn btn-primary" id="cleanupBtn" onclick="cleanupTmp()">🧹 Clean tmp</button>
             <div class="result" id="cleanupResult"></div>
@@ -84,20 +95,29 @@
         async function loadOverview() {
             const grid = document.getElementById('statsGrid');
             try {
-                const [dsR, mdR, missR] = await Promise.all([
+                const [dsR, mdR, lbR] = await Promise.all([
                     fetch('/api/ai-training/dataset-info'),
                     fetch('/api/ai-training/models'),
-                    fetch('/api/training-data-images?limit=1&only_missing=true'),
+                    fetch('/api/admin/label-breakdown'),
                 ]);
                 const ds = await dsR.json();
                 const md = await mdR.json();
-                const miss = await missR.json();
+                const lb = await lbR.json();
+                // top-level counts
                 const cards = [
-                    ['Total images', ds.total_images ?? '—'],
-                    ['Labeled', ds.labeled_images ?? '—'],
-                    ['Only Missing', miss.total ?? '—'],
+                    ['Total images', lb.total ?? ds.total_images ?? '—'],
+                    ['Labeled', lb.labeled ?? '—'],
                     ['Models', (md.total ?? (md.models ? md.models.length : '—'))],
                 ];
+                // label-completeness breakdown (what's missing)
+                const bd = [
+                    ['🎯 Total_Score', lb.with_total_score],
+                    ['🧩 Components', lb.with_components],
+                    ['⚠ Score only (no components)', lb.score_only],
+                    ['␀ Unscored', lb.unscored],
+                    ['🔒 Validated', lb.validated],
+                ];
+                for (const [l, v] of bd) cards.push([l, v ?? '—']);
                 for (const [fmt, n] of Object.entries(ds.by_format || {})) cards.push([fmt, n]);
                 grid.innerHTML = cards.map(([l, v]) =>
                     `<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
@@ -144,7 +164,39 @@
             }
         }
 
+        async function loadCloudflare() {
+            const el = document.getElementById('cfStatus');
+            el.className = 'result ok'; el.textContent = 'Loading…';
+            try {
+                const d = await (await fetch('/api/admin/cloudflare-status')).json();
+                if (!d.running) {
+                    el.className = 'result err';
+                    el.innerHTML = '● Tunnel not running — start with <code>docker compose up -d cloudflared</code>';
+                    return;
+                }
+                const dot = d.ready
+                    ? '<span style="color:#2e7d32;font-weight:600;">● connected</span>'
+                    : '<span style="color:#e67e22;font-weight:600;">● connecting…</span>';
+                el.className = 'result ok';
+                el.innerHTML = `${dot} <span style="color:#999;">(${d.connections} connection${d.connections === 1 ? '' : 's'})</span>` +
+                    (d.url
+                        ? `<div style="margin-top:10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                             <a href="${d.url}" target="_blank" rel="noopener" style="font-weight:600; word-break:break-all;">${d.url}</a>
+                             <button class="btn btn-secondary" style="padding:3px 10px; font-size:.8em;"
+                                onclick="navigator.clipboard.writeText('${d.url}').then(()=>{this.textContent='✓ copied'})">📋 Copy</button>
+                           </div>
+                           <img alt="QR code for ${d.url}" style="margin-top:10px; border:1px solid #eee; border-radius:6px;"
+                                src="https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${encodeURIComponent(d.url)}"
+                                onerror="this.style.display='none'">
+                           <div style="font-size:.8em; color:#999; margin-top:4px;">Scan the QR with your tablet to open it.</div>`
+                        : '<div style="margin-top:8px;"><em>URL not available yet — refresh in a moment.</em></div>');
+            } catch (e) {
+                el.className = 'result err'; el.textContent = 'status unavailable';
+            }
+        }
+
         loadOverview();
+        loadCloudflare();
     </script>
 </body>
 </html>

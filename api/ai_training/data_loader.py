@@ -396,7 +396,8 @@ class TrainingDataLoader:
         add_synthetic_bad_images: bool = False,
         synthetic_n_samples: int = 50,
         max_images: Optional[int] = None,
-        source_filter: Optional[str] = None
+        source_filter: Optional[str] = None,
+        val_patient_ids: Optional[set] = None
     ) -> Tuple[Dict, str]:
         """
         Prepare augmented training dataset and save to disk.
@@ -691,7 +692,16 @@ class TrainingDataLoader:
         # Initialize for scope
         recommendation = None
 
-        if is_classification_mode:
+        if val_patient_ids is not None:
+            # Fixed validation fold (cross-validation): val = these real patients;
+            # everyone else (incl. SYNTH_* synthetic) goes to train.
+            vp = set(str(x) for x in val_patient_ids)
+            val_indices = [i for i, g in enumerate(groups) if g in vp]
+            train_indices = [i for i in range(len(groups)) if groups[i] not in vp]
+            split_info = {'method': 'fixed_val_patients', 'warnings': []}
+            recommendation = {'strategy': 'fixed_fold', 'n_bins': 4}
+            logger.info(f"SPLIT STRATEGY: FIXED VAL FOLD ({len(val_indices)} val / {len(train_indices)} train)")
+        elif is_classification_mode:
             unique_classes = np.unique(y_array)
             logger.info("="*60)
             logger.info("SPLIT STRATEGY: CLASSIFICATION (patient-level groups)")
