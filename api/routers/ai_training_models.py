@@ -105,14 +105,69 @@ def prepare_test_dataloaders(
     return test_loader, stats
 
 
+# ---- "current" model marker: a small JSON file is the single source of truth for which
+# model is live per training mode (components / regression / classification). ----
+_CURRENT_MODELS_FILE = "/app/data/models/current_models.json"
+
+
+def _model_mode(filename: str) -> str:
+    """Best-effort training mode for a model filename (from metadata, else the name)."""
+    from pathlib import Path
+    try:
+        mp = Path("/app/data/models") / f"{Path(filename).stem}_metadata.json"
+        if mp.exists():
+            m = json.loads(mp.read_text())
+            tm = m.get("training_mode")
+            if tm:
+                return tm
+    except Exception:
+        pass
+    low = filename.lower()
+    if "components" in low:
+        return "components"
+    if "custom_class" in low:
+        return "classification"
+    return "regression"
+
+
+def _read_current_models() -> dict:
+    from pathlib import Path
+    try:
+        p = Path(_CURRENT_MODELS_FILE)
+        if p.exists():
+            d = json.loads(p.read_text())
+            return d if isinstance(d, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+
+def _write_current_models(d: dict):
+    from pathlib import Path
+    Path("/app/data/models").mkdir(parents=True, exist_ok=True)
+    Path(_CURRENT_MODELS_FILE).write_text(json.dumps(d, indent=2))
+
+
+def get_current_model(mode: str) -> str | None:
+    """Filename of the current model for a mode, if set and the file still exists."""
+    from pathlib import Path
+    entry = _read_current_models().get(mode)
+    fn = entry.get("filename") if isinstance(entry, dict) else entry
+    if fn and (Path("/app/data/models") / fn).exists():
+        return fn
+    return None
+
+
 @router.get("/models")
 async def list_models():
     """List all saved models with metadata."""
     import os
     from pathlib import Path
-    
+
     models_dir = Path("/app/data/models")
     models_dir.mkdir(parents=True, exist_ok=True)  # Create lazily when endpoint is called
+    current = {m: (e.get('filename') if isinstance(e, dict) else e)
+               for m, e in _read_current_models().items()}
     
     models = []
     for model_file in models_dir.glob("*.pth"):
@@ -138,18 +193,48 @@ async def list_models():
             'timestamp': timestamp,
             'size_mb': stat.st_size / (1024 * 1024),
             'created_at': stat.st_mtime,
-            'has_metadata': has_metadata
+            'has_metadata': has_metadata,
+            'is_current': model_file.name in current.values()
         }
-        
+
         models.append(model_info)
     
     # Sort by creation time (newest first)
     models.sort(key=lambda x: x['created_at'], reverse=True)
-    
+
     return {
         'models': models,
         'total': len(models)
     }
+
+
+@router.get("/models/current")
+async def models_current():
+    """The current (live) model per mode, validated against existing files."""
+    raw = _read_current_models()
+    out = {}
+    for mode, entry in raw.items():
+        fn = entry.get("filename") if isinstance(entry, dict) else entry
+        out[mode] = entry if (fn and get_current_model(mode)) else None
+    return {"current": out}
+
+
+@router.post("/models/set-current")
+async def models_set_current(payload: dict = Body(...)):
+    """Pin a model as the current one for its mode. Body: {"filename": "model_...pth"}."""
+    from pathlib import Path
+    from datetime import datetime
+    filename = (payload or {}).get("filename")
+    if not filename:
+        raise HTTPException(status_code=400, detail="filename required")
+    if not (Path("/app/data/models") / filename).exists():
+        raise HTTPException(status_code=404, detail="Model not found")
+    mode = _model_mode(filename)
+    d = _read_current_models()
+    d[mode] = {"filename": filename, "set_at": datetime.utcnow().isoformat()}
+    _write_current_models(d)
+    logger.info(f"Set current {mode} model -> {filename}")
+    return {"success": True, "mode": mode, "current": d[mode]}
 
 
 @router.get("/models/{model_filename}/metadata")

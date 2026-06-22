@@ -857,7 +857,7 @@
                     const perf = (mode === 'components' && v.macro_f1 != null) ? `${(v.macro_f1 * 100).toFixed(1)}% F1`
                                : (v.r2_score != null ? `R² ${v.r2_score.toFixed(2)}` : '—');
                     const mae = (v.mae != null) ? v.mae : (v.derived_score_hard && v.derived_score_hard.mae);
-                    setStat('bestModelName', best.feature || mode || '—');
+                    setStat('bestModelName', (best.feature || mode || '—') + (best.is_current ? ' ⭐' : ''));
                     setStat('bestModelVer', fmtTimestamp(best.timestamp));
                     setStat('bestModelPerf', perf);
                     setStat('bestModelDev', mae != null ? `±${mae.toFixed(1)} pts` : '—');
@@ -867,6 +867,16 @@
             } catch (error) {
                 console.error('Error loading model stats:', error);
             }
+        }
+
+        async function setCurrentModelDV(filename) {
+            try {
+                const r = await fetch('/api/ai-training/models/set-current', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename }) });
+                if (!r.ok) { const e = await r.json(); showAlert('error', e.detail || 'failed'); return; }
+                showAlert('success', '⭐ Set as current model');
+                closeModelInfo(); updateStatistics();   // refresh card + badges
+            } catch (e) { showAlert('error', e.message); }
         }
 
         /* ---- Best-model details modal ---- */
@@ -918,9 +928,15 @@
             return `
                 <div style="border-left:4px solid ${modeBadge.c}; background:#fff; padding:12px 14px; border-radius:8px; margin-bottom:14px;">
                     <span style="background:${modeBadge.c}; color:#fff; padding:2px 10px; border-radius:12px; font-size:.8em;">${modeBadge.t}</span>
+                    ${model.is_current ? '<span style="background:#f0b400; color:#3a2e00; padding:2px 10px; border-radius:12px; font-size:.8em; margin-left:6px;">⭐ Current</span>' : ''}
                     <div style="margin-top:8px; font-size:.88em; color:#444;">
                         <div><strong>File:</strong> <code>${model.filename}</code></div>
                         <div><strong>Target:</strong> ${meta.target_feature || '—'} &nbsp;·&nbsp; <strong>Trained:</strong> ${fmtTimestamp(model.timestamp)} &nbsp;·&nbsp; <strong>Size:</strong> ${model.size_mb ? model.size_mb.toFixed(0) + ' MB' : '—'}</div>
+                    </div>
+                    <div style="margin-top:10px;">
+                        ${model.is_current
+                          ? '<button class="btn btn-small" disabled style="background:#bbb;">⭐ Current model</button>'
+                          : `<button class="btn btn-small" style="background:#f0b400; color:#3a2e00;" onclick="setCurrentModelDV('${model.filename}')">⭐ Set as current</button>`}
                     </div>
                 </div>
 

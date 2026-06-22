@@ -19,7 +19,16 @@ from ai_training.preprocessing import preprocess_bytes_for_prediction
 
 
 def main():
-    mp = sorted(glob.glob("/app/data/models/model_Components_*.pth"))[-1]
+    # prefer the pinned "current" components model; else newest on disk
+    cur = None
+    try:
+        cm = json.load(open("/app/data/models/current_models.json")).get("components")
+        fn = cm.get("filename") if isinstance(cm, dict) else cm
+        if fn and os.path.exists(f"/app/data/models/{fn}"):
+            cur = f"/app/data/models/{fn}"
+    except Exception:
+        pass
+    mp = cur or sorted(glob.glob("/app/data/models/model_Components_*.pth"))[-1]
     meta = json.load(open(mp.replace(".pth", "_metadata.json")))
     model = load_model(mp, meta)
     name = os.path.basename(mp)

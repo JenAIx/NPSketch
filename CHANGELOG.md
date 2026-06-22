@@ -4,6 +4,20 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [Unreleased] — train on validated extra sources + "current model" marker
+
+- **Component training now includes any human-validated row**, not just TELEFRED+SYNTHETIC.
+  `data_loader.prepare_augmented_training_data` gains `include_validated`; for components the query
+  is `source_format IN ('TELEFRED','SYNTHETIC') OR validated=True` (rows still need components, so
+  score-only OXFORD is auto-excluded). `pos_weight` is computed over the same set.
+  `dataset.components_to_vector` hardened against malformed arrays. Today this adds OXFORD 322 +
+  DRAWN 10; ALGORITHM/OCS_MACHINE stay out until validated.
+- **"Current model" marker**: `data/models/current_models.json` is the single source of truth per
+  mode. New `GET /api/ai-training/models/current` + `POST /models/set-current`; `/models` list now
+  returns `is_current`. `precompute_predictions.py` uses the pinned components model (fallback:
+  newest). UI: "⭐ Set as current" + highlight in the model overview, default selection in
+  `evaluate.html`, and a ⭐ badge / set-current action on the data-view best-model card & modal.
+
 ## [Unreleased] — data-view filters + label any source (incl. OXFORD)
 
 More ways to slice the Training-data list, a match-count chip, and component labelling for

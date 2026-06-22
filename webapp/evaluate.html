@@ -693,14 +693,16 @@
                     const o = document.createElement('option');
                     o.value = model.filename;
                     const date = new Date(model.created_at * 1000).toLocaleDateString();
-                    o.textContent = `${model.feature} (${date}) - ${model.size_mb.toFixed(1)}MB`;
+                    o.textContent = `${model.feature} (${date}) - ${model.size_mb.toFixed(1)}MB${model.is_current ? ' ⭐ current' : ''}`;
                     select.appendChild(o);
                 });
-                // Preselect the last-used model (remembered in localStorage); fall back to
-                // the most recently trained one (API sorts newest first).
+                // the pinned "current" component model (if any)
+                let current = null;
+                try { current = ((await (await fetch('/api/ai-training/models/current')).json()).current || {}).components; current = current && current.filename; } catch (e) {}
+                // Preselect: your remembered choice → the current model → newest (API sorts newest first).
                 const remembered = localStorage.getItem('evaluate_last_model');
-                const exists = remembered && data.models.some(m => m.filename === remembered);
-                select.value = exists ? remembered : data.models[0].filename;
+                const has = fn => fn && data.models.some(m => m.filename === fn);
+                select.value = has(remembered) ? remembered : (has(current) ? current : data.models[0].filename);
                 updateModelInfo();
             } else {
                 select.innerHTML = '<option value="">No models available — train one first</option>';

@@ -397,6 +397,7 @@ class TrainingDataLoader:
         synthetic_n_samples: int = 50,
         max_images: Optional[int] = None,
         source_filter: Optional[str] = None,
+        include_validated: bool = False,
         val_patient_ids: Optional[set] = None
     ) -> Tuple[Dict, str]:
         """
@@ -453,9 +454,16 @@ class TrainingDataLoader:
             TrainingDataImage.features_data.isnot(None)
         )
         if source_filter:
+            from sqlalchemy import or_
             srcs = [source_filter] if isinstance(source_filter, str) else list(source_filter)
-            query = query.filter(TrainingDataImage.source_format.in_(srcs))
-            logger.info(f"Restricting to source_format in {srcs}")
+            if include_validated:
+                # canonical sources always, PLUS any human-validated row from any other source
+                query = query.filter(or_(TrainingDataImage.source_format.in_(srcs),
+                                         TrainingDataImage.validated == True))
+                logger.info(f"Restricting to source_format in {srcs} OR validated=True")
+            else:
+                query = query.filter(TrainingDataImage.source_format.in_(srcs))
+                logger.info(f"Restricting to source_format in {srcs}")
         images = query.all()
 
         # Filter images with target feature
@@ -468,6 +476,8 @@ class TrainingDataLoader:
         if is_classification_mode:
             num_classes_str = target_feature.replace('Custom_Class_', '')
 
+        from collections import Counter
+        included_by_source = Counter()
         for img in images:
             try:
                 features = json.loads(img.features_data)
@@ -483,8 +493,9 @@ class TrainingDataLoader:
                 else:
                     if target_feature in features:
                         has_feature = True
-                
+
                 if has_feature:
+                    included_by_source[img.source_format] += 1
                     images_data.append({
                         'id': img.id,
                         'patient_id': img.patient_id,
@@ -493,6 +504,7 @@ class TrainingDataLoader:
                     })
             except Exception as e:
                 logger.warning(f"Error loading image {img.id}: {e}")
+        logger.info(f"Included {len(images_data)} images by source: {dict(included_by_source)}")
         
         if len(images_data) == 0:
             raise ValueError(f"No images found with feature '{target_feature}'")

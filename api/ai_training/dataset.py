@@ -35,7 +35,11 @@ def components_to_vector(features: dict):
     c = features.get("components")
     if not c:
         return None
-    pres, acc, pos = c["presence"], c["accuracy"], c["position"]
+    pres, acc, pos = c.get("presence"), c.get("accuracy"), c.get("position")
+    # guard malformed rows (a validated extra-source row with short/missing arrays)
+    if not (isinstance(pres, list) and isinstance(acc, list) and isinstance(pos, list)
+            and len(pres) >= 20 and len(acc) >= 20 and len(pos) >= 20):
+        return None
     vec = []
     for e in range(20):
         vec.extend([float(pres[e]), float(acc[e]), float(pos[e])])

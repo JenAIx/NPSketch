@@ -450,6 +450,7 @@ def run_training_job(config):
                     synthetic_n_samples=config.get('synthetic_n_samples', 50),
                     max_images=config.get('max_images'),
                     source_filter=(('TELEFRED', 'SYNTHETIC') if is_components else None),
+                    include_validated=is_components,   # + any human-validated row (OXFORD/DRAWN/…)
                     val_patient_ids=config.get('val_patient_ids')
                 )
 
@@ -535,18 +536,21 @@ def run_training_job(config):
             else:
                 logger.warning("No class weights available - using unweighted loss")
 
-        # Per-label pos_weight for the component head (BCE), from TELEFRED label
-        # frequencies: pos_weight_j = clip(N_neg/N_pos, 0.1, 10) balances each of
-        # the 60 sub-labels (most elements are usually present -> imbalanced).
+        # Per-label pos_weight for the component head (BCE): pos_weight_j =
+        # clip(N_neg/N_pos, 0.1, 10) balances each of the 60 sub-labels. Computed over the
+        # SAME inclusion rule as training (canonical sources + any validated row) so the loss
+        # balance matches the actual data.
         pos_weight = None
         if is_components:
             from database import SessionLocal as _SL
             from ai_training.dataset import components_to_vector
+            from sqlalchemy import or_ as _or
             _db = _SL()
             try:
                 vecs = []
                 for (fd,) in _db.query(TrainingDataImage.features_data).filter(
-                        TrainingDataImage.source_format == 'TELEFRED',
+                        _or(TrainingDataImage.source_format.in_(('TELEFRED', 'SYNTHETIC')),
+                            TrainingDataImage.validated == True),
                         TrainingDataImage.features_data.isnot(None)).all():
                     v = components_to_vector(json.loads(fd))
                     if v is not None:
@@ -557,7 +561,7 @@ def run_training_job(config):
             arr = _np.array(vecs)
             p = arr.mean(axis=0).clip(1e-3, 1 - 1e-3)
             pos_weight = _np.clip((1 - p) / p, 0.1, 10.0).tolist()
-            logger.info(f"Component pos_weight from {len(vecs)} TELEFRED rows "
+            logger.info(f"Component pos_weight from {len(vecs)} rows (canonical + validated) "
                         f"(min {min(pos_weight):.2f}, max {max(pos_weight):.2f})")
         
         # Load task-specific configuration (classification vs regression)

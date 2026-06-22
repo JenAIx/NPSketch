@@ -73,7 +73,7 @@ def main():
 
         print("\nConfiguration:")
         print("  Target:        Components (60 sub-labels, BCE)")
-        print("  Source:        TELEFRED only")
+        print("  Source:        TELEFRED + SYNTHETIC + any validated row (OXFORD/DRAWN/…)")
         print("  Epochs:        15 (+ early stopping)")
         print("  Augmentation:  ON (~6x)")
         print("  Input:         284x137 (downscaled)")
