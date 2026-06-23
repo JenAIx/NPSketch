@@ -4,6 +4,24 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [Unreleased] — Evaluator: inter-rater & model-vs-human reliability study
+
+New **AI-Training → Evaluator** feature to quantify that the component model deviates from ground
+truth no more than human raters do (from GT and from each other) — publication-oriented.
+
+- **Build** a study: samples **held-out** TELEFRED images (current model's val set) with ground-truth
+  components, per score band; **configurable #raters + per-band counts**; presentation order is
+  **randomized** (not score-sorted) to avoid rater bias; ground truth is snapshotted per item.
+- **Rate** blind: N fixed raters (A/B/…) each score all images via the shared ComponentEditor (no
+  GT/model suggestion, empty grid); Save & Next; **pause/resume** (first-unrated) and review.
+  **All ratings persist in the DB** (localStorage only remembers which rater you are).
+- **Analysis**: pick the AI-rater **model** (default current; computed on demand + cached per study),
+  then a dashboard with a **headline verdict**, deviation table (each rater + model vs GT: MAE, RMSE,
+  bias, Pearson, ICC, sub-label agreement, Cohen's κ), **inter-rater** ICC/agreement, **Bland-Altman**
+  + MAE bar charts (hand-rolled SVG), **most-critical sub-labels**, and **CSV export**.
+- New tables `evaluation_studies / items / ratings / model_runs` (auto-created); router
+  `api/routers/evaluator.py`; page `webapp/ai_training_evaluator.html` + AI-Training menu card.
+
 ## [Unreleased] — train on validated extra sources + "current model" marker
 
 - **Component training now includes any human-validated row**, not just TELEFRED+SYNTHETIC.

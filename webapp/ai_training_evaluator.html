@@ -77,9 +77,18 @@
             <div id="evEditor"></div>
         </div>
 
-        <!-- ===================== ANALYSIS (P3) ===================== -->
+        <!-- ===================== ANALYSIS ===================== -->
         <div class="panel" id="panelAnalysis">
-            <div class="card"><div id="analysisBody" style="color:#999;">Select a study to analyse.</div></div>
+            <div class="card">
+                <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap;">
+                    <div><label>Study</label><br><select id="anStudy" onchange="EVA.onStudyChange()"></select></div>
+                    <div><label>AI rater model</label><br><select id="anModel" style="min-width:280px;"></select></div>
+                    <button class="btn" onclick="EVA.run()">Run analysis</button>
+                    <a class="btn secondary" id="anCsv" href="#" target="_blank">⬇ Export CSV</a>
+                    <span id="anMsg" style="font-size:.85em; color:#666;"></span>
+                </div>
+            </div>
+            <div id="analysisBody" style="color:#999;">Pick a study + model, then Run analysis.</div>
         </div>
     </div>
 
@@ -225,6 +234,120 @@
         return { tab, build, loadStudies, del, goRate, goAnalysis, onRateStudyChange, startRating, saveNext, prev, skip, jumpFirstUnrated, init, _studies: () => studies };
     })();
     EV.init();
+    </script>
+
+    <script>
+    /* ===================== Analysis dashboard ===================== */
+    const EVA = (function () {
+        const $ = id => document.getElementById(id);
+        let models = [], lastData = null;
+
+        async function enter() {
+            // studies dropdown from EV's loaded list
+            const studies = EV._studies();
+            $('anStudy').innerHTML = studies.map(s => `<option value="${s.id}">#${s.id} ${s.name || ''}</option>`).join('');
+            if (!models.length) {
+                const md = await (await fetch('/api/ai-training/models')).json();
+                models = (md.models || []).filter(m => (m.feature || '').toLowerCase() === 'components');
+                $('anModel').innerHTML = models.map(m => `<option value="${m.filename}" ${m.is_current ? 'selected' : ''}>${m.filename}${m.is_current ? ' ⭐ current' : ''}</option>`).join('');
+            }
+        }
+        function select(id) { enter().then(() => { $('anStudy').value = id; }); }
+        function onStudyChange() { $('analysisBody').innerHTML = '<div style="color:#999;">Run analysis.</div>'; }
+
+        async function run() {
+            const sid = $('anStudy').value, model = $('anModel').value;
+            if (!sid) return;
+            $('anMsg').textContent = '⏳ computing (model run may take a moment)…';
+            $('anCsv').href = `/api/evaluator/studies/${sid}/export.csv?model=${encodeURIComponent(model)}`;
+            try {
+                lastData = await (await fetch(`/api/evaluator/studies/${sid}/analysis?model=${encodeURIComponent(model)}`)).json();
+                render(lastData); $('anMsg').textContent = '';
+            } catch (e) { $('anMsg').textContent = '❌ ' + e.message; }
+        }
+
+        const f = (x, d = 2) => (x === null || x === undefined) ? '—' : (+x).toFixed(d);
+
+        function render(d) {
+            const h = d.headline;
+            const banner = h ? `<div class="card" style="border-left:5px solid ${h.model_within_human_range ? '#2e7d32' : '#dc3545'}; background:${h.model_within_human_range ? '#eaf6ec' : '#fdecea'};">
+                <strong>${h.model_within_human_range ? '✅' : '⚠️'} ${h.verdict}</strong></div>` : '';
+
+            // sources table (raters + model) vs ground truth
+            const rows = Object.entries(d.sources).map(([name, s]) => {
+                const t = s.total, sl = d.per_source_sublabel[name] || {};
+                return `<tr>
+                    <td style="text-align:left;font-weight:600;">${name}${s.model ? ` <span style="color:#999;font-size:.85em;">${s.model}</span>` : ''}</td>
+                    <td>${s.n}</td><td>${f(t.mae)}</td><td>${f(t.rmse)}</td><td>${f(t.bias)}</td>
+                    <td>${f(t.pearson, 3)}</td><td>${f(t.icc, 3)}</td>
+                    <td>${f(sl.macro_agreement, 3)}</td><td>${f(sl.macro_kappa, 3)}</td></tr>`;
+            }).join('');
+            const interRows = Object.entries(d.inter_rater).map(([k, v]) =>
+                `<tr><td style="text-align:left;font-weight:600;">Inter-rater ${k}</td><td>${v.n}</td><td>${f(v.mae)}</td><td>—</td><td>—</td><td>—</td><td>${f(v.icc, 3)}</td><td>${f(v.mean_agreement, 3)}</td><td>—</td></tr>`).join('');
+            const table = `<div class="card"><h3 style="margin-bottom:8px;">Deviation from ground truth</h3>
+                <table style="width:100%;border-collapse:collapse;text-align:center;font-size:.9em;">
+                <thead><tr style="background:#f8f9fa;"><th style="text-align:left;">Source</th><th>n</th><th>MAE</th><th>RMSE</th><th>bias</th><th>Pearson</th><th>ICC</th><th>sub-label agree</th><th>κ</th></tr></thead>
+                <tbody>${rows}${interRows}</tbody></table>
+                <p style="color:#888;font-size:.8em;margin-top:6px;">Total_Score MAE/RMSE/bias/Pearson/ICC vs ground truth; sub-label agreement = mean of 60 binary agreements; κ = mean Cohen's kappa. Inter-rater row compares the two raters to each other.</p></div>`;
+
+            // Bland-Altman: model vs GT
+            const baModel = baChart(d.points, 'model', d.sources['Model'].total.bland_altman, 'Model − GT');
+            // MAE bar per source
+            const maeBar = barChart(Object.entries(d.sources).map(([n, s]) => ({ label: n, value: s.total.mae || 0 }))
+                .concat(Object.entries(d.inter_rater).map(([k, v]) => ({ label: k, value: v.mae || 0 }))), 'Total_Score MAE (lower = better)', '#667eea');
+            // most-critical components
+            const crit = barChart((d.most_critical || []).slice(0, 12).map(c => ({ label: c.sublabel, value: c.rater_agreement })),
+                'Most-critical sub-labels (lowest rater agreement vs GT)', '#dc3545', 1);
+
+            $('analysisBody').innerHTML = banner + table +
+                `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:12px;">
+                   <div class="card">${maeBar}</div><div class="card">${baModel}</div></div>
+                 <div class="card">${crit}</div>`;
+        }
+
+        // ---- tiny SVG charts ----
+        function barChart(items, title, color, maxOverride) {
+            if (!items.length) return `<em>${title}: no data</em>`;
+            const W = 340, rowH = 22, top = 26, left = 90, max = maxOverride || Math.max(...items.map(i => i.value), 0.001);
+            const H = top + items.length * rowH + 6;
+            let svg = `<div style="font-size:.82em;color:#555;font-weight:600;margin-bottom:4px;">${title}</div><svg viewBox="0 0 ${W} ${H}" style="width:100%;">`;
+            items.forEach((it, i) => {
+                const y = top + i * rowH, w = (it.value / max) * (W - left - 40);
+                svg += `<text x="${left - 6}" y="${y + 13}" text-anchor="end" font-size="11" fill="#444">${it.label}</text>`;
+                svg += `<rect x="${left}" y="${y + 3}" width="${Math.max(0, w)}" height="${rowH - 8}" fill="${color}" rx="2"/>`;
+                svg += `<text x="${left + Math.max(0, w) + 4}" y="${y + 13}" font-size="10" fill="#333">${(+it.value).toFixed(2)}</text>`;
+            });
+            return svg + '</svg>';
+        }
+        function baChart(points, src, ba, title) {
+            const pts = points.map(p => {
+                const v = src === 'model' ? p.model : (p.raters || {})[src];
+                return (v == null || p.gt == null) ? null : { m: (v + p.gt) / 2, diff: v - p.gt };
+            }).filter(Boolean);
+            if (!pts.length) return `<em>${title}: no data</em>`;
+            const W = 360, H = 240, pad = 34;
+            const xs = pts.map(p => p.m), ys = pts.map(p => p.diff);
+            const xmin = Math.min(...xs, 0), xmax = Math.max(...xs, 60);
+            const ymax = Math.max(2, Math.max(...ys.map(Math.abs)), Math.abs(ba ? ba.loa_high : 0), Math.abs(ba ? ba.loa_low : 0));
+            const X = v => pad + (v - xmin) / (xmax - xmin || 1) * (W - pad - 8);
+            const Y = v => H / 2 - (v / ymax) * (H / 2 - pad);
+            let svg = `<div style="font-size:.82em;color:#555;font-weight:600;margin-bottom:4px;">Bland–Altman: ${title}</div><svg viewBox="0 0 ${W} ${H}" style="width:100%;">`;
+            svg += `<line x1="${pad}" y1="${Y(0)}" x2="${W - 8}" y2="${Y(0)}" stroke="#bbb"/>`;
+            if (ba) {
+                [['mean_diff', '#2e7d32'], ['loa_low', '#e67e22'], ['loa_high', '#e67e22']].forEach(([k, c]) => {
+                    svg += `<line x1="${pad}" y1="${Y(ba[k])}" x2="${W - 8}" y2="${Y(ba[k])}" stroke="${c}" stroke-dasharray="4 3"/>`;
+                    svg += `<text x="${W - 8}" y="${Y(ba[k]) - 2}" text-anchor="end" font-size="9" fill="${c}">${k}=${(+ba[k]).toFixed(1)}</text>`;
+                });
+            }
+            pts.forEach(p => { svg += `<circle cx="${X(p.m)}" cy="${Y(p.diff)}" r="2.5" fill="#667eea" opacity="0.6"/>`; });
+            svg += `<text x="${pad}" y="${H - 6}" font-size="10" fill="#888">mean(score)</text>`;
+            svg += `<text x="6" y="14" font-size="10" fill="#888">diff</text></svg>`;
+            return svg;
+        }
+
+        return { enter, select, onStudyChange, run };
+    })();
+    window.EVA = EVA;
     </script>
 </body>
 </html>
