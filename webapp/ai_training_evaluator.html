@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPSketch — Evaluator</title>
+    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/ai_training_common.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg,#667eea 0%,#764ba2 100%); min-height: 100vh; padding: 20px; }
+        .container { max-width: 1500px; margin: 0 auto; background: #fff; border-radius: 15px; padding: 36px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+        h1 { color: #333; margin-bottom: 6px; }
+        .subtitle { color: #666; margin-bottom: 20px; }
+        .tab-bar { display: flex; gap: 8px; border-bottom: 2px solid #e9ecef; margin-bottom: 20px; }
+        .tab-btn { padding: 12px 24px; border: none; background: transparent; color: #666; font-size: 1.05em; font-weight: 600; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+        .tab-btn.active { color: #667eea; border-bottom-color: #667eea; }
+        .panel { display: none; }
+        .panel.active { display: block; }
+        .card { border: 1px solid #e9ecef; border-radius: 10px; padding: 16px; margin-bottom: 12px; background: #fff; }
+        .btn { padding: 9px 16px; background: #667eea; color: #fff; border: none; border-radius: 7px; font-weight: 600; cursor: pointer; }
+        .btn.secondary { background: #e9ecef; color: #444; }
+        .btn:disabled { background: #bbb; cursor: not-allowed; }
+        label { font-size: .9em; color: #555; }
+        input[type=number], input[type=text], select { padding: 7px 9px; border: 1px solid #dee2e6; border-radius: 6px; font-size: .95em; }
+        .prog { height: 8px; background: #eee; border-radius: 4px; overflow: hidden; }
+        .prog > div { height: 100%; background: #2e7d32; }
+        .pill { display:inline-block; padding:2px 9px; border-radius:11px; font-size:.78em; font-weight:600; background:#e7e3ff; color:#5a3d99; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/ai_training.html" class="back-link">← AI Training</a>
+        <h1>🧪 Evaluator</h1>
+        <p class="subtitle">Inter-rater &amp; model-vs-human reliability study</p>
+
+        <div class="tab-bar">
+            <button class="tab-btn active" id="tabSetup" onclick="EV.tab('setup')">⚙️ Setup</button>
+            <button class="tab-btn" id="tabRate" onclick="EV.tab('rate')">✍️ Rate</button>
+            <button class="tab-btn" id="tabAnalysis" onclick="EV.tab('analysis')">📈 Analysis</button>
+        </div>
+
+        <!-- ===================== SETUP ===================== -->
+        <div class="panel active" id="panelSetup">
+            <div class="card">
+                <h3 style="margin-bottom:10px;">Build a new study</h3>
+                <p style="color:#777; font-size:.86em; margin-bottom:12px;">
+                    Samples <strong>held-out</strong> TELEFRED images (the current model's validation set)
+                    with ground-truth components, per score band. Low bands may yield fewer than requested.
+                </p>
+                <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;">
+                    <div><label>Name<br><input type="text" id="bName" placeholder="auto"></label></div>
+                    <div><label># Raters<br><input type="number" id="bRaters" value="2" min="1" max="6" style="width:70px;"></label></div>
+                    <div id="bandInputs" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+                    <button class="btn" onclick="EV.build()">Build study</button>
+                    <span id="buildMsg" style="font-size:.85em; color:#2e7d32;"></span>
+                </div>
+            </div>
+            <h3 style="margin:18px 0 8px;">Studies</h3>
+            <div id="studyList"><div style="color:#999;">Loading…</div></div>
+        </div>
+
+        <!-- ===================== RATE ===================== -->
+        <div class="panel" id="panelRate">
+            <div class="card" id="rateHeader">
+                <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
+                    <div><label>Study</label><br><select id="rateStudy" onchange="EV.onRateStudyChange()"></select></div>
+                    <div><label>Rater</label><br><select id="rateRater" onchange="EV.startRating()"></select></div>
+                    <div style="flex:1; min-width:200px;">
+                        <div id="rateProgTxt" style="font-size:.85em; color:#666; margin-bottom:4px;"></div>
+                        <div class="prog"><div id="rateProg" style="width:0;"></div></div>
+                    </div>
+                    <button class="btn secondary" onclick="EV.jumpFirstUnrated()">⏭ First unrated</button>
+                </div>
+                <p style="color:#b26a00; font-size:.82em; margin-top:8px;">Blind scoring — no ground truth or model suggestion is shown. Score each image, then Save &amp; Next.</p>
+            </div>
+            <div id="evEditor"></div>
+        </div>
+
+        <!-- ===================== ANALYSIS (P3) ===================== -->
+        <div class="panel" id="panelAnalysis">
+            <div class="card"><div id="analysisBody" style="color:#999;">Select a study to analyse.</div></div>
+        </div>
+    </div>
+
+    <script src="/js/component_editor.js?v=8"></script>
+    <script>
+    const EV = (function () {
+        const $ = id => document.getElementById(id);
+        const BANDS = ['0-9','10-19','20-29','30-39','40-49','50-59','60'];
+        let studies = [], ed = null, queue = [], idx = 0, study = null, rater = null;
+
+        function tab(name) {
+            ['setup','rate','analysis'].forEach(t => {
+                $('tab' + t[0].toUpperCase() + t.slice(1)).classList.toggle('active', t === name);
+                $('panel' + t[0].toUpperCase() + t.slice(1)).classList.toggle('active', t === name);
+            });
+            if (name === 'rate') populateRateStudies();
+            if (name === 'analysis' && window.EVA) EVA.enter();
+        }
+
+        // ---- Setup ----
+        function renderBandInputs() {
+            $('bandInputs').innerHTML = BANDS.map((b, i) =>
+                `<label style="font-size:.8em;">${b}<br><input type="number" id="band_${i}" value="20" min="0" max="100" style="width:56px;"></label>`).join('');
+        }
+        async function build() {
+            const per_band = {}; BANDS.forEach((_, i) => per_band[i] = +$('band_' + i).value);
+            $('buildMsg').textContent = '⏳ building…';
+            const r = await fetch('/api/evaluator/studies', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: $('bName').value.trim() || null, n_raters: +$('bRaters').value, per_band })
+            });
+            const d = await r.json();
+            $('buildMsg').textContent = r.ok ? `✓ ${d.total} images: ${JSON.stringify(d.selected_per_band)}` : ('❌ ' + (d.detail || 'failed'));
+            loadStudies();
+        }
+        async function loadStudies() {
+            studies = (await (await fetch('/api/evaluator/studies')).json()).studies || [];
+            $('studyList').innerHTML = studies.length ? studies.map(studyCard).join('') :
+                '<div style="color:#999;">No studies yet — build one above.</div>';
+        }
+        function studyCard(s) {
+            const p = s.progress, raterBars = s.raters.map(r => {
+                const done = p.per_rater[r] || 0, pct = p.total_items ? Math.round(done / p.total_items * 100) : 0;
+                return `<div style="min-width:150px;"><div style="font-size:.8em; color:#555;">Rater ${r}: ${done}/${p.total_items}</div><div class="prog"><div style="width:${pct}%"></div></div></div>`;
+            }).join('');
+            return `<div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+                  <div>
+                    <strong>#${s.id} ${s.name || ''}</strong> <span class="pill">${p.total_items} imgs</span><br>
+                    <span style="color:#999; font-size:.82em;">model: ${s.model_filename || '—'} · ${new Date(s.created_at).toLocaleString()}</span>
+                  </div>
+                  <div style="display:flex; gap:8px;">
+                    <button class="btn" onclick="EV.goRate(${s.id})">✍️ Rate</button>
+                    <button class="btn secondary" onclick="EV.goAnalysis(${s.id})">📈 Analyse</button>
+                    <button class="btn secondary" style="background:#f8d7da;color:#721c24;" onclick="EV.del(${s.id})">🗑</button>
+                  </div>
+                </div>
+                <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:10px;">${raterBars}</div>
+            </div>`;
+        }
+        async function del(id) {
+            if (!confirm('Delete study #' + id + ' and all its ratings?')) return;
+            await fetch('/api/evaluator/studies/' + id, { method: 'DELETE' });
+            loadStudies();
+        }
+        function goRate(id) { tab('rate'); $('rateStudy').value = id; onRateStudyChange(); }
+        function goAnalysis(id) { tab('analysis'); if (window.EVA) EVA.select(id); }
+
+        // ---- Rate ----
+        function populateRateStudies() {
+            $('rateStudy').innerHTML = studies.map(s => `<option value="${s.id}">#${s.id} ${s.name || ''} (${s.progress.total_items})</option>`).join('');
+            if (studies.length && !$('rateStudy').value) $('rateStudy').value = studies[0].id;
+            onRateStudyChange();
+        }
+        function onRateStudyChange() {
+            study = studies.find(s => s.id == $('rateStudy').value);
+            if (!study) return;
+            $('rateRater').innerHTML = study.raters.map(r => `<option value="${r}">Rater ${r}</option>`).join('');
+            const saved = localStorage.getItem('evaluator_rater_' + study.id);
+            if (saved && study.raters.includes(saved)) $('rateRater').value = saved;
+            startRating();
+        }
+        function editor() {
+            if (ed) return ed;
+            ed = ComponentEditor.create('evEditor', {
+                showImage: true, showReference: true, showScores: false, showComparison: false,
+                showHeaderTotal: true, leftFooter: true,
+            });
+            ed.setLeftFooter(
+                `<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:10px 12px; background:#f1f3f5; border:1px solid #dee2e6; border-radius:8px;">
+                   <button onclick="EV.prev()" style="padding:8px 14px;border:none;border-radius:7px;background:#e9ecef;cursor:pointer;">← Prev</button>
+                   <button onclick="EV.skip()" style="padding:8px 14px;border:none;border-radius:7px;background:#e9ecef;cursor:pointer;">Skip</button>
+                   <button onclick="EV.saveNext()" style="padding:10px 20px;border:none;border-radius:7px;background:#2e7d32;color:#fff;font-weight:700;cursor:pointer;">💾 Save &amp; Next (Enter)</button>
+                   <span id="evSaveMsg" style="color:#2e7d32;font-size:.9em;"></span>
+                 </div>`);
+            return ed;
+        }
+        async function startRating() {
+            if (!study) return;
+            rater = $('rateRater').value;
+            localStorage.setItem('evaluator_rater_' + study.id, rater);
+            const d = await (await fetch(`/api/evaluator/studies/${study.id}/queue?rater=${rater}`)).json();
+            queue = d.items || [];
+            editor();
+            // resume at first unrated, else start at 0
+            const fu = queue.findIndex(x => !x.rated);
+            load(fu >= 0 ? fu : 0);
+        }
+        function load(i) {
+            if (!queue.length) return;
+            idx = Math.max(0, Math.min(i, queue.length - 1));
+            const it = queue[idx];
+            const rated = queue.filter(x => x.rated).length;
+            $('rateProgTxt').textContent = `Image ${idx + 1} / ${queue.length} · band ${it.band} · ${rated} rated · id ${it.image_id}`;
+            $('rateProg').style.width = `${rated / queue.length * 100}%`;
+            const b = Date.now();
+            editor().setImages({ processed: `/api/training-data-image/${it.image_id}/processed?_=${b}`,
+                                 original: `/api/training-data-image/${it.image_id}/original?_=${b}`, imageId: it.image_id });
+            editor().setState(it.components || null);   // saved score, or blank
+            const sm = $('evSaveMsg'); if (sm) sm.textContent = it.rated ? '✓ rated' : '';
+        }
+        async function saveNext() {
+            const it = queue[idx];
+            const state = editor().getState();
+            const sm = $('evSaveMsg'); if (sm) sm.textContent = '⏳…';
+            const r = await fetch(`/api/evaluator/studies/${study.id}/rating`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rater, image_id: it.image_id, components: state, total: editor().total() }) });
+            if (r.ok) { it.rated = true; it.components = state; if (sm) sm.textContent = '✓ saved'; advance(); }
+            else if (sm) sm.textContent = '❌ failed';
+        }
+        function advance() { if (idx + 1 < queue.length) load(idx + 1); else { if ($('evSaveMsg')) $('evSaveMsg').textContent = '✓ all done'; loadStudies(); } }
+        function prev() { if (idx > 0) load(idx - 1); }
+        function skip() { advance(); }
+        function jumpFirstUnrated() { const fu = queue.findIndex(x => !x.rated); load(fu >= 0 ? fu : idx); }
+
+        document.addEventListener('keydown', e => {
+            if (!$('panelRate').classList.contains('active')) return;
+            if (e.key === 'Enter') { e.preventDefault(); saveNext(); }
+        });
+
+        function init() { renderBandInputs(); loadStudies(); }
+        return { tab, build, loadStudies, del, goRate, goAnalysis, onRateStudyChange, startRating, saveNext, prev, skip, jumpFirstUnrated, init, _studies: () => studies };
+    })();
+    EV.init();
+    </script>
+</body>
+</html>
