@@ -87,8 +87,9 @@ def main():
     check("DB features_data set", row.features_data and json.loads(row.features_data)["Total_Score"] == 30)
     check("DB model_prediction set", row.model_prediction and json.loads(row.model_prediction)["Total_Score"] == 42.0)
 
-    # 6. scored review-queue: saved row now appears with correct diff |30-42|=12
-    st, d = http("GET", f"/training-data/review-queue?source_format={TAG}&min_diff=5")
+    # 6. scored review-queue: saved row appears with correct diff |30-42|=12. The human save
+    #    write-protects (validated=True), which the queue excludes by default → include_validated.
+    st, d = http("GET", f"/training-data/review-queue?source_format={TAG}&min_diff=5&include_validated=true")
     item = next((x for x in d["items"] if x["id"] == rid), None)
     check("review-queue(min_diff) lists discrepant row", item is not None)
     check("review-queue diff = |real-model|", item and abs(item["diff"] - 12.0) < 1e-6)

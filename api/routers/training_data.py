@@ -1505,6 +1505,9 @@ async def save_drawn_image(
             "message": "Drawing saved as training data"
         }
         
+    except HTTPException:
+        db.rollback()
+        raise                      # preserve 400 (duplicate / name exists), don't mask as 500
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
