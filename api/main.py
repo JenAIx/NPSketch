@@ -28,7 +28,8 @@ from routers import (
     training_data_router,
     ai_training_base_router,
     ai_training_classification_router,
-    ai_training_models_router
+    ai_training_models_router,
+    evaluator_router
 )
 
 # Single source of truth for the app version (also returned by /api/health)
@@ -64,6 +65,7 @@ app.include_router(training_data_router)
 app.include_router(ai_training_base_router)
 app.include_router(ai_training_classification_router)
 app.include_router(ai_training_models_router)
+app.include_router(evaluator_router)
 
 
 @app.on_event("startup")

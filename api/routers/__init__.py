@@ -18,6 +18,7 @@ from .training_data import router as training_data_router
 from .ai_training_base import router as ai_training_base_router
 from .ai_training_classification import router as ai_training_classification_router
 from .ai_training_models import router as ai_training_models_router
+from .evaluator import router as evaluator_router
 
 __all__ = [
     "admin_router",
@@ -25,5 +26,6 @@ __all__ = [
     "training_data_router",
     "ai_training_base_router",
     "ai_training_classification_router",
-    "ai_training_models_router"
+    "ai_training_models_router",
+    "evaluator_router",
 ]

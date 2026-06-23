@@ -92,6 +92,58 @@ class TrainingDataImage(Base):
         return f"<TrainingDataImage(id={self.id}, patient={self.patient_id}, task={self.task_type})>"
 
 
+# ============================================================================
+# Evaluator — inter-rater & model-vs-human reliability study
+# ============================================================================
+
+class EvaluationStudy(Base):
+    """A reliability study: a frozen set of held-out images that N raters (and a
+    chosen model) score independently, to compare deviations from ground truth."""
+    __tablename__ = "evaluation_studies"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=True)
+    model_filename = Column(String, nullable=True)   # model that defined the held-out set at build
+    n_raters = Column(Integer, default=2)
+    per_band_config = Column(String, nullable=True)  # JSON {band: requested_count}
+    status = Column(String, default="open")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class EvaluationItem(Base):
+    """One image in a study, with a frozen ground-truth snapshot (the standard)."""
+    __tablename__ = "evaluation_items"
+    id = Column(Integer, primary_key=True, index=True)
+    study_id = Column(Integer, ForeignKey("evaluation_studies.id"), index=True)
+    image_id = Column(Integer, index=True)
+    band = Column(Integer, index=True)               # 0..6 (0-9 .. 60)
+    order_idx = Column(Integer, default=0)
+    gt_total = Column(Integer, nullable=True)
+    gt_components = Column(String, nullable=True)     # JSON {presence,accuracy,position}
+
+
+class EvaluationRating(Base):
+    """A single rater's blind scoring of one study image (lives only in the DB)."""
+    __tablename__ = "evaluation_ratings"
+    id = Column(Integer, primary_key=True, index=True)
+    study_id = Column(Integer, ForeignKey("evaluation_studies.id"), index=True)
+    image_id = Column(Integer, index=True)
+    rater = Column(String, index=True)               # 'A','B',... (rater label/slot)
+    total_score = Column(Integer, nullable=True)
+    components = Column(String, nullable=True)        # JSON {presence,accuracy,position}
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class EvaluationModelRun(Base):
+    """Cached predictions of one model over a study's images (the 'AI rater'),
+    computed on demand from the results screen so any model can be compared."""
+    __tablename__ = "evaluation_model_runs"
+    id = Column(Integer, primary_key=True, index=True)
+    study_id = Column(Integer, ForeignKey("evaluation_studies.id"), index=True)
+    model_filename = Column(String, index=True)
+    scores = Column(String, nullable=True)           # JSON {image_id: {total, components}}
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 def init_database():
     """
     Initialize the database by creating all tables.
