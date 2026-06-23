@@ -350,9 +350,15 @@ def analysis(study_id: int, model: str = None, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="No model available")
 
     items = db.query(EvaluationItem).filter(EvaluationItem.study_id == study_id).order_by(EvaluationItem.order_idx).all()
-    gt_total = {it.image_id: it.gt_total for it in items}
     gt_vec = {it.image_id: _vec(json.loads(it.gt_components)) for it in items if it.gt_components}
+    # Total_Score is consistently the SUM of the 60 sub-labels for GT, raters and the model
+    # (apples-to-apples; raters can't calibrate, so the model uses its hard component sum too).
+    gt_total = {it.image_id: (sum(gt_vec[it.image_id]) if gt_vec.get(it.image_id) else it.gt_total) for it in items}
     model_scores = _ensure_model_run(db, study_id, model)
+
+    def model_total(i):
+        c = (model_scores.get(str(i)) or {}).get("components")
+        return sum(c) if c else None
 
     raters = rater_labels(s.n_raters)
     rt = {r: {} for r in raters}   # rater -> {image_id: (total, vec60)}
@@ -376,8 +382,8 @@ def analysis(study_id: int, model: str = None, db: Session = Depends(get_db)):
         pred, ref = src_totals(lambda i: rt[r].get(i, (None,))[0], ids)
         sources[f"Rater {r}"] = {"kind": "rater", "n": len(ref),
                                  "total": _total_stats(pred, ref)}
-    # model (all GT images)
-    mpred, mref = src_totals(lambda i: (model_scores.get(str(i)) or {}).get("total"), list(gt_total.keys()))
+    # model (all GT images) — total = sum of hard components (same definition as raters/GT)
+    mpred, mref = src_totals(model_total, list(gt_total.keys()))
     sources["Model"] = {"kind": "model", "model": model, "n": len(mref), "total": _total_stats(mpred, mref)}
 
     # per-sub-label agreement & kappa vs GT (presence/accuracy/position interleaved → 60 cols)
@@ -432,7 +438,7 @@ def analysis(study_id: int, model: str = None, db: Session = Depends(get_db)):
     for it in items:
         iid = it.image_id
         points.append({"image_id": iid, "band": BAND_LABELS[it.band], "gt": gt_total.get(iid),
-                       "model": (model_scores.get(str(iid)) or {}).get("total"),
+                       "model": model_total(iid),
                        "raters": {r: rt[r].get(iid, (None,))[0] for r in raters}})
 
     return {"study_id": study_id, "model": model, "raters": raters,
@@ -510,8 +516,11 @@ def export_csv(study_id: int, model: str = None, db: Session = Depends(get_db)):
     cols = ["image_id", "band", "gt_total"] + [f"rater_{r}_total" for r in raters] + ["model_total"]
     lines = [",".join(cols)]
     for it in items:
-        ms = (model_scores.get(str(it.image_id)) or {}).get("total", "")
-        vals = [it.image_id, BAND_LABELS[it.band], it.gt_total] + [rt[r].get(it.image_id, "") for r in raters] + [ms]
+        comp = json.loads(it.gt_components) if it.gt_components else None
+        gt = (sum(comp["presence"]) + sum(comp["accuracy"]) + sum(comp["position"])) if _components_present(comp) else it.gt_total
+        mc = (model_scores.get(str(it.image_id)) or {}).get("components")
+        ms = sum(mc) if mc else ""
+        vals = [it.image_id, BAND_LABELS[it.band], gt] + [rt[r].get(it.image_id, "") for r in raters] + [ms]
         lines.append(",".join("" if v is None else str(v) for v in vals))
     return PlainTextResponse("\n".join(lines), media_type="text/csv",
                              headers={"Content-Disposition": f'attachment; filename="evaluator_study_{study_id}.csv"'})
