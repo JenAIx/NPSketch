@@ -198,8 +198,9 @@
         // Load and render README.md
         async function loadReadme() {
             try {
-                // Fetch README.md from project root
-                const response = await fetch('/README.md');
+                // Fetch the docs source (webapp/README.md, served at /README.md); cache-bust so
+                // edits show on reload instead of a stale browser copy.
+                const response = await fetch('/README.md?_=' + Date.now(), { cache: 'no-store' });
                 
                 if (!response.ok) {
                     throw new Error(`Failed to load README.md: ${response.status} ${response.statusText}`);
