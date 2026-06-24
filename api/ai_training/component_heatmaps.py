@@ -38,8 +38,24 @@ from ai_training.preprocessing import preprocess_bytes_for_prediction
 
 REF_PATH = "/app/templates/reference_image.png"
 OUT_DIR = "/app/data/visualizations/element_map"
+MODELS_DIR = "/app/data/models"
 MODELS_GLOB = "/app/data/models/model_Components_*.pth"
+CURRENT_MODELS_FILE = "/app/data/models/current_models.json"
 W, H = 568, 274
+
+
+def pick_components_model():
+    """Path of the model the Grad-CAM should explain: the pinned *current* components
+    model (current_models.json), falling back to the newest Components_*.pth by name."""
+    try:
+        fn = (json.load(open(CURRENT_MODELS_FILE)).get("components") or {}).get("filename")
+        if fn:
+            p = os.path.join(MODELS_DIR, fn)
+            if os.path.exists(p):
+                return p
+    except Exception:
+        pass
+    return sorted(glob.glob(MODELS_GLOB))[-1]
 
 
 # --------------------------------------------------------------------------- utils
@@ -170,7 +186,7 @@ def data_driven():
 
 # ---------------------------------------------------------------------- grad-cam
 def grad_cam():
-    model_path = sorted(glob.glob(MODELS_GLOB))[-1]
+    model_path = pick_components_model()
     meta_path = model_path.replace(".pth", "_metadata.json")
     metadata = json.load(open(meta_path)) if os.path.exists(meta_path) else {}
     num_outputs = metadata.get("model", {}).get("output_neurons", 60)
@@ -200,13 +216,20 @@ def grad_cam():
         lambda m, i, o: acts.__setitem__("a", o))
 
     cam_sum = [np.zeros((H, W), np.float64) for _ in range(20)]
+    cam_cnt = [0] * 20               # images that actually contributed to element e
     n = 0
     for r in sample:
+        try:
+            pres = json.loads(r.features_data)["components"]["presence"]
+        except Exception:
+            continue                 # need presence labels to condition the attribution
         arr = preprocess_bytes_for_prediction(r.processed_image_data, metadata=metadata, debug=False)
         x = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0).float()
         out = model(x)
         A = acts["a"]
         for e in range(20):
+            if not pres[e]:           # only attribute element e where it is actually drawn —
+                continue              # absent images add noise (and cost a backward pass)
             g = torch.autograd.grad(out[0, e * 3], A, retain_graph=True)[0]
             weights = g.mean(dim=(2, 3), keepdim=True)
             cam = torch.relu((weights * A).sum(dim=1)).squeeze(0).detach().numpy()
@@ -214,6 +237,7 @@ def grad_cam():
             m = cam.max()
             if m > 0:                    # per-image normalize so no single image dominates
                 cam_sum[e] += cam / m
+                cam_cnt[e] += 1
         n += 1
         if n % 50 == 0:
             print(f"  grad-cam: {n}/{len(sample)} images…", flush=True)
