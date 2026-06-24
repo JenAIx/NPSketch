@@ -1,4 +1,4 @@
-# NPSketch v2.2
+# NPSketch v2.3
 
 **CNN-based scoring of hand-drawn neuropsychological figures**
 
@@ -374,80 +374,26 @@ From **1 original image** → **7 total images** (1 + 6 augmented):
 - Guaranteed diversity: SSIM-based filtering ensures no redundant variations
 - Comprehensive logging: Every augmentation includes similarity metrics
 
-### Synthetic Score-Based Images (v1.2.0)
+### Synthetic low-score images (current)
 
-**Purpose:** Address data imbalance for low scores/classes with realistic, score-targeted images.
+The component CNN was blind below ~18 because real low-score drawings are scarce. Two complementary
+sources now fill the low range:
 
-**Problem Addressed:**
-- Only 1.3% of training data has scores < 20
-- Model learns mean (~51) instead of distinguishing quality levels
-- Random/chaotic drawings get predicted as medium scores
+- **LOWSCORER (real, 2026-06):** 662 manually-rated copy figures with Total_Score 1–15, imported as
+  `source_format='LOWSCORER'`, `task_type='MANUAL'`, `validated=True`. Each element's 0–3 score is
+  split into the three binary sub-labels (presence/accuracy/position; `2`→`[1,1,0]`).
+- **Synthetic (element-grounded):** `api/ai_training/gen_synth_image.py` composes low-score figures
+  from the hand-verified 20-element geometry (`data/element_definitions.json`, painted in
+  `component_map.html`): for each element, `region ∩ reference ink = the element's real strokes`, then
+  type-aware position/accuracy degradation. Labels are **exact by construction**. Per-score-band
+  element priors (`build_priors`) are sampled from real TELEFRED + LOWSCORER drawings so the synthetic
+  figures are structurally realistic. `--insert N` writes `source_format='SYNTHETIC'` rows; `--purge`
+  removes them (but keeps any that were manually validated in the data-view).
 
-**Solution:**
-Generate score-based synthetic images using the reference image features:
-1. Select features from reference image based on target score
-2. Apply realistic modifications (position offset, tremor, curvature)
-3. Generate images across a range of scores (0-40)
-
-**Score Distribution:**
-
-| Score Range | Percentage | Strategy |
-|-------------|------------|----------|
-| 0 | 40% | Random lines only, away from features |
-| 1-10 | 15% | 2-5 features, poor position/accuracy |
-| 11-20 | 15% | 5-8 features, moderate quality |
-| 21-30 | 15% | 8-12 features, mixed quality |
-| 31-40 | 15% | 12-15 features, decent quality |
-
-**Feature Selection:**
-- **Preferred features**: Frame lines weighted higher (lines 3, 31, 20, 19, 18, 5)
-- **Secondary features**: Internal lines (4, 2)
-- **Proximity bias**: Subsequent features prefer nearby features
-- **Random extra lines**: 1-10 lines avoiding feature zones
-
-**Scoring Per Feature (0-3 points):**
-- **Presence (0/1)**: Is the feature drawn?
-- **Position (0/1)**: Is it within 25px of correct location?
-- **Accuracy (0/1)**: Is tremor/curvature/shortening acceptable?
-
-**Key Features:**
-- **Realistic**: Based on actual reference features (21 features)
-- **Patient-level tremor**: Each image has consistent tremor rate
-- **Proper padding**: 15px pre-shrink maintains margins
-- **Augmented**: Synthetic images receive same augmentation as real data
-- **Integer scores**: Clean 0-3 scoring per feature
-
-**Usage:**
-
-```python
-# Enable in training config
-stats, output_dir = loader.prepare_augmented_training_data(
-    target_feature='Total_Score',
-    train_split=0.8,
-    add_synthetic_bad_images=True,  # Enable synthetic images
-    synthetic_n_samples=500         # 100, 500, 1000, 5000
-)
-```
-
-**UI Options:**
-- 100 (Standard)
-- 500 (Recommended)
-- 1000 (Large)
-- 5000 (Maximum)
-
-**Standalone Generation:**
-```bash
-docker exec -e PYTHONPATH=/app npsketch-api python3 \
-  /app/ai_training/synthetic_score_based.py \
-  --scores 0,10,20,30,40 \
-  --samples-per-score 10
-```
-
-**Pipeline Integration:**
-- Synthetic images added BEFORE train/val split
-- Stratified splitting includes synthetic images
-- Augmentation applied to ALL images (including synthetic)
-- Same preprocessing: pre-shrink, binarization, line normalization
+Both feed component training via the `data_loader` filter `source IN ('TELEFRED','SYNTHETIC') OR
+validated=True` (components required). The earlier score-targeted generator
+(`synthetic_score_based.py`) is **removed/broken** — ignore older docs referring to "21 reference
+features" or a 0–40 score-distribution table.
 
 ### Model Architecture
 
@@ -640,7 +586,8 @@ Tested on 182 validation samples
 ### Component training sources (2026-06)
 
 The component model trains on **TELEFRED + SYNTHETIC** plus **any human-`validated` row** of any
-source (e.g. OXFORD/DRAWN labelled via the data-view modal or the Review queue). Rows still need
+source — including the **LOWSCORER** set (662 manually-rated real low-score figures, imported
+`validated=True`) and OXFORD/DRAWN rows labelled via the data-view modal or the Review queue. Rows still need
 component sub-labels, so score-only images are auto-excluded; `pos_weight` is computed over the same
 inclusion set. Machine-generated labels (ALGORITHM/OCS_MACHINE) stay out until validated. Set the
 live model with the ⭐ **current-model** marker (see API above).
@@ -1227,7 +1174,7 @@ MIT License - feel free to use and modify for your projects.
 
 **Stefan Brodoehl**  
 Date: October-December 2025, January–June 2026  
-Version: 2.2.0
+Version: 2.3.0
 
 ---
 

@@ -162,8 +162,8 @@ Defined in `api/database.py`. The main ML table:
 id              int   PK
 uid             str   # unique key from templates/labels.csv, e.g. "TF-2020_08_27-257-COPY"
 patient_id      str   # source-prefixed, groups COPY+RECALL: "TF-257", "ALG-PC0001", "OXF-C0078"
-task_type       str   # COPY | RECALL  (REFERENCE for templates)
-source_format   str   # TELEFRED | OXFORD | ALGORITHM | OCS_MACHINE  (legacy: MAT/OCS/DRAWN/UPLOAD)
+task_type       str   # COPY | RECALL | MANUAL  (REFERENCE for templates; MANUAL = standalone LOWSCORER figures)
+source_format   str   # TELEFRED | OXFORD | ALGORITHM | OCS_MACHINE | LOWSCORER  (+ SYNTHETIC; legacy: MAT/OCS/DRAWN/UPLOAD)
 original_file_data    bytes   # BLOB, original
 processed_image_data  bytes   # BLOB, normalized 568×274 PNG, 2px black lines
 image_hash      str   # SHA256 of the ORIGINAL file (duplicate detection)
@@ -230,8 +230,10 @@ on white, line thickness **2.00 px** (Zhang-Suen thinning + dilation), ~5–7px 
 `templates/labels.csv` + `templates/img/` (built by `api/data_consolidation/consolidate_templates.py`).
 The **single** DB import path is `api/data_consolidation/import_unified.py` (auto-detects red vs black
 image style, dedups by SHA256, skips blanks, writes the 60 sub-labels into `features_data.components`).
-`source_format` ∈ {TELEFRED, OXFORD, ALGORITHM, OCS_MACHINE} (+ **SYNTHETIC** for generated
-low-score images, see §7); `task_type` ∈ {COPY, RECALL}.
+`source_format` ∈ {TELEFRED, OXFORD, ALGORITHM, OCS_MACHINE, **LOWSCORER**} (+ **SYNTHETIC** for
+generated low-score images, see §7); `task_type` ∈ {COPY, RECALL, **MANUAL**}. The incremental
+`import_unified.py --only-source <fmt>` imports just one source without re-inserting the rest
+(non-destructive; how LOWSCORER was added).
 - The old per-source CLI populators (`telefred_import.py`, `oxford_db_populator.py`,
   `algorithm_db_populator.py`) were **deleted**; the bulk web endpoints
   `/api/extract-training-data[-oxford]` were **retired (HTTP 410)**.
@@ -270,11 +272,26 @@ extracted from the official scoring manual into `data/element_definitions.json` 
 with **exact** 60-component labels (type-aware position/accuracy degradation). `--insert` writes rows
 as `source_format='SYNTHETIC'`, `patient_id='SYNTH_*'` (forced into train via `split_strategy`);
 component training picks them up (`data_loader` source filter `('TELEFRED','SYNTHETIC')` **+ any
-`validated` row** when `include_validated`). Adding 500 synthetic low-score rows cut derived-score
-MAE −25 % (0–29) with no overall cost (model `model_Components_20260617_023227`); the later
-`model_Components_20260622_225134` (+validated OXFORD/DRAWN, aligned `pos_weight`) is the current
-deployed model — large low-band gains (0–9 MAE 9.7→3.2). `--purge` removes synthetic rows.
-(The old `synthetic_score_based.py` is broken — it loads the removed `ReferenceImage` table.)
+`validated` row** when `include_validated`). `build_priors` samples the per-band conditionals from
+**TELEFRED + LOWSCORER** (real low-score data sharpens the otherwise-sparse low bands). `--purge`
+removes synthetic rows but **preserves `validated` ones** — validate a synthetic row in the data-view
+("✓ Validieren (so sperren)") to keep a good one across a purge. Earlier: +500 synthetic cut
+derived-score MAE −25 % (0–29). The deployed model is whatever `data/models/current_models.json`
+pins (set via "⭐ Set as current"); a retrain on real + LOWSCORER + freshly-rebuilt synthetic was
+launched 2026-06-24. (The old `synthetic_score_based.py` is broken — loads the removed
+`ReferenceImage` table.)
+
+**LOWSCORER (2026-06):** 662 manually-rated *real* low-score copy figures (Total_Score 1–15), the
+real-data complement to synthetic. Imported `validated=True` via a `load_lowscorer` loader in
+`consolidate_templates.py` (each ELEM 0–3 score → PRES/ACC/POS, `2`→`[1,1,0]`) + `import_unified.py
+--only-source LOWSCORER`. See `templates/old/low_scores/` (source) — gitignored.
+
+**Element geometry is hand-verified — do NOT "fix" it.** `element_definitions.json` `order` is stamped
+`hand_verified_against_manual`. The recurring "5 elements swapped" report from
+`map_elements_by_correlation.py` / `validate_element_order.py` is a **statistical artifact**: the
+disputed elements {4,9,14,15,19,20} are present in 65–99 % of drawings, so their near-constant
+`presence` column defeats the ink-vs-presence correlation and the present-minus-absent heatmap. Do
+NOT blindly re-run those Hungarian re-save scripts — they would corrupt the verified geometry.
 
 > **Branches:** `feature/coreg` holds the (not-adopted) coregistration experiment + the element/
 > synthetic work; `feature/synthetic-gen` continues the synthetic generator (v2 realism). DB backups:
@@ -346,4 +363,4 @@ docker exec npsketch-api python3 -c "from database import get_db; next(get_db())
 ---
 
 **Container:** `npsketch-api` · **Workdir:** `/app` · **App URL:** http://localhost ·
-**API docs:** http://localhost/api/docs · **Version:** 2.2.0
+**API docs:** http://localhost/api/docs · **Version:** 2.3.0

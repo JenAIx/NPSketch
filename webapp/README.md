@@ -1,4 +1,4 @@
-# NPSketch v2.1 — Documentation
+# NPSketch v2.3 — Documentation
 
 **AI scoring of hand-drawn neuropsychological figures (OCS-Plus copy & recall).**
 
@@ -150,7 +150,8 @@ split, augmentation, the 284×137 input and best-checkpoint early stopping.
   Metrics: accuracy / macro-F1 / precision / recall / confusion matrix.
 - **Components** (`Components`, 60 sub-labels): `BCEWithLogitsLoss` with **per-label `pos_weight`**
   (each sub-label balanced independently); `Total_Score` = sum of the predicted sub-labels.
-  **TELEFRED-only (v1).** Metrics: per sub-label / aspect / component F1 **and** the derived-score
+  Trains on **TELEFRED + SYNTHETIC + any `validated` row** (incl. the **LOWSCORER** low-score set and
+  validated OXFORD/DRAWN). Metrics: per sub-label / aspect / component F1 **and** the derived-score
   R² / RMSE / MAE + per-decade.
 
 ### Shared defaults
@@ -161,10 +162,18 @@ best-checkpoint restore · **patient-level stratified split** (`stratified_group
 zero-overlap assertion between train and val). The split groups by `patient_id` so a patient's COPY
 and RECALL never straddle the split — this is what keeps the validation metrics honest.
 
-### Synthetic score-based images
+### Low-score data (real + synthetic)
 
-To counter the sparse low-score range, `api/ai_training/synthetic_score_based.py` can generate images
-targeting specific scores (0–40). They are added **before** the split and augmented like real data.
+The component model was weak in the sparse low-score range, addressed two ways:
+- **LOWSCORER** — 662 **manually-rated real** low-score figures (`Total_Score` 1–15), imported
+  `validated=True` (`source_format='LOWSCORER'`, `task_type='MANUAL'`).
+- **Synthetic (element-grounded)** — `api/ai_training/gen_synth_image.py` composes figures from the
+  hand-verified 20-element geometry (`element_definitions.json`): `region ∩ reference ink = real
+  strokes`, with **exact** 60-component labels and per-band element priors sampled from real
+  TELEFRED + LOWSCORER. `--insert` / `--purge` manage the `SYNTHETIC` rows (validated ones survive a
+  purge — validate a good one in the data-view).
+
+(The old score-targeted `synthetic_score_based.py` was removed.)
 
 ### Reference metrics (clean component model)
 

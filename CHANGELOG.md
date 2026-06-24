@@ -4,7 +4,37 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
-## [Unreleased] — LOWSCORER: 662 manually-rated low-score figures as extra training data
+## [2.3.0] - 2026-06-24 — LOWSCORER + retrain prep, evaluator, component-map/heatmap UX
+
+Rolls up the post-2.2.0 work below into a release. (The experimental coregistration branch further
+down stays `[Unreleased]` — not adopted.)
+
+### Retrain prep: synthetic rebuilt on LOWSCORER priors, Component-Map heatmap + UI fixes
+- **Synthetic regenerated** from the hand-verified element geometry. `gen_synth_image.build_priors`
+  now samples its per-score-band conditionals from **TELEFRED + LOWSCORER** (was TELEFRED only), so the
+  662 real low-score figures sharpen the otherwise-sparse low bands. Old SYNTHETIC purged (incl. 9 that
+  had been accidentally validated), 500 regenerated; a component retrain was launched on real +
+  LOWSCORER + synthetic (6971 images).
+- **Element geometry confirmed correct (no fix needed).** The recurring "5 elements swapped" report
+  from `map_elements_by_correlation.py` / `validate_element_order.py` is a **statistical artifact** —
+  the disputed elements {4,9,14,15,19,20} are present in 65–99 % of drawings, so their near-constant
+  `presence` column defeats the ink-vs-presence correlation and the present-minus-absent heatmap.
+  Hand-verified against the manual; `element_definitions.json` `order` stamped
+  `hand_verified_against_manual`. Do NOT blindly re-run the Hungarian re-save scripts.
+- **Component-Map heatmaps**: Grad-CAM now uses the pinned **current** components model
+  (`current_models.json`), not newest-by-filename; and is **conditioned on presence** — element e's
+  attribution is averaged only over images where e is actually drawn → sharper, correctly-localized
+  maps (and it skips the absent-image backward passes).
+- **Data-view modal — "✓ Validieren (so sperren)"**: an unchanged but correct label (e.g. SYNTHETIC,
+  exact by construction) can be validated/write-protected as-is, without a pseudo-edit. A validated
+  synthetic row then survives `gen_synth --purge` (a deliberate "keep this one" convention).
+- **Review & Label Queue — new "Synthetic (unvalidated)" mode**: queues all not-yet-validated
+  SYNTHETIC rows with their exact labels pre-filled for fast click-through validate/fix.
+- **Component-Map annotate editor locked by default**: a 🔒 lock hides the editing controls
+  (brush, eraser, undo, clear, save) entirely; unlocking needs a confirm warning. Element selection,
+  "Show all" and "Heatmap hint" stay live — protects the hand-verified regions from accidental edits.
+
+### LOWSCORER: 662 manually-rated low-score figures as extra training data
 
 New **LOWSCORER** source: 662 hand-rated low-scoring copy figures (Total_Score **1–15** of 60) to
 attack the component model's low-score blind spot (it reads sparse drawings poorly — confirmed here,
@@ -42,7 +72,7 @@ see disambiguation note). Branch `import_low_scores`.
   **465 pre-existing human-validated rows are preserved** (validated 465 → 1127 = 465 + 662 LOWSCORER;
   total 8209 → 8871). Nothing existing was reset, deleted, or overwritten.
 
-## [Unreleased] — Evaluator: inter-rater & model-vs-human reliability study
+### Evaluator: inter-rater & model-vs-human reliability study
 
 New **AI-Training → Evaluator** feature to quantify that the component model deviates from ground
 truth no more than human raters do (from GT and from each other) — publication-oriented.
@@ -60,7 +90,7 @@ truth no more than human raters do (from GT and from each other) — publication
 - New tables `evaluation_studies / items / ratings / model_runs` (auto-created); router
   `api/routers/evaluator.py`; page `webapp/ai_training_evaluator.html` + AI-Training menu card.
 
-## [Unreleased] — train on validated extra sources + "current model" marker
+### train on validated extra sources + "current model" marker
 
 - **Component training now includes any human-validated row**, not just TELEFRED+SYNTHETIC.
   `data_loader.prepare_augmented_training_data` gains `include_validated`; for components the query
@@ -74,7 +104,7 @@ truth no more than human raters do (from GT and from each other) — publication
   newest). UI: "⭐ Set as current" + highlight in the model overview, default selection in
   `evaluate.html`, and a ⭐ badge / set-current action on the data-view best-model card & modal.
 
-## [Unreleased] — data-view filters + label any source (incl. OXFORD)
+### data-view filters + label any source (incl. OXFORD)
 
 More ways to slice the Training-data list, a match-count chip, and component labelling for
 score-only sources.
@@ -99,7 +129,7 @@ score-only sources.
   optional `leftFooter` slot; the Prev/Skip/Save&Next bar now renders there instead of at the
   bottom of a tall layout.
 
-## [Unreleased] — evaluate.html: prediction-gated labelling + correct original/normalized storage
+### evaluate.html: prediction-gated labelling + correct original/normalized storage
 
 Reworks the Evaluate page so labelling is driven by the AI prediction and new training data is
 stored exactly like the import (**original + normalized**), with no second/divergent normalization.
@@ -129,7 +159,7 @@ stored exactly like the import (**original + normalized**), with no second/diver
   Position definitions, a live resolution readout on the Processed/Original toggle, and an optional
   lock-hint argument to `setLocked`.
 
-## [Unreleased] — Shared ComponentEditor + data-view labelling/stats overhaul
+### Shared ComponentEditor + data-view labelling/stats overhaul
 
 Extracts the Review & Label reviewer into one reusable component and reuses it across the
 training-data tools, plus a reworked stats row.
@@ -163,7 +193,7 @@ training-data tools, plus a reworked stats row.
   `with_features`, `without_features`, `patients`, real `by_source`); the images-list endpoint
   now returns the `validated` flag per row.
 
-## [Unreleased] — Element definitions + synthetic low-score generator
+### Element definitions + synthetic low-score generator
 
 Fixes the component model's low-score blindness (it floored at ~18 because real low-score
 drawings are scarce) by generating synthetic low-score images with **exact** labels.
@@ -1157,7 +1187,7 @@ Restored best model from epoch 20
 
 ---
 
-**Current Version:** 2.2.0  
-**Last Updated:** 2026-06-14  
+**Current Version:** 2.3.0  
+**Last Updated:** 2026-06-24  
 **Status:** Production Ready
 
