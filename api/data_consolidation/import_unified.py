@@ -54,7 +54,7 @@ TMP_DIR = "/app/data/tmp/import_unified"
 
 # Expected style per source (consistency anchor; detection still decides).
 RED_SOURCES = {"TELEFRED"}                          # red ink on a printed (black) template
-BLACK_SOURCES = {"OXFORD", "ALGORITHM", "OCS_MACHINE"}  # black lines on white
+BLACK_SOURCES = {"OXFORD", "ALGORITHM", "OCS_MACHINE", "LOWSCORER"}  # black lines on white
 
 ELEM_TRIPLETS = [(f"ELEM{n:02d}PRES", f"ELEM{n:02d}ACC", f"ELEM{n:02d}POS") for n in range(1, 21)]
 
@@ -147,6 +147,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--templates", default="/app/templates")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--only-source", default="",
+                    help="comma-separated source_format(s) to import; others skipped. "
+                         "Use to add a new source incrementally without re-inserting "
+                         "(and duplicating) already-imported rows.")
     ap.add_argument("--dry-run", action="store_true",
                     help="run detection/dedup/curation + report, but do not write the DB")
     ap.add_argument("--coregister", action="store_true",
@@ -165,6 +169,10 @@ def main():
     img_dir = os.path.join(args.templates, "img")
     with open(labels, encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
+    if args.only_source:
+        wanted = {s.strip() for s in args.only_source.split(",") if s.strip()}
+        rows = [r for r in rows if r["source"] in wanted]
+        print(f"--only-source {sorted(wanted)}: {len(rows)} rows after filter")
     if args.limit:
         rows = rows[:args.limit]
 

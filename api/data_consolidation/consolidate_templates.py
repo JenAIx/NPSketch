@@ -200,6 +200,57 @@ def load_oxford(old, skips):
             yield finalize(row), img_path  # no sublabels
 
 
+def _split_elem_score(v):
+    """LOWSCORER element score (presence+accuracy+position summed) -> (PRES, ACC, POS).
+
+    The manual rating gives one 0-3 value per element. Resolve to the 3 binary
+    aspects: ''/0 -> absent; 1 -> presence only; 3 -> all three; 2 -> presence+
+    accuracy (chosen via presence/accuracy correlation; model-based disambiguation
+    was inconclusive on these sparse low-score images — see CHANGELOG/branch notes).
+    Sum is preserved (== the element score).
+    """
+    v = (v or "").strip()
+    if v in ("", "0"):
+        return 0, 0, 0
+    return {1: (1, 0, 0), 2: (1, 1, 0), 3: (1, 1, 1)}[int(v)]
+
+
+def load_lowscorer(old, skips):
+    """Manually-rated low-score figures (1-15 of 60), extra training data.
+
+    Source: old/low_scores/Bildbewertung.csv (20 ELEM scores + TotalScore, one
+    row per image, image_path -> jpg). Standalone copy figures, no COPY/RECALL
+    pairing -> cond='MANUAL', patient_id == uid.
+    """
+    base = os.path.join(old, "low_scores")
+    csv_path = os.path.join(base, "Bildbewertung.csv")
+    if not os.path.exists(csv_path):
+        return
+    with open(csv_path, encoding="utf-8-sig", errors="replace") as f:
+        for r in csv.DictReader(f):
+            rel = (r.get("image_path") or "").strip()
+            if not rel:
+                continue
+            stem = os.path.splitext(os.path.basename(rel))[0]  # "15-Punkte-01"
+            uid = f"LS-{stem}"
+            img_path = os.path.join(base, rel)
+            if not os.path.exists(img_path):
+                skips.append(("LOWSCORER", uid, f"image missing: {rel}"))
+                continue
+            row = blank_row()
+            row.update(
+                uid=uid, patient_id=uid, source="LOWSCORER", cond="MANUAL",
+                orig_id=stem, orig_filename=os.path.basename(rel),
+                total_score=(r.get("Figure Copy - TotalScore") or "").strip(),
+            )
+            for n in range(1, 21):
+                pres, acc, pos = _split_elem_score(r.get(f"ELEM{n:02d}"))
+                row[f"ELEM{n:02d}PRES"] = str(pres)
+                row[f"ELEM{n:02d}ACC"] = str(acc)
+                row[f"ELEM{n:02d}POS"] = str(pos)
+            yield finalize(row), img_path
+
+
 # ---- driver ---------------------------------------------------------------
 
 def main():
@@ -224,6 +275,7 @@ def main():
         ("ALGORITHM", load_algorithm(old, skips)),
         ("OCS_MACHINE", load_ocs_machine(old, skips)),
         ("OXFORD", load_oxford(old, skips)),
+        ("LOWSCORER", load_lowscorer(old, skips)),
     ]
 
     rows = []

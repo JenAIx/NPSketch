@@ -4,6 +4,44 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [Unreleased] — LOWSCORER: 662 manually-rated low-score figures as extra training data
+
+New **LOWSCORER** source: 662 hand-rated low-scoring copy figures (Total_Score **1–15** of 60) to
+attack the component model's low-score blind spot (it reads sparse drawings poorly — confirmed here,
+see disambiguation note). Branch `import_low_scores`.
+
+- **Source data** (`templates/old/low_scores/`): `Bildbewertung.xlsx` (manual ratings) + 15 zips
+  (`1-Punkt`…`15-Punkte`). Converted xlsx→`Bildbewertung.csv` with a dependency-free parser;
+  extracted the zips into numbered folders `1`…`15` (662 jpgs, `__MACOSX`/wrapper stripped).
+- **Image↔label mapping**: prepended an `image_path` column built from the real filenames; verified a
+  clean **1:1** bijection (folder# == TotalScore, no dup/missing). Manual data fixes: dropped a
+  score-1 row with no image; remapped a stray `Bildnummer1=65` row to `6-Punkte-65.jpg` (TotalScore→6);
+  added a `2-Punkte-35.jpg` row copied from `2-Punkte-34`.
+- **20→60 label split**: the manual ratings give **one 0–3 score per element** (presence+accuracy+
+  position summed), not the 60 sub-labels. Resolved to PRES/ACC/POS in `consolidate_templates.py`
+  (`_split_elem_score`): `''/0→[0,0,0]`, `1→[1,0,0]`, `3→[1,1,1]`, **`2→[1,1,0]`** (presence+accuracy,
+  via presence/accuracy correlation). Sum is preserved (== element score), so the 1125 value-2 cells
+  stay recoverable (ACC=1 & POS=0).
+  - **Disambiguation attempt (inconclusive, revisit later)**: tried using the deployed component model
+    (`model_Components_20260622_225134`) to decide accuracy-vs-position for the 1125 value-2 cells. The
+    model is **blind on these sparse images** — mean presence prob ≈ 0.05 even for clearly-present
+    elements (vs 0.64–1.0 on high-score TELEFRED controls), so it produced no trustworthy signal
+    (1/1125 weak position candidate). Per policy the **manual table stays the truth**; we re-run this
+    after a model is retrained *with* this low-score data.
+- **Consolidation**: new `load_lowscorer` loader in `consolidate_templates.py` (reads
+  `Bildbewertung.csv`, applies the split) registered alongside the other sources; regenerates
+  `labels.csv` (8089→**8751** rows) + `img/`. `source='LOWSCORER'`, `cond='MANUAL'` (standalone copy
+  figures, no COPY/RECALL pair → `patient_id == uid`, e.g. `LS-15-Punkte-01`). `LOWSCORER` added to
+  `import_unified.BLACK_SOURCES` (black lines on white).
+- **Incremental import**: new `import_unified.py --only-source <fmt>` flag imports just the named
+  source(s) — **additive, non-destructive**, no DB reset. Imported the **662** LOWSCORER rows
+  (all detected `black`, 0 dropped, components complete) and set them **`validated=True`** so component
+  training picks them up via the existing `source IN ('TELEFRED','SYNTHETIC') OR validated=True` filter.
+  Not forced into the train split (unlike SYNTH_), so some land in val → honest low-score val metrics.
+- **DB safety**: took a full backup **`data/npsketch.prelowscore.db`** (409 MB) before importing. The
+  **465 pre-existing human-validated rows are preserved** (validated 465 → 1127 = 465 + 662 LOWSCORER;
+  total 8209 → 8871). Nothing existing was reset, deleted, or overwritten.
+
 ## [Unreleased] — Evaluator: inter-rater & model-vs-human reliability study
 
 New **AI-Training → Evaluator** feature to quantify that the component model deviates from ground
