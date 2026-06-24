@@ -173,16 +173,17 @@ def degrade_accuracy(m, e, rng, style="full"):
 
 # --------------------------------------------------------------- empirical priors
 def build_priors():
-    """Per score-band empirical conditionals from REAL TELEFRED labels:
+    """Per score-band empirical conditionals from REAL labels (TELEFRED + LOWSCORER):
     P(present_e | band), and given present, P(accuracy=1 | e,band), P(position=1 | e,band).
     Real low-score drawings keep certain elements (frame/circle) and drop others — sampling
-    from these makes synthetic structurally realistic (vs a uniform random subset)."""
+    from these makes synthetic structurally realistic (vs a uniform random subset). LOWSCORER
+    (662 manually-rated figures, scores 1-15) sharpens the otherwise-sparse low bands."""
     sys.path.insert(0, "/app")
     from database import get_db, TrainingDataImage
     from ai_training.dataset import components_to_vector
     db = get_db().__next__()
     rows = db.query(TrainingDataImage).filter(
-        TrainingDataImage.source_format == "TELEFRED",
+        TrainingDataImage.source_format.in_(("TELEFRED", "LOWSCORER")),
         TrainingDataImage.features_data.isnot(None)).all()
     import json as _j
     pres_c = [np.zeros(20) for _ in BANDS]; acc_c = [np.zeros(20) for _ in BANDS]
