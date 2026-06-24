@@ -50,10 +50,14 @@ logs) · `./templates → /app/templates` (RO: source data) · `./webapp → ngi
   **Component Map** link.
 - **`/ai_training_train.html`** — configure and start a training run (Total_Score, custom classes,
   or Components) directly from the UI; live progress.
-- **`/ai_training_data_view.html`** — browse training images; per-item Total_Score + 🧩 component
-  labels; sort by score; the *Only Missing* filter surfaces unlabelled images.
-  (Bulk import is CLI-only via `import_unified.py`; the old `ai_training_data_upload.html`
-  redirects here.)
+- **`/ai_training_data_view.html`** — browse/filter training images; per-item Total_Score + 🧩
+  component labels; filters: *Only Missing*, *Σ-only*, *Validated*, *Total_Score range*, *Last 24h*
+  (+ a matched/total chip). Click a row to view/edit components (image switch Processed/Original +
+  crop, validated 🔒 lock). Stats cards incl. a **Best Model** card that opens model details and
+  can set the ⭐ **current model**. (Bulk import is CLI-only via `import_unified.py`.)
+- **`/ai_training_evaluator.html`** — **Evaluator**: build a held-out study, blind-rate it with N
+  raters (component editor, no model hint), then an analysis dashboard (deviation vs ground truth,
+  inter-rater ICC/κ, Bland-Altman, most-critical components) + CSV export.
 - **`/component_map.html`** — explainability: where each of the 20 elements sits on the reference
   figure (data-driven heatmaps **and** the component model's Grad-CAM attention). See below.
 - **`/run_test.html`** — batch-evaluate a model over the drawn test images (predicted vs expected).
@@ -191,7 +195,12 @@ Single table **`training_data_images`** (SQLite, `data/npsketch.db`):
 | `original_file_data`, `processed_image_data` | original BLOB + normalized 568×274 PNG |
 | `image_hash` | SHA256 of the original (dedup) |
 | `features_data` | JSON `{Total_Score, components:{presence[20],accuracy[20],position[20]}}`; **NULL = unlabelled** |
+| `validated`, `validated_at` | human write-protect; component training also includes any validated row |
+| `model_prediction` | best/current model's prediction, stored in parallel (never overwrites `features_data`) |
 | `uploaded_at`, `session_id`, `extraction_metadata` | provenance |
+
+Plus the **Evaluator** tables: `evaluation_studies`, `evaluation_items` (image set + GT snapshot),
+`evaluation_ratings` (each rater's blind score), `evaluation_model_runs` (cached model run per study).
 
 ---
 
@@ -225,12 +234,17 @@ Full interactive list: `http://localhost/api/docs`.
 - `POST /api/normalize-image`, `POST /api/check-duplicate` — upload preprocessing.
 - `POST /api/save-drawn-image` — save a drawn/uploaded image as training data (accepts `total_score`,
   `components`, `source_format` = DRAWN/UPLOAD).
-- `GET /api/training-data-images` — list (returns `total_score`, `has_components`; `only_missing` filter).
-- `GET /api/training-data-image/{id}` · `/{id}/features` · `/{id}/original` · `DELETE`.
+- `GET /api/training-data-images` — list (returns `total_score`, `has_components`, `validated`;
+  filters `only_missing` / `scored_only` / `validated` / `score_min`+`score_max` / `recent_hours`).
+- `GET /api/training-data-image/{id}` · `/{id}/features` · `/{id}/original` · `/{id}/processed` ·
+  `/{id}/crop-and-reprocess` · `DELETE`.
 - `GET /api/ai-training/dataset-info` · `/available-features` · `/feature-distribution/{feature}`.
 - `POST /api/ai-training/start-training` · `GET /training-status`.
-- `GET /api/ai-training/models` · `/models/{file}/metadata` · `POST /models/predict-single` ·
-  `POST /models/run-on-test-images`.
+- `GET /api/ai-training/models` (incl. `is_current`) · `/models/{file}/metadata` ·
+  `POST /models/predict-single` (`return_normalized`) · `GET /models/current` · `POST /models/set-current`.
+- **Evaluator:** `POST/GET /api/evaluator/studies` · `GET/DELETE /studies/{id}` ·
+  `GET /studies/{id}/queue?rater=` · `POST /studies/{id}/rating` · `GET /studies/{id}/analysis?model=` ·
+  `GET /studies/{id}/export.csv`.
 - `POST /api/admin/reset-database` · `/cleanup-tmp`.
 
 ---

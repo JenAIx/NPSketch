@@ -143,7 +143,11 @@ docker compose up --build -d
 - **http://localhost/ai_training.html** - AI training menu
 - **http://localhost/ai_training_overview.html** - Dataset overview & trained models
 - **http://localhost/ai_training_train.html** - Train new models
-- **http://localhost/ai_training_data_view.html** - View & label training data
+- **http://localhost/ai_training_data_view.html** - View, filter & label training data (filters:
+  Only-Missing, Σ-only, Validated, Total_Score range, Last-24h; per-image component editing with
+  image switch/crop; best-model card with ⭐ current-model promotion)
+- **http://localhost/ai_training_evaluator.html** - Evaluator: inter-rater & model-vs-human
+  reliability study (build a held-out set, blind-rate with N raters, analyse deviations)
 - **http://localhost/ai_training_data_upload.html** - Upload training data (MAT/OCS)
 - **http://localhost/api/docs** - Interactive API documentation
 
@@ -633,6 +637,32 @@ Tested on 182 validation samples
 # Result: 919 samples → ~306 per class
 ```
 
+### Component training sources (2026-06)
+
+The component model trains on **TELEFRED + SYNTHETIC** plus **any human-`validated` row** of any
+source (e.g. OXFORD/DRAWN labelled via the data-view modal or the Review queue). Rows still need
+component sub-labels, so score-only images are auto-excluded; `pos_weight` is computed over the same
+inclusion set. Machine-generated labels (ALGORITHM/OCS_MACHINE) stay out until validated. Set the
+live model with the ⭐ **current-model** marker (see API above).
+
+### Evaluator — inter-rater & model-vs-human reliability
+
+`ai_training_evaluator.html` runs a small study to show the component model deviates from ground
+truth no more than human raters do:
+
+1. **Build** — sample **held-out** TELEFRED images (the current model's validation set) with
+   ground-truth components, per score band (configurable count; default 20/band). Presentation
+   order is **randomized** (not score-sorted) to avoid rater bias; ground truth is snapshotted.
+2. **Rate** — N fixed raters (A/B/…) **blindly** score every image via the shared component editor
+   (no model/GT shown). Ratings persist in the DB; pause/resume (first-unrated) and review.
+3. **Analyse** — pick the AI-rater model (default current), then get a headline verdict, a deviation
+   table (each rater + model vs GT: MAE/RMSE/bias/Pearson/ICC + sub-label agreement & Cohen's κ),
+   inter-rater stats, Bland-Altman + most-critical-component charts, and CSV export. Total_Score is
+   the sum of the 60 sub-labels for GT, raters and model alike (fair, apples-to-apples).
+
+Tables: `evaluation_studies / items / ratings / model_runs` (auto-created). Tested in
+`api/test_evaluator.py`.
+
 ---
 
 ## 🔬 Data Extraction Tools
@@ -796,11 +826,29 @@ All three extractors produce identical characteristics:
 | `/api/ai-training/recalculate-class-counts` | POST | Recalculate after boundary change |
 | `/api/ai-training/start-training` | POST | Start model training (regression or classification) |
 | `/api/ai-training/training-status` | GET | Get training progress |
-| `/api/ai-training/models` | GET | List trained models |
+| `/api/ai-training/models` | GET | List trained models (incl. `is_current` flag) |
 | `/api/ai-training/models/{filename}/metadata` | GET | Get model metadata |
+| `/api/ai-training/models/current` | GET | The pinned "current" model per mode |
+| `/api/ai-training/models/set-current` | POST | Pin a model as current for its mode |
 | `/api/ai-training/models/test` | POST | Test model on validation set |
-| `/api/ai-training/models/predict-single` | POST | Predict single image |
+| `/api/ai-training/models/predict-single` | POST | Predict single image (`return_normalized=true` also returns the 568×274 normalized PNG) |
 | `/api/ai-training/models/{filename}` | DELETE | Delete model |
+
+**Current model marker:** `data/models/current_models.json` records the live model per mode
+(components / regression / classification). It's honored by `precompute_predictions.py`, the
+`evaluate.html` default selection, and the ⭐ UI in overview / data-view.
+
+### Evaluator (rater reliability study)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/evaluator/studies` | POST | Build a study (held-out TELEFRED per score band; `n_raters`, `per_band`) |
+| `/api/evaluator/studies` | GET | List studies + per-rater progress |
+| `/api/evaluator/studies/{id}` | GET / DELETE | Study detail (per-band, progress) / delete |
+| `/api/evaluator/studies/{id}/queue?rater=A` | GET | Blind ordered queue for a rater (no GT/model leaked) |
+| `/api/evaluator/studies/{id}/rating` | POST | Upsert a rater's blind score (stored in DB) |
+| `/api/evaluator/studies/{id}/analysis?model=` | GET | MAE/RMSE/bias/Pearson/ICC + per-sub-label agreement/κ + inter-rater + headline |
+| `/api/evaluator/studies/{id}/export.csv?model=` | GET | Per-image GT / each rater / model totals |
 
 ### Example: Train Model via API
 

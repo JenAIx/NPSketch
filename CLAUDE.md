@@ -39,7 +39,8 @@ NPSketch/
 │   │   ├── training_data.py          # Training-data management, /save-drawn-image (components)
 │   │   ├── ai_training_base.py       # Dataset info, features, distributions, start-training
 │   │   ├── ai_training_classification.py  # Class generation / custom-class endpoints
-│   │   └── ai_training_models.py     # Model list / metadata / test / predict-single / run-on-test-images
+│   │   ├── ai_training_models.py     # Model list / metadata / test / predict-single / current-model marker
+│   │   └── evaluator.py              # Evaluator: rater-reliability studies (build/queue/rating/analysis)
 │   │
 │   ├── data_consolidation/           # consolidate_templates.py + import_unified.py (the single import)
 │   │   ├── coregistration.py         # shared gated RIGID_BODY pystackreg align (feature/coreg; not adopted)
@@ -71,9 +72,9 @@ NPSketch/
 ├── webapp/                           # Frontend (static HTML/JS/CSS, served by nginx)
 │   ├── index.html · evaluate.html (merged upload+draw: predict / label & save) · run_test.html
 │   ├── upload.html · draw_testimage.html   # redirect stubs → evaluate.html?input=upload|draw
-│   ├── ai_training*.html (menu, overview, train, data_view, data_upload)
+│   ├── ai_training*.html (menu, overview, train, data_view, data_upload, evaluator)
 │   ├── admin.html · docs.html
-│   └── css/ (common.css, ai_training_common.css) · js/ (incl. component_result.js)
+│   └── css/ (common.css, ai_training_common.css) · js/ (component_result.js, component_editor.js)
 │
 ├── data/                             # Persistent volume (RW): npsketch.db, models/, visualizations/, logs/, tmp/
 ├── templates/                        # Input data volume (RO): bsp_ocsplus_202511/, training_data_oxford_*/
@@ -173,6 +174,12 @@ uploaded_at     datetime
 # (quality_check_status/date columns were removed in 2.1.0)
 ```
 
+Evaluator tables (rater-reliability studies, auto-created by `init_database()`):
+`evaluation_studies` (config: name, model_filename, n_raters, per_band_config),
+`evaluation_items` (study image set + frozen GT snapshot: gt_total, gt_components),
+`evaluation_ratings` (each rater's blind score per image — the rater work lives here),
+`evaluation_model_runs` (cached model prediction per (study, model) for analysis).
+
 Other tables: `reference_images` (templates + manually-defined `lines_data` JSON),
 `uploaded_images` (drawings for algorithm evaluation), `evaluation_results` (comparison output).
 Confirm exact columns in `database.py` before relying on them — this list is a summary.
@@ -202,8 +209,12 @@ Mounted in `api/main.py`. Full interactive list: `http://localhost/api/docs`.
   `/feature-distribution/{feature}`, `/start-training`, `/training-status`
 - **ai_training_classification.py** — `/api/ai-training/custom-class-distribution/{feature}`,
   `/generate-classes`, `/recalculate-class-counts`
-- **ai_training_models.py** — `/api/ai-training/models` (GET/DELETE), `/models/{filename}/metadata`,
-  `/models/test`, `/models/predict-single`, `/models/run-on-test-images` ("Run Tests")
+- **ai_training_models.py** — `/api/ai-training/models` (GET/DELETE; GET returns `is_current`),
+  `/models/{filename}/metadata`, `/models/test`, `/models/predict-single` (`return_normalized`),
+  `/models/run-on-test-images` ("Run Tests"), `/models/current` (GET), `/models/set-current` (POST)
+- **evaluator.py** — `/api/evaluator/studies` (GET/POST), `/studies/{id}` (GET/DELETE),
+  `/studies/{id}/queue?rater=`, `/studies/{id}/rating` (POST), `/studies/{id}/analysis?model=`,
+  `/studies/{id}/export.csv`
 - **admin.py** — `/api/admin/reset-database`, `/api/admin/cleanup-tmp`
 
 > Endpoint paths are summarised from the routers; treat `/api/docs` as the source of truth.
@@ -241,7 +252,9 @@ checkpoint):
 - **classification** (`Custom_Class_<N>`): softmax + CrossEntropy, inverse-frequency class weights.
   Metrics accuracy/F1/precision/recall/confusion-matrix.
 - **components** (`Components`, 2026-06): 60 sub-labels (20 elements × Presence/Accuracy/Position),
-  `BCEWithLogitsLoss` + per-label `pos_weight`, Total_Score = sum. **TELEFRED-only** (v1). Metrics
+  `BCEWithLogitsLoss` + per-label `pos_weight`, Total_Score = sum. Trains on **TELEFRED + SYNTHETIC +
+  any human-`validated` row** (`data_loader` `include_validated` → `source.in_(('TELEFRED','SYNTHETIC'))
+  OR validated==True`, components required; `pos_weight` over the same set). Metrics
   per-sub-label/aspect/component F1 + derived-score R²/RMSE/MAE + per-decade. Launch:
   `start_telefred_component_training.py`. `predict-single` returns 60 probabilities + derived score.
 
@@ -256,10 +269,12 @@ extracted from the official scoring manual into `data/element_definitions.json` 
 `gen_synth_image.py` composes low-score figures as `element region ∩ reference ink = real strokes`
 with **exact** 60-component labels (type-aware position/accuracy degradation). `--insert` writes rows
 as `source_format='SYNTHETIC'`, `patient_id='SYNTH_*'` (forced into train via `split_strategy`);
-component training picks them up (`data_loader` source filter is now `.in_(('TELEFRED','SYNTHETIC'))`).
-Adding 500 synthetic low-score rows cut derived-score MAE −25 % (0–29) with no overall cost
-(model `model_Components_20260617_023227`). `--purge` removes them. (The old `synthetic_score_based.py`
-is broken — it loads the removed `ReferenceImage` table.)
+component training picks them up (`data_loader` source filter `('TELEFRED','SYNTHETIC')` **+ any
+`validated` row** when `include_validated`). Adding 500 synthetic low-score rows cut derived-score
+MAE −25 % (0–29) with no overall cost (model `model_Components_20260617_023227`); the later
+`model_Components_20260622_225134` (+validated OXFORD/DRAWN, aligned `pos_weight`) is the current
+deployed model — large low-band gains (0–9 MAE 9.7→3.2). `--purge` removes synthetic rows.
+(The old `synthetic_score_based.py` is broken — it loads the removed `ReferenceImage` table.)
 
 > **Branches:** `feature/coreg` holds the (not-adopted) coregistration experiment + the element/
 > synthetic work; `feature/synthetic-gen` continues the synthetic generator (v2 realism). DB backups:
@@ -313,8 +328,9 @@ Things that could bite — verify against code, don't trust prose blindly:
 - What is `algorithm_extraction/` for, and is it a supported import path alongside MAT/OCS/Oxford?
 - Are the root-level `start_*` / `grid_search` / `debug_*` scripts still used, or can they be archived?
 - Is `docs/` meant to hold anything? It is currently empty.
-- Extend the component head beyond TELEFRED-only (v1), and label the 608 NULL-feature ("Only Missing")
-  TELEFRED images so they re-enter training?
+- (Partly addressed) Component head now also trains on validated OXFORD/DRAWN. Still open: label
+  the NULL-feature ("Only Missing") TELEFRED images so they re-enter training; and run a real
+  **Evaluator** study with 2 human raters for the publication numbers.
 
 ---
 
