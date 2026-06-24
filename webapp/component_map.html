@@ -100,15 +100,19 @@
             </div>
             <div class="el-picker" id="elPicker"></div>
             <div class="ann-tools">
-                <label>Brush <input type="range" id="brushSize" min="4" max="48" value="16"><span id="brushVal">16</span>px</label>
-                <label><input type="checkbox" id="eraseMode"> Eraser</label>
+                <button id="annLockBtn" type="button" onclick="toggleAnnLock()" title="Bearbeiten der hand-verifizierten Element-Regionen sperren/entsperren">🔒 Bearbeiten gesperrt</button>
                 <label><input type="checkbox" id="showAll" checked> Show all elements</label>
                 <label><input type="checkbox" id="showHint"> Heatmap hint</label>
-                <button class="ghost" id="undoBtn" onclick="annUndo()">↩ Undo</button>
-                <button class="ghost" id="clearElBtn" onclick="annClearElement()">Clear element</button>
-                <button class="ghost" id="clearAllBtn" onclick="annClearAll()">Clear all</button>
-                <button id="saveAnnBtn" onclick="annSave()">💾 Save definitions</button>
+                <span id="annEditTools" style="display:contents;">
+                    <label>Brush <input type="range" id="brushSize" min="4" max="48" value="16"><span id="brushVal">16</span>px</label>
+                    <label><input type="checkbox" id="eraseMode"> Eraser</label>
+                    <button class="ghost" id="undoBtn" onclick="annUndo()">↩ Undo</button>
+                    <button class="ghost" id="clearElBtn" onclick="annClearElement()">Clear element</button>
+                    <button class="ghost" id="clearAllBtn" onclick="annClearAll()">Clear all</button>
+                    <button id="saveAnnBtn" onclick="annSave()">💾 Save definitions</button>
+                </span>
                 <span class="ann-status" id="annStatus"></span>
+                <span id="annLockWarn" style="display:none; color:#c0392b; font-weight:600; font-size:.85em;">⚠️ Entsperrt — Malen/Löschen &amp; Speichern überschreiben die verifizierte Geometrie.</span>
             </div>
             <div class="ann-canvas-wrap">
                 <canvas id="annCanvas" width="568" height="274"></canvas>
@@ -226,6 +230,7 @@
     let annState = {};           // element(1..20) -> [ {width, erase, points:[[x,y]]} ]
     for (let e = 1; e <= 20; e++) annState[e] = [];
     let curEl = 1, curStroke = null, painting = false;
+    let annLocked = true;   // edit-lock: protect the hand-verified regions; selection/view stay live
     let annRefImg = null;
     const hintCache = {};        // element -> Image or false
 
@@ -294,6 +299,7 @@
         return [(t.clientX - r.left) * AW / r.width, (t.clientY - r.top) * AH / r.height];
     }
     function annDown(e) {
+        if (annLocked) return;        // drawing only in unlocked mode; selection/view still work
         e.preventDefault();
         const o = annOpts();
         painting = true;
@@ -319,6 +325,30 @@
     annCanvas.addEventListener('touchstart', annDown, { passive: false });
     annCanvas.addEventListener('touchmove', annMove, { passive: false });
     annCanvas.addEventListener('touchend', annUp);
+
+    // ---- edit lock: drawing / undo / clear / save only when explicitly unlocked.
+    // Element selection, "Show all" and "Heatmap hint" stay live in both states. ----
+    const ANN_EDIT_CONTROLS = ['brushSize', 'eraseMode', 'undoBtn', 'clearElBtn', 'clearAllBtn', 'saveAnnBtn'];
+    function setAnnLocked(locked) {
+        annLocked = locked;
+        const tools = document.getElementById('annEditTools');
+        if (tools) tools.style.display = locked ? 'none' : 'contents';   // hide edit controls entirely when locked
+        ANN_EDIT_CONTROLS.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = locked; });
+        const btn = document.getElementById('annLockBtn');
+        if (btn) {
+            btn.textContent = locked ? '🔒 Bearbeiten gesperrt' : '🔓 Bearbeiten entsperrt';
+            btn.style.background = locked ? '#b8860b' : '#c0392b';
+        }
+        const warn = document.getElementById('annLockWarn');
+        if (warn) warn.style.display = locked ? 'none' : '';
+        if (annCanvas) annCanvas.style.cursor = locked ? 'not-allowed' : 'crosshair';
+    }
+    window.toggleAnnLock = () => {
+        if (!annLocked) { setAnnLocked(true); return; }
+        if (!confirm('⚠️ Element-Regionen entsperren?\n\nDie Geometrie ist hand-verifiziert. Entsperrt kannst du Regionen malen/löschen und mit „💾 Save definitions" die verifizierte Definition überschreiben.\n\nNur fortfahren, wenn du das wirklich willst.')) return;
+        setAnnLocked(false);
+    };
+    setAnnLocked(true);   // locked by default
 
     function selectEl(e) { curEl = e; loadHint(); redrawBg(); composite(); renderPicker(); }
     function renderPicker() {
@@ -349,14 +379,16 @@
         img.src = `/api/visualizations/element_map/data_e${id}.png?_=${Date.now()}`;
     }
 
-    window.annUndo = () => { annState[curEl].pop(); redrawBg(); composite(); renderPicker(); updateProgress(); };
-    window.annClearElement = () => { annState[curEl] = []; redrawBg(); composite(); renderPicker(); updateProgress(); };
+    window.annUndo = () => { if (annLocked) return; annState[curEl].pop(); redrawBg(); composite(); renderPicker(); updateProgress(); };
+    window.annClearElement = () => { if (annLocked) return; annState[curEl] = []; redrawBg(); composite(); renderPicker(); updateProgress(); };
     window.annClearAll = () => {
+        if (annLocked) return;
         if (!confirm('Clear ALL painted regions for all 20 elements?')) return;
         for (let e = 1; e <= 20; e++) annState[e] = [];
         redrawBg(); composite(); renderPicker(); updateProgress();
     };
     window.annSave = async () => {
+        if (annLocked) return;
         const btn = document.getElementById('saveAnnBtn'); const st = document.getElementById('annStatus');
         btn.disabled = true; st.textContent = '⏳ Saving…';
         const payload = { image_size: [AW, AH], elements: [] };
