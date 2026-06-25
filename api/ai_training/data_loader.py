@@ -398,7 +398,8 @@ class TrainingDataLoader:
         max_images: Optional[int] = None,
         source_filter: Optional[str] = None,
         include_validated: bool = False,
-        val_patient_ids: Optional[set] = None
+        val_patient_ids: Optional[set] = None,
+        exclude_sources: Optional[list] = None
     ) -> Tuple[Dict, str]:
         """
         Prepare augmented training dataset and save to disk.
@@ -464,6 +465,11 @@ class TrainingDataLoader:
             else:
                 query = query.filter(TrainingDataImage.source_format.in_(srcs))
                 logger.info(f"Restricting to source_format in {srcs}")
+        if exclude_sources:
+            # hard-exclude these sources regardless of the include/validated logic above
+            # (non-destructive ablation, e.g. train WITHOUT SYNTHETIC while keeping the rows)
+            query = query.filter(~TrainingDataImage.source_format.in_(list(exclude_sources)))
+            logger.info(f"Excluding source_format in {list(exclude_sources)}")
         images = query.all()
 
         # Filter images with target feature

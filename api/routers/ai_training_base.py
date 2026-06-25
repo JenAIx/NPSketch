@@ -451,7 +451,8 @@ def run_training_job(config):
                     max_images=config.get('max_images'),
                     source_filter=(('TELEFRED', 'SYNTHETIC') if is_components else None),
                     include_validated=is_components,   # + any human-validated row (OXFORD/DRAWN/…)
-                    val_patient_ids=config.get('val_patient_ids')
+                    val_patient_ids=config.get('val_patient_ids'),
+                    exclude_sources=config.get('exclude_sources')   # e.g. ['SYNTHETIC'] for a no-synth ablation
                 )
 
                 train_loader, val_loader, stats = create_augmented_dataloaders(
