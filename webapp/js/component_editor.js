@@ -28,6 +28,7 @@
  *   ed.setState(components)                // {presence:[20],accuracy:[20],position:[20]}
  *   ed.getState()                          // -> current components (a copy)
  *   ed.setComparison({model, orig})        // model = best-model components, orig = previously-saved
+ *   ed.setConfidence(elements)             // live prediction.elements (probs+thresholds) → 🎯 toggle: per-cell margin overlay
  *   ed.setScores(html)                     // raw HTML for the scores line (showScores instances)
  *   ed.setLocked(bool)                     // read-only grid (e.g. a validated image)
  *   ed.total()                             // current Total_Score (0..60)
@@ -36,6 +37,15 @@
 window.ComponentEditor = (function () {
   const ELS = Array.from({ length: 20 }, (_, i) => i);
   const KEYS = ['presence', 'accuracy', 'position'];
+  const KEYS_LABEL = { presence: 'Presence', accuracy: 'Accuracy', position: 'Position' };
+  // Confidence of the hard decision (p>=thr), normalized to the room on the DECIDED side of the
+  // threshold: 1 = at the extreme prob (0 or 1, fully confident), 0 = exactly at the threshold
+  // (max uncertain). This avoids flagging a confident p≈0 as "uncertain" just because the threshold
+  // is low (e.g. p=0.00, thr=0.10 → conf=1.0, not 0.10).
+  function decisionConf(p, thr) {
+    return p >= thr ? (p - thr) / Math.max(1e-6, 1 - thr) : (thr - p) / Math.max(1e-6, thr);
+  }
+  const UNCERTAIN_FRAC = 0.20;   // decision confidence below this (20%) = "on the fence"
   // element colours — same scheme as the Component Map / Review Queue (e is 0-based)
   const elColor = e => `hsl(${Math.round(e * 360 / 20)}, 75%, 46%)`;
   // short header definitions (OCS-Plus Figure Copy scoring manual → docs/SCORING_CRITERIA.md)
@@ -150,6 +160,7 @@ window.ComponentEditor = (function () {
     const footerTag = leftFooter ? '<div class="ce-leftfooter" style="margin-top:12px;"></div>' : '';
 
     let st = blank(), model = null, orig = null, hl = null, locked = false;
+    let conf = null, showConf = false;   // per-cell {p,thr} from a live prediction; toggled display
     let imgSrc = 'processed', imgs = { processed: null, original: null, imageId: null };
     const crop = { active: false, p1: null, p2: null, nW: 0, nH: 0 };
 
@@ -226,8 +237,15 @@ window.ComponentEditor = (function () {
           const sb = changed ? ` <span style="color:#2c7be5;font-weight:700">was${o ? '✓' : '✗'}</span>` : '';
           badges = `<div style="font-size:.6em;line-height:1.1;height:.9em;">${mb}${sb}</div>`;
         }
-        return `<td data-e="${e}" data-k="${k}" style="cursor:${locked ? 'default' : 'pointer'};text-align:center;padding:2px;">
-          <div style="background:${c ? '#2e7d32' : '#bdbdbd'};color:#fff;border-radius:4px;padding:${showComparison ? '2px 0' : '3px 0'};border:${contradict ? '2px solid #e67e22' : '2px solid transparent'};${locked ? 'opacity:.85;' : ''}">
+        // confidence overlay (live, when a prediction's probabilities are loaded + toggled on)
+        let tip = '', ring = '';
+        if (showConf && conf && conf[k] && conf[k][e]) {
+          const cc = conf[k][e], dc = decisionConf(cc.p, cc.thr), unc = dc < UNCERTAIN_FRAC;
+          tip = ` data-tip="${KEYS_LABEL[k]} · p=${cc.p.toFixed(2)} · thr=${cc.thr.toFixed(2)} → ${cc.p >= cc.thr ? '✓ present' : '✗ absent'} · Konfidenz ${Math.round(dc * 100)}%${unc ? '  (unsicher)' : ''}"`;
+          if (unc) ring = 'box-shadow:0 0 0 2px #f1c40f inset;';
+        }
+        return `<td data-e="${e}" data-k="${k}"${tip} style="cursor:${locked ? 'default' : 'pointer'};text-align:center;padding:2px;">
+          <div style="background:${c ? '#2e7d32' : '#bdbdbd'};color:#fff;border-radius:4px;padding:${showComparison ? '2px 0' : '3px 0'};border:${contradict ? '2px solid #e67e22' : '2px solid transparent'};${ring}${locked ? 'opacity:.85;' : ''}">
             <div style="font-size:.85em;font-weight:700;">${c ? '✓' : '✗'}</div>${badges}
           </div></td>`;
       };
@@ -251,7 +269,23 @@ window.ComponentEditor = (function () {
         if (showComparison) head +=
           `<div style="font-size:.72em;color:#888;margin-bottom:6px;">green ✓ present / grey ✗ absent · <span style="color:#e67e22;">orange = disagrees with model (M)</span> · <span style="color:#2c7be5;">blue = changed from saved</span> · click E-cell → highlight on reference</div>`;
       }
-      gridEl.innerHTML = head +
+      // confidence toggle + summary (independent of showHeaderTotal); only when conf data is loaded
+      let confBar = '';
+      if (conf) {
+        let n = 0, mn = null, mnLbl = '';
+        for (const e of ELS) for (const k of KEYS) {
+          const cc = conf[k] && conf[k][e]; if (!cc) continue;
+          const dc = decisionConf(cc.p, cc.thr);
+          if (dc < UNCERTAIN_FRAC) n++;
+          if (mn == null || dc < mn) { mn = dc; mnLbl = `E${String(e + 1).padStart(2, '0')}-${KEYS_LABEL[k]}`; }
+        }
+        const badge = n === 0 ? '🟢' : n <= 3 ? '🟡' : '🔴';
+        confBar = `<div style="font-size:.8em;margin-bottom:6px;">` +
+          `<button type="button" data-ce-conftoggle style="padding:2px 9px;border:1px solid #ccc;border-radius:5px;background:${showConf ? '#fff3cd' : '#f1f3f5'};cursor:pointer;font-weight:600;">🎯 Konfidenz ${showConf ? '▾' : '▸'}</button>` +
+          (showConf ? `&nbsp;<span style="color:#555;">${badge} <b>${n}</b>/60 unsicher (Entscheidungs-Konfidenz &lt;${Math.round(UNCERTAIN_FRAC * 100)}%) · min ${mn == null ? '—' : Math.round(mn * 100) + '%'} @ ${mnLbl} · <span style="color:#b8860b;">gelber Ring = Wackelkandidat (hover: p/thr/Konfidenz)</span></span>` : '') +
+          `</div>`;
+      }
+      gridEl.innerHTML = head + confBar +
         `<table style="width:100%;border-collapse:collapse;font-size:.9em;">
            <thead><tr style="background:#f8f9fa;">
              <th data-tip="${ASPECT_HELP.el}" style="cursor:help;">El</th>
@@ -265,6 +299,8 @@ window.ComponentEditor = (function () {
     }
 
     gridEl.addEventListener('click', ev => {
+      const ct = ev.target.closest('[data-ce-conftoggle]');
+      if (ct) { showConf = !showConf; render(); return; }      // confidence overlay toggle
       const elCell = ev.target.closest('[data-el]');
       if (elCell) { highlight(+elCell.dataset.el); return; }   // highlight always allowed
       if (locked) return;
@@ -382,6 +418,20 @@ window.ComponentEditor = (function () {
     function setState(comp) { st = clone(comp); render(); }
     function getState() { return clone(st); }
     function setComparison(c) { c = c || {}; model = c.model ? clone(c.model) : null; orig = c.orig ? clone(c.orig) : null; render(); }
+    // per-sub-label confidence from a LIVE prediction: elements = prediction.elements
+    // (each {element, presence, accuracy, position, thr_presence, thr_accuracy, thr_position}).
+    // Stores prob+threshold per cell so render() can show the margin (|p-thr|) on demand.
+    function setConfidence(elements) {
+      if (!elements || !elements.length) { conf = null; showConf = false; render(); return; }
+      const c = { presence: Array(20).fill(null), accuracy: Array(20).fill(null), position: Array(20).fill(null) };
+      elements.forEach(el => {
+        const e = el.element - 1; if (e < 0 || e > 19) return;
+        c.presence[e] = { p: +el.presence, thr: +el.thr_presence };
+        c.accuracy[e] = { p: +el.accuracy, thr: +el.thr_accuracy };
+        c.position[e] = { p: +el.position, thr: +el.thr_position };
+      });
+      conf = c; render();
+    }
     function setScores(html) { if (scoresEl) scoresEl.innerHTML = html || ''; }
     function setLeftFooter(html) { if (leftFooterEl) leftFooterEl.innerHTML = html || ''; }
     function setLocked(on, hint) {
@@ -427,7 +477,7 @@ window.ComponentEditor = (function () {
     render();
     if (showReference || showImage) loadRefAssets().then(() => { drawReference(refEl, hl); if (imgSrc === 'processed') drawImgOverlay(ovEl, hl); });
 
-    return { setImage, setImages, setState, getState, setComparison, setScores, setLeftFooter, setLocked, setGridVisible, total, highlight, toggle, refresh };
+    return { setImage, setImages, setState, getState, setComparison, setConfidence, setScores, setLeftFooter, setLocked, setGridVisible, total, highlight, toggle, refresh };
   }
 
   return { create, loadRefAssets, elColor };

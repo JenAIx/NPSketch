@@ -688,7 +688,7 @@
     </div>
 
     <script src="/js/component_result.js?v=3"></script>
-    <script src="/js/component_editor.js?v=8"></script>
+    <script src="/js/component_editor.js?v=10"></script>
     <script>
         let existingData = [];
         let allData = [];  // Store all loaded data for client-side search
@@ -815,6 +815,25 @@
                     st.position[e] = el.position >= el.thr_position ? 1 : 0;
                 });
                 return st;
+            } catch (e) { return null; }
+        }
+
+        // refresh: predict on a stored image with the CURRENT (pinned) components model.
+        // Uses the by-id endpoint (no upload) and returns {filename, elements (probs+thr), hard 0/1, total} or null.
+        async function predictWithCurrentModel(imageId) {
+            let fn = null;
+            try { fn = (await (await fetch('/api/ai-training/models/current')).json())?.current?.components?.filename; } catch (e) {}
+            if (!fn) return null;
+            try {
+                const r = await (await fetch(`/api/ai-training/models/${fn}/predict/${imageId}`)).json();
+                const els = (r && r.prediction && r.prediction.elements) || [];
+                if (!els.length) return null;
+                const hard = { presence: Array(20).fill(0), accuracy: Array(20).fill(0), position: Array(20).fill(0) };
+                els.forEach(el => { const e = el.element - 1;
+                    hard.presence[e] = el.presence >= el.thr_presence ? 1 : 0;
+                    hard.accuracy[e] = el.accuracy >= el.thr_accuracy ? 1 : 0;
+                    hard.position[e] = el.position >= el.thr_position ? 1 : 0; });
+                return { filename: fn, elements: els, hard, total: r.prediction.total_score };
             } catch (e) { return null; }
         }
         // "20260617_023227" -> "2026-06-17 · 02:32"
@@ -1234,6 +1253,11 @@
                     </p>
                     <div id="modalLockBar" style="font-size:.9em;"></div>
                 </div>
+                <div id="modalRefreshBar" style="font-size:.82em; margin:-4px 0 10px;">
+                    <button id="modalRefreshBtn" class="btn btn-small" style="background:#667eea; color:#fff;">🔄 Mit aktuellem Modell neu vorhersagen</button>
+                    <button id="modalApplyBtn" class="btn btn-small" style="display:none; background:#8e44ad; color:#fff;" title="Die Kästchen auf die Modell-Vorhersage setzen (dann prüfen & speichern)">→ Labels = Modell übernehmen</button>
+                    <span id="modalRefreshNote" style="color:#777; margin-left:8px;"></span>
+                </div>
                 <div id="modalEditor"></div>`;
             
             modalImages.innerHTML = editorHtml;
@@ -1261,6 +1285,27 @@
             med.setImages({ processed: `/api/training-data-image/${img.id}/processed?v=${cacheBuster}`,
                             original: `/api/training-data-image/${img.id}/original?v=${cacheBuster}`, imageId: img.id });
             med.setComparison({ model: modelComp, orig: comp });
+
+            // Refresh: re-predict with the CURRENT model → fresh model suggestion/deviation + confidence overlay
+            document.getElementById('modalRefreshBtn').onclick = async () => {
+                const btn = document.getElementById('modalRefreshBtn'), note = document.getElementById('modalRefreshNote');
+                btn.disabled = true; note.textContent = '⏳ predicting…';
+                const res = await predictWithCurrentModel(img.id);
+                btn.disabled = false;
+                if (!res) { note.textContent = '❌ kein aktuelles Komponenten-Modell gesetzt'; return; }
+                med.setComparison({ model: res.hard, orig: comp });
+                med.setConfidence(res.elements);
+                note.innerHTML = `Vorschlag von <code>${res.filename}</code> (current) · Total <b>${res.total}</b> — 🎯 Konfidenz oben einblendbar`;
+                // offer to apply the fresh prediction INTO the label grid (then edit/save)
+                const applyBtn = document.getElementById('modalApplyBtn');
+                applyBtn.style.display = 'inline-block';
+                applyBtn.onclick = () => {
+                    med.setState(res.hard);            // boxes := model prediction
+                    baseline = cloneComp(res.hard);    // Revert returns to the applied model
+                    showEdit();                        // edit mode → Save appears
+                    note.innerHTML = `✓ Labels auf <code>${res.filename}</code> gesetzt — prüfen &amp; speichern`;
+                };
+            };
 
             // Any image can be component-labelled (incl. OXFORD, which has a Total_Score but no
             // components). The stored Total_Score stays shown above; saving recomputes it from the
@@ -1456,7 +1501,7 @@
 
     <script>
     const RQ = (function () {
-      let queue = [], idx = 0, curId = null, ed = null, qmode = '';
+      let queue = [], idx = 0, curId = null, ed = null, qmode = '', curRealC = null, curRefresh = null;
       const $ = id => document.getElementById(id);
 
       // the shared ComponentEditor is created once, the first time the reviewer is shown
@@ -1477,6 +1522,8 @@
              <button onclick="RQ.prev()" style="padding:8px 14px; border:none; border-radius:7px; background:#e9ecef; cursor:pointer;">← Prev</button>
              <button onclick="RQ.skip()" style="padding:8px 14px; border:none; border-radius:7px; background:#e9ecef; cursor:pointer;">Skip</button>
              <button onclick="RQ.saveNext()" style="padding:10px 20px; border:none; border-radius:7px; background:#2e7d32; color:#fff; font-weight:700; cursor:pointer;">💾 Save &amp; Next  (Enter)</button>
+             <button onclick="RQ.refreshModel()" title="Mit dem aktuellen Modell neu vorhersagen (+ Konfidenz)" style="padding:8px 14px; border:none; border-radius:7px; background:#667eea; color:#fff; cursor:pointer;">🔄 Modell neu</button>
+             <button id="rqApplyBtn" onclick="RQ.applyModel()" title="Die Kästchen auf die Modell-Vorhersage setzen" style="display:none; padding:8px 14px; border:none; border-radius:7px; background:#8e44ad; color:#fff; cursor:pointer;">→ übernehmen</button>
              <span id="rqSaveMsg" style="color:#2e7d32; font-size:.9em;"></span>
            </div>`);
         return ed;
@@ -1535,6 +1582,8 @@
         setImages(it.id);
         const f = await (await fetch(`/api/training-data-image/${it.id}/features`)).json();
         const realC = (f.features && f.features.components) || null;
+        curRealC = realC;   // remembered for the "🔄 Modell neu" refresh (orig = current labels)
+        curRefresh = null; { const ab = $('rqApplyBtn'); if (ab) ab.style.display = 'none'; }   // reset apply per item
         let model = (f.model_prediction && f.model_prediction.components) || null;
         const rs = f.features ? f.features.Total_Score : null;
         const ms = f.model_prediction ? f.model_prediction.Total_Score : null;
@@ -1566,6 +1615,23 @@
       }
       function skip() { advance(); }
       function prev() { if (idx > 0) load(idx - 1); }
+      // re-predict the current item with the CURRENT model → fresh suggestion/deviation + confidence
+      async function refreshModel() {
+        if (curId == null) return;
+        const msg = $('rqSaveMsg'); if (msg) { msg.style.color = '#667eea'; msg.textContent = '⏳ predicting…'; }
+        const res = await predictWithCurrentModel(curId);
+        if (!res) { if (msg) { msg.style.color = '#c0392b'; msg.textContent = '❌ kein current Modell'; } return; }
+        editor().setComparison({ model: res.hard, orig: curRealC });
+        editor().setConfidence(res.elements);
+        curRefresh = res; { const ab = $('rqApplyBtn'); if (ab) ab.style.display = 'inline-block'; }   // offer "übernehmen"
+        if (msg) { msg.style.color = '#2e7d32'; msg.textContent = `🔄 ${res.filename} · Total ${res.total} · 🎯 Konfidenz oben`; }
+      }
+      // set the grid to the last refreshed prediction (then Save & Next persists it)
+      function applyModel() {
+        if (!curRefresh) return;
+        editor().setState(curRefresh.hard);
+        const msg = $('rqSaveMsg'); if (msg) { msg.style.color = '#8e44ad'; msg.textContent = `✓ Labels = ${curRefresh.filename} · Save & Next speichert`; }
+      }
       function advance() { if (idx + 1 >= queue.length) finish(); else load(idx + 1); }
       function finish() {
         const n = queue.filter(x => x.saved).length;
@@ -1582,7 +1648,7 @@
       ['rqTask', 'rqMin', 'rqMax', 'rqDiff'].forEach(id => {
         const el = $(id); if (el) el.addEventListener('input', invalidate);
       });
-      return { open, close, modeChange, build, start, saveNext, skip, prev };
+      return { open, close, modeChange, build, start, saveNext, skip, prev, refreshModel, applyModel };
     })();
     </script>
 </body>

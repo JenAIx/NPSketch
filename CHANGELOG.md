@@ -4,6 +4,30 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [Unreleased] — Component editor: live confidence + model refresh/apply
+
+The shared ComponentEditor and the data-view (preview modal + Review & Label Queue) gain a way to see
+where the model is unsure and to re-apply an updated model on demand.
+
+- **Live confidence overlay (🎯 toggle, off by default).** `ComponentEditor.setConfidence(elements)`
+  takes a live prediction's `elements` (per-sub-label probability + threshold). A header toggle reveals
+  it: each uncertain sub-label cell gets a yellow ring + a hover tooltip (`p · thr → ✓/✗ · Konfidenz %`),
+  and a summary line shows `N/60 unsicher · 🟢/🟡/🔴 · min confidence @ Exx-aspect`.
+- **Confidence metric = decision margin, normalized to the decided side of the threshold**
+  (`(p−thr)/(1−thr)` if present, `(thr−p)/thr` if absent). 1 = at the extreme prob (fully confident),
+  0 = exactly at the threshold. This avoids flagging a confident `p≈0` as "uncertain" just because the
+  per-label threshold is low (e.g. `p=0.00, thr=0.10` → 100 % confident, not "on the fence"). Uncertain
+  = confidence < 20 %.
+- **"🔄 Refresh model"** in the preview modal and the Review & Label Queue re-predicts the image with
+  the **current** components model (`/models/current` → `/models/{f}/predict/{id}`, no upload) and
+  refreshes the model suggestion/deviation (M-badges, orange borders, differ-count) + the confidence
+  data. The label boxes are NOT changed — this is the compare view.
+- **"→ Apply model"** appears after a refresh: sets the label grid to the fresh prediction (modal →
+  edit mode + Save; queue → Save & Next persists), for accept-and-edit. Reset per image.
+- Files: `webapp/js/component_editor.js` (additive: `setConfidence` + toggle + per-cell overlay),
+  `webapp/ai_training_data_view.html` (refresh/apply in modal + queue); `?v=10` cache-bust bumped in
+  the pages that load the editor. No backend changes (both endpoints already existed).
+
 ## [2.3.0] - 2026-06-24 — LOWSCORER + retrain prep, evaluator, component-map/heatmap UX
 
 Rolls up the post-2.2.0 work below into a release. (The experimental coregistration branch further
