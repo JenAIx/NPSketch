@@ -254,6 +254,9 @@ class CNNTrainer:
             logger.info(f"Weight decay (L2 regularization): {weight_decay}")
         
         self.loss_name = None
+        # Optional component structural aux losses (components mode only; 0 = off)
+        self.consistency_hier_w = 0.0
+        self.consistency_sum_w = 0.0
         if training_mode == "classification":
             self.loss_name = 'CrossEntropyLoss'
             # Use class weights if provided
@@ -302,6 +305,13 @@ class CNNTrainer:
                 logger.info(f"Loss function: BCEWithLogitsLoss (components, {num_outputs} sub-labels)")
                 if pw is not None:
                     logger.info(f"  pos_weight enabled (per-label, len {len(pos_weight)})")
+            # Structural aux losses (added to the main component loss; 0 = off)
+            cons = comp_cfg.get('consistency', {}) or {}
+            self.consistency_hier_w = float(cons.get('hierarchy_weight', 0.0))
+            self.consistency_sum_w = float(cons.get('sum_weight', 0.0))
+            if self.consistency_hier_w or self.consistency_sum_w:
+                logger.info(f"  component consistency aux: hierarchy_w={self.consistency_hier_w}, "
+                            f"sum_w={self.consistency_sum_w}")
         else:
             self.criterion = nn.MSELoss()
             self.loss_name = 'MSELoss'
@@ -380,7 +390,28 @@ class CNNTrainer:
         else:
             # Single param group or no differential LR
             return self.optimizer.param_groups[0]['lr']
-    
+
+    def _component_consistency_loss(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Structural aux losses for the 60-sub-label head (indices per element:
+        3e=presence, 3e+1=accuracy, 3e+2=position).
+
+        - hierarchy: penalize predicted accuracy>presence and position>accuracy
+          (violations of the presence->accuracy->position rating hierarchy).
+        - sum: pull the soft component sum toward the real Total_Score (= sum of GT
+          labels), a global signal that regularizes the derived score.
+        Returns a scalar; only the enabled terms contribute.
+        """
+        p = torch.sigmoid(logits)
+        aux = logits.new_zeros(())
+        if self.consistency_hier_w:
+            p_pres, p_acc, p_pos = p[:, 0::3], p[:, 1::3], p[:, 2::3]
+            hier = torch.relu(p_acc - p_pres).mean() + torch.relu(p_pos - p_acc).mean()
+            aux = aux + self.consistency_hier_w * hier
+        if self.consistency_sum_w:
+            sum_diff = p.sum(dim=1) - targets.sum(dim=1)
+            aux = aux + self.consistency_sum_w * (sum_diff ** 2).mean()
+        return aux
+
     def train_epoch(
         self,
         train_loader: DataLoader,
@@ -417,7 +448,9 @@ class CNNTrainer:
             self.optimizer.zero_grad()
             outputs = self.model(images)
             loss = self.criterion(outputs, targets)
-            
+            if self.training_mode == "components" and (self.consistency_hier_w or self.consistency_sum_w):
+                loss = loss + self._component_consistency_loss(outputs, targets)
+
             # Backward pass
             loss.backward()
             self.optimizer.step()

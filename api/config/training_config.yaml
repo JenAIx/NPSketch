@@ -100,6 +100,13 @@ training:
       gamma_neg: 4.0    # focus/down-weight easy negatives
       gamma_pos: 1.0    # focus positives less (they are rare/valuable)
       clip: 0.05        # asymmetric hard-threshold for very-easy negatives
+    # Optional structural aux losses added to the main component loss (0 = off, so ASL
+    # can be A/B-tested alone first). hierarchy: penalize predicted accuracy>presence or
+    # position>accuracy (the presence->accuracy->position rating hierarchy). sum: pull the
+    # soft component sum toward the real Total_Score. Suggested to try: 0.1 / 0.01.
+    consistency:
+      hierarchy_weight: 0.0
+      sum_weight: 0.0
     lr_scheduling:
       enabled: true
       strategy: "reduce_on_plateau"
