@@ -1,8 +1,12 @@
 # NPSketch — Agent Guide (CLAUDE.md)
 
-Operational reference for working in this repo: architecture, Docker layout, file-access
-patterns, and the gotchas that aren't obvious from the code. Read this first, then `README.md`
-for the full functional documentation.
+Operational reference for working in this repo: Docker layout, file-access patterns, and the
+gotchas that aren't obvious from the code. Read this first, then `README.md` for the full
+functional documentation.
+
+> 📐 **For the system architecture — an ASCII data-flow graph and a component-by-component map of
+> training / synthetic / image-recognition / DB — see [`BLUEPRINT.md`](BLUEPRINT.md).** This file
+> keeps the layout & cheat-sheet an agent needs at its fingertips; BLUEPRINT is the big picture.
 
 ---
 
@@ -24,6 +28,9 @@ PyTorch (ResNet-18) · OpenCV / PIL · static HTML/JS frontend served by nginx.
 ---
 
 ## 2. Repository layout (verified)
+
+> Big-picture data flow & subsystem diagram: [`BLUEPRINT.md`](BLUEPRINT.md) §1. Below is the
+> file-level tree for precise navigation.
 
 ```
 NPSketch/
@@ -222,6 +229,9 @@ Mounted in `api/main.py`. Full interactive list: `http://localhost/api/docs`.
 ---
 
 ## 7. Pipeline cheat-sheet
+
+> Prose walkthrough of the same pipeline (sources → consolidate → import → train → infer):
+> [`BLUEPRINT.md`](BLUEPRINT.md) §3–§7. Below are the exact numbers/flags to keep at hand.
 
 **Normalized image format (all extractors + augmentation output):** 568×274 px, RGB PNG, black lines
 on white, line thickness **2.00 px** (Zhang-Suen thinning + dilation), ~5–7px margin.

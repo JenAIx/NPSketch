@@ -61,60 +61,14 @@ pipeline was removed in v2.0; see `CLAUDE.md`.)
 
 ## 🏗️ Architecture
 
-```
-npsketch/
-├── api/                          # FastAPI Backend
-│   ├── main.py                   # Application entry point
-│   ├── database.py               # SQLAlchemy models
-│   ├── routers/                  # API endpoints
-│   │   ├── admin.py              # Admin & migrations
-│   │   ├── upload.py             # Image upload & processing
-│   │   ├── evaluations.py        # Evaluation management
-│   │   ├── references.py         # Reference management
-│   │   ├── test_images.py        # Test image management
-│   │   ├── training_data.py      # Training data management
-│   │   └── ai_training.py        # AI model training
-│   ├── image_processing/         # Computer vision library
-│   │   ├── line_detector.py      # Hough Transform line detection
-│   │   ├── comparator.py         # Hungarian algorithm matching
-│   │   ├── image_registration.py # Image alignment
-│   │   └── utils.py              # Image preprocessing
-│   ├── ai_training/              # AI/ML pipeline
-│   │   ├── model.py              # ResNet-18 CNN model
-│   │   ├── trainer.py            # Training orchestration
-│   │   ├── dataset.py            # PyTorch data loaders
-│   │   ├── data_loader.py        # Database to dataset
-│   │   ├── data_augmentation.py  # Image augmentation
-│   │   └── split_strategy.py     # Stratified train/test split
-│   ├── mat_extraction/           # MATLAB file extractor
-│   ├── ocs_extraction/           # OCS image extractor
-│   ├── oxford_extraction/        # Oxford dataset extractor
-│   │   ├── oxford_normalizer.py  # Image normalization
-│   │   ├── oxford_db_populator.py # Database import
-│   │   └── validate_oxford_*.py  # Validation scripts
-│   └── requirements.txt          # Python dependencies
-├── webapp/                       # Frontend (HTML/JS/CSS)
-│   ├── css/                      # Stylesheets
-│   │   ├── common.css            # Global styles (all pages)
-│   │   └── ai_training_common.css # AI-specific styles
-│   ├── js/                       # JavaScript modules
-│   │   └── ai_training_preview_target_distribution.js
-│   ├── index.html                # Landing page
-│   ├── evaluate.html             # Upload OR draw → predict / label & save (merged)
-│   ├── upload.html · draw_testimage.html  # redirect stubs → evaluate.html
-│   ├── ai_training.html          # AI training menu
-│   ├── ai_training_overview.html # Dataset overview & models
-│   ├── ai_training_train.html    # Model training interface
-│   ├── ai_training_data_view.html # View & label data
-│   └── ai_training_data_upload.html # Upload MAT/OCS
-├── data/                         # Persistent data (volume)
-│   ├── npsketch.db               # SQLite database
-│   ├── models/                   # Trained CNN models
-│   └── visualizations/           # Generated images
-├── nginx/                        # Reverse proxy config
-├── docker-compose.yml            # Container orchestration
-└── README.md                     # This file
-```
+**Stack:** FastAPI (Python 3.10+) · SQLite (`npsketch.db`, single table `training_data_images`) ·
+PyTorch (ResNet-18) · OpenCV / PIL · static HTML/JS frontend served by nginx. Three Docker services
+(`nginx`, `api`, `cloudflared`).
+
+> 📐 **The full system map — component-by-component data flow, an ASCII architecture graph, the
+> repository layout, and how training / synthetic / image-recognition / DB interact — lives in
+> [`BLUEPRINT.md`](BLUEPRINT.md).** Read that for the big picture; this README covers usage and
+> per-feature detail. Agent conventions & gotchas are in [`CLAUDE.md`](CLAUDE.md).
 
 ---
 
@@ -153,81 +107,11 @@ docker compose up --build -d
 
 ---
 
-## 📖 Line Detection & Comparison
+## 📖 Evaluate & Label (`evaluate.html`)
 
-### 1. Reference Definition
-
-**Manual approach for 100% accuracy:**
-
-1. Navigate to http://localhost/reference.html
-2. Click two points on the image to define each line
-3. Lines are automatically categorized (Horizontal/Vertical/Diagonal)
-4. Review and save to database
-
-### 2. Image Upload & Processing
-
-**3-Step Workflow:**
-
-**STEP 1: Upload & Auto-Normalization**
-- Auto-crop: Removes white space
-- Scale to fit: 256×256 canvas with aspect ratio preserved
-- Center: Places drawing centered on canvas
-- Duplicate detection: SHA256 hash checking
-
-**STEP 2: Manual Adjustments**
-- Scale control (50-300%)
-- Rotation control (-180° to +180°)
-- Translation controls (arrow buttons)
-- Overlay mode for comparison
-
-**STEP 3: Auto Processing (Optional, Separate Options)**
-- **Line Thinning** (✓ Default, Fast ~1 sec): Reduces lines to 1px
-- **Registration** (☐ Off by default, Slow ~10 sec): Aligns to reference
-  - Scipy differential evolution optimization
-  - IoU threshold 0.15 (only applies if good match)
-  - Limited to ±30° rotation, ±15px translation, 0.85-1.25x scale
-  - Skipped automatically if poor alignment (prevents aggressive cropping)
-
-### 3. Line Detection Algorithm
-
-**Iterative Detection with Pixel Subtraction:**
-
-```
-1. Binary Threshold (127) → Black/white separation
-2. ITERATION (up to 20 times):
-   a) Hough Transform detects all lines
-   b) Pick LONGEST line
-   c) Check for duplicates (angle ±8°, position ±25px)
-   d) Draw line on mask with 8px buffer
-   e) DILATE mask (5×5 ellipse kernel)
-   f) SUBTRACT from image → Line removed!
-3. Repeat until no more lines or 12 lines detected
-4. Final filter: Remove lines < 30px
-```
-
-**Multi-Pass Strategy:**
-- Pass 1 (Iter 1-10): Strict threshold (18), longer lines (35px)
-- Pass 2 (Iter 11-20): Relaxed threshold (10), shorter lines (25px)
-
-### 4. Line Comparison
-
-**Hungarian Algorithm for Optimal Matching:**
-
-**Similarity Calculation:**
-- Position distance (40% weight): Euclidean distance between midpoints
-- Angle difference (30% weight): Angular difference (0-90°)
-- Length ratio (30% weight): Relative length difference
-
-**Metrics:**
-- **Correct Lines**: Matched pairs (similarity ≥ 0.5)
-- **Missing Lines**: Reference lines with no match
-- **Extra Lines**: Detected lines with no match
-- **Reference Match Score**: correct_lines / total_reference_lines
-
-### 5. Evaluate & Label (`evaluate.html`)
-
-> Note: the classical line-detection/template-matching algorithm was removed in v2.0. Scoring is
-> AI-only — the sections above describing line detection are historical (see `CLAUDE.md`).
+> The classical line-detection / template-matching pipeline (Hough lines, Hungarian matching,
+> reference editor, image registration) was **removed in v2.0** — scoring is AI-only. For the
+> current system map see [`BLUEPRINT.md`](BLUEPRINT.md).
 
 `evaluate.html` is the single page for working with one figure. It has two tab rows:
 
@@ -724,42 +608,24 @@ All three extractors produce identical characteristics:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/upload` | POST | Upload and evaluate image (algorithm) |
 | `/api/normalize-image` | POST | Auto-crop + scale + center (same as training data) |
-| `/api/register-image` | POST | Optional registration + optional thinning |
-| `/api/check-duplicate` | POST | Check duplicates (both upload & training databases) |
-
-### Evaluations
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/evaluations/recent` | GET | List recent evaluations |
-| `/api/evaluations/{id}` | GET | Get evaluation details |
-| `/api/evaluations/{id}` | DELETE | Delete evaluation |
-| `/api/evaluations/{id}/evaluate` | PUT | Add manual evaluation |
-
-### References
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/references` | GET | List reference images |
-| `/api/references/{id}/image` | GET | Get reference image |
-| `/api/visualizations/{file}` | GET | Get visualization |
+| `/api/check-duplicate` | POST | Check duplicates against the training database |
+| `/api/visualizations/{file}` | GET | Get a generated visualization (static mount) |
 
 ### Training Data
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/training-data/upload` | POST | Upload training data |
-| `/api/extract-training-data` | POST | Extract MAT/OCS files (web interface) |
-| `/api/training-data-evaluations` | GET | List training images |
-| `/api/training-data-image/{id}/evaluate` | POST | Run line detection |
-| `/api/training-data-image/{id}/ground-truth` | POST | Save ground truth |
-| `/api/training-data-image-quality-check/start` | POST | Start background quality check |
-| `/api/training-data-image-quality-check/status` | GET | Quality check progress |
-| `/api/training-data-image/{id}/quality-status` | POST | Manually set quality status |
+| `/api/save-drawn-image` | POST | Save an uploaded/drawn figure (+`components`, `source_format` UPLOAD/DRAWN) |
+| `/api/training-data-images` | GET | List training images (`total_score` + `has_components`; `only_missing` filter) |
+| `/api/training-data-image/{id}` | GET / DELETE | Get / delete one image |
+| `/api/training-data-image/{id}/features` | GET/PUT | Get or set the 60-component labels |
+| `/api/training-data-image/{id}/original` | GET | Original (pre-normalization) image |
 
-**Note:** Oxford dataset uses command-line scripts (`oxford_extraction/oxford_normalizer.py` + `oxford_extraction/oxford_db_populator.py`) instead of web interface.
+> Bulk import is CLI-only (`api/data_consolidation/import_unified.py`). The old algorithm endpoints
+> (`/api/upload`, `/api/register-image`, `/api/evaluations/*`, `/api/references/*`, line-detection /
+> ground-truth / quality-check) and the bulk `/api/extract-training-data[-oxford]` (now HTTP 410)
+> were removed — see [`CLAUDE.md`](CLAUDE.md) §6.
 
 ### AI Training
 
@@ -834,46 +700,13 @@ curl -X POST "http://localhost/api/ai-training/start-training" \
 
 ## 🔧 Configuration
 
-### Line Detection Parameters
-
-Edit `api/image_processing/line_detector.py`:
-
-```python
-LineDetector(
-    rho=1.0,                 # Distance resolution (pixels)
-    theta=np.pi/180,         # Angle resolution (radians)
-    threshold=18,            # Hough threshold
-    min_line_length=35,      # Minimum line length (px)
-    max_line_gap=35,         # Max gap between segments
-    final_min_length=30      # Final filter threshold
-)
-```
-
-### Image Registration
-
-Edit `api/image_processing/image_registration.py`:
-
-```python
-ImageRegistration(
-    max_rotation_degrees=30,     # Search range
-    rotation_step=3,             # Angular resolution
-    scale_range=(0.75, 1.30),    # Scale search range
-    scale_step=0.05              # Scale resolution
-)
-```
-
-### Comparison Tolerances
-
-Edit `api/image_processing/comparator.py`:
-
-```python
-LineComparator(
-    position_tolerance=120.0,    # Max position difference (px)
-    angle_tolerance=50.0,        # Max angle difference (°)
-    length_tolerance=0.8,        # Max length difference (ratio)
-    similarity_threshold=0.5     # Min similarity for match
-)
-```
+All training/augmentation/synthetic values live in one source of truth,
+`api/config/training_config.yaml` — no hardcoded training constants. Access it via
+`from config import get_config; get_config().get("training.defaults.batch_size")`, override per-env
+with `NPSKETCH_<SECTION>_<KEY>` (e.g. `NPSKETCH_TRAINING_DEFAULTS_BATCH_SIZE=16`), and validate
+against the Pydantic models in `api/config/models.py`. Live defaults incl. `augmentation.rotation_range
+= [-5, 5]`, `translation_range = [-3, 3]`, `training.defaults.batch_size = 8`. See
+[`BLUEPRINT.md`](BLUEPRINT.md) §10 for the section map.
 
 ---
 
@@ -988,32 +821,16 @@ docker compose down
 
 ### Manual Testing
 
-1. **Upload Test**: http://localhost/upload.html
-2. **Reference Editor**: http://localhost/reference.html
-3. **Draw Test Image**: http://localhost/draw_testimage.html
-4. **Run Tests**: http://localhost/run_test.html
+1. **Evaluate / Label**: http://localhost/evaluate.html (upload or draw → predict or label & save)
+2. **Run Tests**: http://localhost/run_test.html (batch-evaluate a model over the drawn test images)
 
 ### API Testing
 
 Use interactive docs: http://localhost/api/docs
 
-### Creating Test Dataset
-
-1. Create test images via draw tool
-2. Score manually (correct/missing/extra lines)
-3. Run automated tests
-4. Compare expected vs actual results
-
 ---
 
 ## 📊 Performance & Metrics
-
-### Line Detection Accuracy
-
-- **Test Rating >90%**: Excellent
-- **Test Rating 70-90%**: Good
-- **Test Rating 50-70%**: Needs improvement
-- **Test Rating <50%**: Poor
 
 ### AI Model Performance
 

@@ -15,7 +15,8 @@ Three training/prediction modes share one ResNet-18 backbone:
 - **Regression** — predict the continuous `Total_Score` (0–60).
 - **Classification** — predict a custom score class (e.g. *Poor / Fair / Good*).
 - **Components** — predict the **60 OCS-Plus sub-labels** (20 elements × Presence / Accuracy /
-  Position); `Total_Score` = their sum. Dense supervision in the sparse low-score range. TELEFRED-only (v1).
+  Position); `Total_Score` = their sum. Dense supervision, incl. the sparse low-score range
+  (real LOWSCORER + element-grounded synthetic).
 
 ---
 
@@ -83,97 +84,49 @@ labelling.
 
 ### Preprocessing & normalization
 
-Every image (import, upload, and augmentation output) is brought to one canonical format so the CNN
-sees consistent input:
+Every image (import, upload, augmentation output) is brought to one canonical format so the CNN sees
+consistent input: **auto-crop → 568 × 274 px → binarize (≈175) → 2.00 px line thickness** (Zhang-Suen
+skeletonize + controlled dilation, `api/line_normalizer.py`). At training time it is downscaled once
+more to the **284 × 137** grayscale model input, `[0, 1]`.
 
-1. **Auto-crop** to the ink bounding box, then pad with ~5–7 px margin.
-2. **Rescale** to **568 × 274 px** (the working resolution; AR preserved by the crop+pad).
-3. **Binarize** (threshold ~175) → pure black lines on white.
-4. **Line-thickness normalization** to **2.00 px**: Zhang-Suen skeletonization down to a 1-px
-   skeleton, then a controlled dilation back to 2 px — so stroke width is identical regardless of
-   pen/scan thickness (`api/line_normalizer.py`).
-
-The **Upload** source additionally runs `/api/normalize-image` (auto-crop + rescale + center) before
-this, which can shift margins/line-scale slightly versus the raw **Draw** canvas — keep that in mind
-when comparing predictions of the same figure drawn vs uploaded.
-
-At training time images are downscaled once more to the **284 × 137** model input (half-res, AR
-preserved) and fed as a single grayscale channel normalized to `[0, 1]`.
+> The **Upload** source runs `/api/normalize-image` (auto-crop + rescale + center) first, which can
+> shift margins/line-scale slightly versus the raw **Draw** canvas — worth knowing when the same
+> figure predicts differently drawn vs uploaded.
 
 ---
 
-## Data augmentation
+## Model & training
 
-Augmentation runs **per training split** (the validation set is augmented from val patients only, so
-no augmented copy ever crosses the split). It is **diversity-controlled** rather than purely random —
-each augmented variant must be visually different enough from the original and from the other
-augmentations, otherwise it is retried.
+One **ResNet-18** backbone (ImageNet-pretrained, adapted to 1 grayscale channel) with a swappable head
+serves three modes, selected by `target_feature`; all share the patient-level split, augmentation, the
+284×137 input and best-checkpoint early stopping.
 
-Pipeline per image:
+- **Regression** (`Total_Score`) — linear output + MSE, score-bin `WeightedRandomSampler`. Metrics
+  R²/RMSE/MAE/MAPE.
+- **Classification** (`Custom_Class_<N>`) — softmax + CrossEntropy, inverse-frequency class weights.
+  Metrics accuracy/macro-F1/precision/recall.
+- **Components** (60 sub-labels = 20 elements × Presence/Accuracy/Position) — `BCEWithLogitsLoss` with
+  per-label `pos_weight`; `Total_Score` = sum of the predicted sub-labels. Trains on **TELEFRED +
+  SYNTHETIC + any `validated` row** (incl. the **LOWSCORER** set and validated OXFORD/DRAWN). Metrics
+  per sub-label/aspect/component F1 + derived-score R²/RMSE/MAE.
 
-1. **Pre-shrink 5 %** → enlarges the margin to ~14 px so rotations/warps don't clip the figure.
-2. **Diversity-controlled transforms**, drawn from a fixed mix:
-   - **50 %** rotation + translation
-   - **33 %** local warp only
-   - **17 %** warp + combined transforms
-3. **SSIM filter** — reject if too similar to the original (SSIM ≥ 0.95) or to a sibling
-   augmentation (≥ 0.93); progressive parameter escalation on retry.
-4. **Re-binarize** (threshold 175) and **re-normalize line thickness** to 2 px.
-
-| Transform | Range |
-|-----------|-------|
-| Rotation | ±5° |
-| Translation | ±3 px |
-| Local warp | IDW, 9 control points, 15–20 px displacement |
-
-Result ≈ **6 augmentations per image (~7× total)**. Ranges live in
-`api/config/training_config.yaml` (`augmentation.*`) — no hard-coded values.
-
-## Model architecture
-
-- **Backbone**: ResNet-18, ImageNet-pretrained, first conv adapted to **1 grayscale channel**
-  (RGB weights averaged).
-- **Head**: `Linear(512→256) → ReLU → Dropout(0.5) → Linear(256→N)`. `N` = 1 (regression),
-  #classes (classification), or **60** (components). A `Sigmoid` is appended only for the legacy
-  normalized-regression head.
-- **Input**: 284 × 137 grayscale, `[0, 1]`.
-
-## Training modes
-
-Selected by `target_feature` in the training job; all three share the backbone, the patient-level
-split, augmentation, the 284×137 input and best-checkpoint early stopping.
-
-- **Regression** (`Total_Score`): **linear** output + **MSE**, min-max target normalization,
-  `WeightedRandomSampler` over score bins to counter the high-score skew. (The old sigmoid head
-  saturated on the skewed distribution and was dropped.) Metrics: R² / RMSE / MAE / MAPE + per-decade.
-- **Classification** (`Custom_Class_<N>`): softmax + CrossEntropy, inverse-frequency class weights.
-  Metrics: accuracy / macro-F1 / precision / recall / confusion matrix.
-- **Components** (`Components`, 60 sub-labels): `BCEWithLogitsLoss` with **per-label `pos_weight`**
-  (each sub-label balanced independently); `Total_Score` = sum of the predicted sub-labels.
-  Trains on **TELEFRED + SYNTHETIC + any `validated` row** (incl. the **LOWSCORER** low-score set and
-  validated OXFORD/DRAWN). Metrics: per sub-label / aspect / component F1 **and** the derived-score
-  R² / RMSE / MAE + per-decade.
-
-### Shared defaults
-
-ResNet-18 (ImageNet) · Adam · batch 8 · `ReduceLROnPlateau` (×0.5, patience 5, min 1e-6) ·
-differential LR (backbone ×0.1) · dropout 0.5 · weight-decay 1e-4 · early stopping with
-best-checkpoint restore · **patient-level stratified split** (`stratified_group_split`, hard
-zero-overlap assertion between train and val). The split groups by `patient_id` so a patient's COPY
-and RECALL never straddle the split — this is what keeps the validation metrics honest.
+**Data augmentation** is diversity-controlled (SSIM-filtered, not purely random) and runs per split so
+no augmented copy crosses train↔val: pre-shrink 5 % → rotation ±5° / translation ±3 px / IDW local
+warp → ~6 augs per image (~7× total). **Shared defaults:** Adam · batch 8 · ReduceLROnPlateau ·
+differential LR (backbone ×0.1) · dropout 0.5 · weight-decay 1e-4. The split groups by `patient_id`
+(COPY+RECALL never straddle it) with a hard zero-overlap assertion — that's what keeps the metrics
+honest. Exact numbers live in `api/config/training_config.yaml` (no hard-coded values).
 
 ### Low-score data (real + synthetic)
 
 The component model was weak in the sparse low-score range, addressed two ways:
-- **LOWSCORER** — 662 **manually-rated real** low-score figures (`Total_Score` 1–15), imported
+- **LOWSCORER** — manually-rated **real** low-score figures (`Total_Score` 1–16), imported
   `validated=True` (`source_format='LOWSCORER'`, `task_type='MANUAL'`).
 - **Synthetic (element-grounded)** — `api/ai_training/gen_synth_image.py` composes figures from the
   hand-verified 20-element geometry (`element_definitions.json`): `region ∩ reference ink = real
   strokes`, with **exact** 60-component labels and per-band element priors sampled from real
   TELEFRED + LOWSCORER. `--insert` / `--purge` manage the `SYNTHETIC` rows (validated ones survive a
-  purge — validate a good one in the data-view).
-
-(The old score-targeted `synthetic_score_based.py` was removed.)
+  purge).
 
 ### Reference metrics (clean component model)
 
@@ -199,8 +152,8 @@ Single table **`training_data_images`** (SQLite, `data/npsketch.db`):
 | Column | Notes |
 |--------|-------|
 | `uid`, `patient_id` | source-prefixed; `patient_id` groups COPY+RECALL (e.g. `TF-257`) |
-| `task_type` | COPY · RECALL · DRAWN · UPLOAD |
-| `source_format` | TELEFRED · OXFORD · ALGORITHM · OCS_MACHINE · DRAWN · UPLOAD |
+| `task_type` | COPY · RECALL · MANUAL |
+| `source_format` | TELEFRED · OXFORD · ALGORITHM · OCS_MACHINE · LOWSCORER · SYNTHETIC (+ legacy DRAWN/UPLOAD) |
 | `original_file_data`, `processed_image_data` | original BLOB + normalized 568×274 PNG |
 | `image_hash` | SHA256 of the original (dedup) |
 | `features_data` | JSON `{Total_Score, components:{presence[20],accuracy[20],position[20]}}`; **NULL = unlabelled** |
