@@ -1473,6 +1473,7 @@
                 <option value="missing">Score unscored / missing</option>
                 <option value="nocomp">Total score, no components (batch)</option>
                 <option value="synth">Synthetic (unvalidated) — validate/fix</option>
+                <option value="lowscorer">LOWSCORER (unvalidated) — validate/fix</option>
               </select></label>
             <label>Task <select id="rqTask"><option value="">any</option><option>COPY</option><option>RECALL</option></select></label>
             <span id="rqScoredFilters">
@@ -1547,7 +1548,7 @@
       function invalidate() { queue = []; setStart(false); $('rqCount').textContent = 'click “Build queue” first'; }
       function modeChange() {
         const m = $('rqMode').value;
-        $('rqScoredFilters').style.display = (m === 'missing' || m === 'synth') ? 'none' : '';   // range used by discrepancy + nocomp
+        $('rqScoredFilters').style.display = (m === 'missing' || m === 'synth' || m === 'lowscorer') ? 'none' : '';   // range used by discrepancy + nocomp
         $('rqDiffWrap').style.display = (m === 'discrepancy') ? '' : 'none';     // |diff| only for discrepancy
         invalidate();
       }
@@ -1560,6 +1561,8 @@
           q = `source_format=&no_components=true&real_min=${$('rqMin').value}&real_max=${$('rqMax').value}`;
         else if (mode === 'synth')    // all not-yet-validated SYNTHETIC; grid pre-filled with their exact labels
           q = `source_format=SYNTHETIC`;
+        else if (mode === 'lowscorer')  // all not-yet-validated LOWSCORER; grid pre-filled with the row's real
+          q = `source_format=LOWSCORER`; // labels so you can review the value-2 (presence+accuracy vs +position) split
         else
           q = `source_format=TELEFRED&real_min=${$('rqMin').value}&real_max=${$('rqMax').value}&min_diff=${$('rqDiff').value}`;
         if (task) q += `&task_type=${task}`;
