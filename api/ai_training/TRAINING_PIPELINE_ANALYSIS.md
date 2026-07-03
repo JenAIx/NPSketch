@@ -484,9 +484,32 @@ Empirical audit on the stored images, all fixed and re-verified:
   `fit()` does not override preset values).
 - Early stopping epoch-1 lock: already fixed by `min_epochs` + best-weight restore
   (see issue #1 above, resolved since).
-- Split-before-augmentation order is correct (val stays unaugmented).
+- Split-before-augmentation order is correct: augmentation is applied AFTER the patient-level
+  split, so no augmented copy of a train image can leak into val.
 
 ---
 
-**Last Updated:** 2026-06-10
-**Status:** 2026-06 fixes implemented; phase 2 (preprocessing consistency) open
+## Audit 2026-07-03: preprocessing parity (upload/draw) + val augmentation (FIXED)
+
+Two issues found while verifying train/inference parity:
+
+1. **Draw & Upload predictions skipped the content-crop.** `evaluate.html predictWithAI()` sent the
+   raw original (`getOriginalBlob`) to `predict-single`, and server preprocessing only did
+   `_resize_to_target` (AR-fit + center, **no auto-crop to content**). Training images were
+   content-cropped at import (`normalize_oxford_image`, auto_crop=True). So a drawn/uploaded figure
+   that didn't already fill the 568×274 frame entered the model at a different scale/position than
+   any training image. → Fixed: `predictWithAI` now routes the input through `/api/normalize-image`
+   (auto-crop → AR-fit → center, = the import normalization) before predicting, for BOTH sources;
+   the raw original is still kept for the DB hash + save. (Verified: a small off-center figure
+   changed derived score 9.5 → 13.6 after the fix.)
+
+2. **Validation set was augmented.** `_process_split` ran `augment_batch` for both train and val
+   (deployed model: 1291 real val images → 8850 val_samples), so `val_loss`/early-stopping tracked
+   augmented val, not clean inference. → Fixed: augmentation is now train-only (`if split_name !=
+   'val'`); val = pre-shrunk originals. (The claim above that "val stays unaugmented" is now
+   actually true — it previously was NOT.)
+
+---
+
+**Last Updated:** 2026-07-03
+**Status:** 2026-06 fixes implemented; 2026-07-03 parity + val-augmentation fixes implemented

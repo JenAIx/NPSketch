@@ -754,16 +754,30 @@
         predictBtn.disabled = true; predictBtn.textContent = '⏳ Predicting...';
         document.getElementById('aiResults').style.display = 'none';
         try {
-            const blob = await getOriginalBlob();
+            const originalBlob = await getOriginalBlob();
+            // Normalize the prediction input exactly like the training-data import
+            // (auto-crop to content → AR-fit 568×274 → center) so Draw AND Upload are scored
+            // on the same distribution the model was trained on. Without this the raw draw
+            // canvas / uploaded file is only AR-fit (no content crop) and enters the model at a
+            // different scale/position than any training image. Falls back to the raw input if
+            // normalization fails. (The raw original is still kept for the DB hash + save.)
+            let predictBlob = originalBlob;
+            try {
+                const nfd = new FormData();
+                nfd.append('file', originalBlob, 'input.png');
+                const nresp = await fetch('/api/normalize-image', { method: 'POST', body: nfd });
+                if (nresp.ok) predictBlob = await nresp.blob();
+                else console.warn('normalize-image failed, predicting on raw input:', nresp.status);
+            } catch (e) { console.warn('normalize-image error, predicting on raw input:', e); }
             const fd = new FormData();
-            fd.append('file', blob, 'drawing.png');
+            fd.append('file', predictBlob, 'drawing.png');
             fd.append('model_filename', select.value);
             fd.append('return_normalized', 'true');
             const r = await fetch('/api/ai-training/models/predict-single', { method: 'POST', body: fd });
             const data = await r.json();
             if (!data.success) throw new Error(data.detail || 'AI prediction failed');
-            // capture the exact original + normalized that were predicted, so save persists THESE
-            lastOriginalBlob = blob;
+            // capture the RAW original (for dedup hash + save) + server-normalized preview
+            lastOriginalBlob = originalBlob;
             lastNormalizedImage = data.normalized_image || null;   // server-normalized preview
             lastPredictModel = { name: data.model, feature: data.target_feature, mode: data.training_mode };
             displayAIResults(data);

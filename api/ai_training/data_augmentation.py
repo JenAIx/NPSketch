@@ -1259,29 +1259,33 @@ class AugmentedDatasetBuilder:
                     stats['original'] += 1
                     stats['total'] += 1
                 
-                # Generate augmented versions
-                augmented_images = self.augmentor.augment_batch(img_array)
-                
-                for aug_idx, (aug_img, aug_params) in enumerate(augmented_images):
-                    # Save augmented image
-                    aug_path = output_dir / f"{patient_id}_id{img_id}_aug{aug_idx}.png"
-                    cv2.imwrite(str(aug_path), aug_img)
-                    
-                    # Save label with augmentation parameters (with normalized value if normalizer is used)
-                    label_path = output_dir / f"{patient_id}_id{img_id}_aug{aug_idx}.json"
-                    with open(label_path, 'w') as f:
-                        json.dump({
-                            'image_id': img_id,
-                            'patient_id': patient_id,
-                            'target_feature': target_feature,
-                            'target_value': target_value_normalized,
-                            'target_value_original': target_value,  # Keep original for reference
-                            'target_vector': target_vector,  # 60-dim for component mode (else None)
-                            'augmentation': aug_params
-                        }, f)
-                    
-                    stats['augmented'] += 1
-                    stats['total'] += 1
+                # Generate augmented versions — TRAIN ONLY. The validation set stays
+                # unaugmented (originals only, pre-shrunk for parity) so val_loss /
+                # early-stopping and the reported val metrics reflect clean inference
+                # conditions, not augmented images.
+                if split_name != 'val':
+                    augmented_images = self.augmentor.augment_batch(img_array)
+
+                    for aug_idx, (aug_img, aug_params) in enumerate(augmented_images):
+                        # Save augmented image
+                        aug_path = output_dir / f"{patient_id}_id{img_id}_aug{aug_idx}.png"
+                        cv2.imwrite(str(aug_path), aug_img)
+
+                        # Save label with augmentation parameters (with normalized value if normalizer is used)
+                        label_path = output_dir / f"{patient_id}_id{img_id}_aug{aug_idx}.json"
+                        with open(label_path, 'w') as f:
+                            json.dump({
+                                'image_id': img_id,
+                                'patient_id': patient_id,
+                                'target_feature': target_feature,
+                                'target_value': target_value_normalized,
+                                'target_value_original': target_value,  # Keep original for reference
+                                'target_vector': target_vector,  # 60-dim for component mode (else None)
+                                'augmentation': aug_params
+                            }, f)
+
+                        stats['augmented'] += 1
+                        stats['total'] += 1
                 
                 # Progress indicator
                 if stats['total'] % 10 == 0:
