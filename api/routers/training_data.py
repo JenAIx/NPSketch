@@ -776,12 +776,12 @@ async def get_training_data_images(
     if scored_only:
         filters.append(and_(feat_present, not_(TrainingDataImage.features_data.like('%"presence"%'))))
 
-    # Validated filter — same definition as the list column / stats:
-    # explicitly validated, OR real (non-synthetic) ground-truth labels.
+    # Validated filter — same definition as the list column / stats: explicitly validated,
+    # OR real ground-truth labels from a trusted source (SYNTHETIC + LOWSCORER rely on the flag).
     if validated is not None:
         validated_clause = or_(
             TrainingDataImage.validated == True,
-            and_(feat_present, TrainingDataImage.source_format != 'SYNTHETIC'),
+            and_(feat_present, TrainingDataImage.source_format.notin_(('SYNTHETIC', 'LOWSCORER'))),
         )
         if str(validated).lower() == 'true':
             filters.append(validated_clause)
@@ -860,9 +860,11 @@ async def get_training_data_images(
             "has_features": has_features,
             "total_score": total_score,
             "has_components": has_components,
-            # validated = manually validated, OR real (non-synthetic) ground-truth labels.
-            # Synthetic auto-labels stay UNvalidated unless explicitly validated.
-            "validated": bool(img.validated) or (has_features and img.source_format != 'SYNTHETIC')
+            # validated = explicitly human-validated, OR real ground-truth labels from a trusted
+            # source. SYNTHETIC (generated) and LOWSCORER (component split is a value-2
+            # approximation, not verified) rely on the real `validated` flag, so they are NOT
+            # auto-shown as validated — this matches the write-protect + training-inclusion logic.
+            "validated": bool(img.validated) or (has_features and img.source_format not in ('SYNTHETIC', 'LOWSCORER'))
         })
     
     return {
@@ -984,9 +986,10 @@ def get_training_data_stats(db: Session = Depends(get_db)):
 
     total = db.query(func.count(T.id)).scalar() or 0
     with_features = db.query(func.count(T.id)).filter(feat_present).scalar() or 0
-    # validated = manually validated OR real (non-synthetic) ground-truth labels
+    # validated = manually validated OR real ground-truth from a trusted source
+    # (SYNTHETIC + LOWSCORER rely on the real flag; see the list endpoint)
     validated = db.query(func.count(T.id)).filter(
-        or_(T.validated == True, and_(feat_present, T.source_format != 'SYNTHETIC'))).scalar() or 0
+        or_(T.validated == True, and_(feat_present, T.source_format.notin_(('SYNTHETIC', 'LOWSCORER'))))).scalar() or 0
     # labelled but NOT validated = synthetic auto-labels not yet human-validated
     unvalidated_labelled = db.query(func.count(T.id)).filter(
         and_(feat_present, T.validated == False, T.source_format == 'SYNTHETIC')).scalar() or 0
