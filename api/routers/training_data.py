@@ -990,9 +990,12 @@ def get_training_data_stats(db: Session = Depends(get_db)):
     # (SYNTHETIC + LOWSCORER rely on the real flag; see the list endpoint)
     validated = db.query(func.count(T.id)).filter(
         or_(T.validated == True, and_(feat_present, T.source_format.notin_(('SYNTHETIC', 'LOWSCORER'))))).scalar() or 0
-    # labelled but NOT validated = synthetic auto-labels not yet human-validated
+    # labelled but NOT validated = auto/approximate labels not yet human-validated
+    # (SYNTHETIC + LOWSCORER — same set that relies on the real flag above, so
+    # validated + unvalidated_labelled reconciles with with_features)
     unvalidated_labelled = db.query(func.count(T.id)).filter(
-        and_(feat_present, T.validated == False, T.source_format == 'SYNTHETIC')).scalar() or 0
+        and_(feat_present, T.validated == False,
+             T.source_format.in_(('SYNTHETIC', 'LOWSCORER')))).scalar() or 0
     patients = db.query(func.count(distinct(T.patient_id))).scalar() or 0
     by_source = {s or 'UNKNOWN': c for s, c in
                  db.query(T.source_format, func.count(T.id)).group_by(T.source_format).all()}
