@@ -68,6 +68,43 @@ def resize_for_model_input(gray: np.ndarray, size: Optional[Tuple[int, int]]) ->
     return cv2.resize(gray, (w, h), interpolation=cv2.INTER_AREA)
 
 
+def _tta_specs(n_views: int, max_rot: float, max_trans: float):
+    """Deterministic (angle_deg, tx_px, ty_px) list for test-time augmentation."""
+    rots = [max_rot, -max_rot, max_rot / 2.0, -max_rot / 2.0]
+    trans = [(max_trans, 0), (-max_trans, 0), (0, max_trans), (0, -max_trans),
+             (max_trans, max_trans), (-max_trans, -max_trans),
+             (max_trans, -max_trans), (-max_trans, max_trans)]
+    specs = [(a, 0.0, 0.0) for a in rots] + [(0.0, float(tx), float(ty)) for tx, ty in trans]
+    return specs[:max(0, int(n_views))]
+
+
+def make_tta_views(gray: np.ndarray, n_views: int = 8, max_rotation_deg: float = 3.0,
+                   max_translation_px: float = 2) -> list:
+    """Return [original] + up to n_views small geometric variants of a model-input array.
+
+    Used for test-time augmentation: small rotations/translations (scoring is
+    orientation-sensitive, so ranges stay small), re-binarized to keep clean line
+    art. Works on float [0,1] or uint8 [0,255] grayscale. n_views<=0 → [original].
+    """
+    views = [gray]
+    if not n_views or n_views <= 0:
+        return views
+    h, w = gray.shape[:2]
+    is_float = gray.dtype.kind == 'f'
+    border = 1.0 if is_float else 255
+    thr = 0.5 if is_float else 127
+    hi = 1.0 if is_float else 255
+    for ang, tx, ty in _tta_specs(n_views, float(max_rotation_deg), float(max_translation_px)):
+        M = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), ang, 1.0)
+        M[0, 2] += tx
+        M[1, 2] += ty
+        warped = cv2.warpAffine(gray, M, (w, h), flags=cv2.INTER_LINEAR,
+                                borderMode=cv2.BORDER_CONSTANT, borderValue=border)
+        warped = np.where(warped < thr, 0, hi).astype(gray.dtype)
+        views.append(warped)
+    return views
+
+
 def apply_pre_shrink(image: np.ndarray, factor: float = 0.90) -> np.ndarray:
     """
     Apply pre-shrink to create margins for rotation/translation tolerance.

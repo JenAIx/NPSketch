@@ -17,9 +17,14 @@ training:
   # Applied identically in training and inference (size recorded in metadata).
   # Set enabled: false to feed the full 568x274 resolution.
   model_input:
+    # CNN input resolution (width × height), landscape, same AR as the stored
+    # 568×274 (≈2.073:1). Bumped 284×137 → 400×193 (~2× pixels) for finer element
+    # detail (accuracy/position). Each trained model records this in its metadata,
+    # so inference auto-matches per model; only the NEXT retrain uses the new size.
+    # Set enabled:false (or 568×274) for full resolution (4× pixels, ~4× CPU cost).
     enabled: true
-    width: 284
-    height: 137
+    width: 400
+    height: 193
 
   # Parameter constraints
   constraints:
@@ -87,6 +92,14 @@ training:
   components:
     learning_rate: 0.001
     recommended_lr: 0.001
+    # Loss: 'asl' = Asymmetric Loss (Ridnik et al., ICCV'21) — default; better for the
+    # sparse pos/neg imbalance across 60 sub-labels than a per-label pos_weight.
+    # 'bce' = BCEWithLogitsLoss + runtime pos_weight (legacy). Swap to compare.
+    loss: "asl"
+    asl:
+      gamma_neg: 4.0    # focus/down-weight easy negatives
+      gamma_pos: 1.0    # focus positives less (they are rare/valuable)
+      clip: 0.05        # asymmetric hard-threshold for very-easy negatives
     lr_scheduling:
       enabled: true
       strategy: "reduce_on_plateau"
@@ -107,6 +120,18 @@ training:
   differential_lr:
     enabled: true
     backbone_multiplier: 0.1       # Backbone LR = LR * 0.1
+
+# Inference-time behavior
+inference:
+  # Test-Time Augmentation: average the model over N small geometric variants of
+  # the input at predict time (reduces variance, small accuracy gain, free
+  # uncertainty). Averaging is post-activation. n_views=0 or enabled:false = off
+  # (identical to the previous single-view behavior).
+  tta:
+    enabled: true
+    n_views: 8                 # extra augmented views beyond the original
+    max_rotation_deg: 3.0      # keep small — scoring is orientation-sensitive
+    max_translation_px: 2
 
 # Data augmentation configuration
 augmentation:

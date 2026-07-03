@@ -539,9 +539,11 @@ async def predict_single_image(
     from ai_training.model import DrawingClassifier
     from ai_training.preprocessing import (
         preprocess_bytes_for_prediction,
-        get_preprocessing_config_from_metadata
+        get_preprocessing_config_from_metadata,
+        make_tta_views,
     )
-    
+    from config import get_config
+
     try:
         model_path = Path("/app/data/models") / model_filename
         metadata_path = Path("/app/data/models") / f"{model_path.stem}_metadata.json"
@@ -617,8 +619,16 @@ async def predict_single_image(
             debug=False
         )
         
-        # Convert to tensor
-        img_tensor = torch.from_numpy(img_array).unsqueeze(0).unsqueeze(0)  # [1, 1, H, W]
+        # Convert to tensor, optionally with Test-Time Augmentation (average over
+        # N small geometric views; averaging is done post-activation below).
+        tta_cfg = get_config().get('inference.tta', {}) or {}
+        n_views = int(tta_cfg.get('n_views', 0)) if tta_cfg.get('enabled', False) else 0
+        views = make_tta_views(
+            img_array, n_views=n_views,
+            max_rotation_deg=tta_cfg.get('max_rotation_deg', 3.0),
+            max_translation_px=tta_cfg.get('max_translation_px', 2),
+        )
+        img_tensor = torch.from_numpy(np.stack(views)).unsqueeze(1).float()  # [V, 1, H, W]
         
         # Resolve use_sigmoid from metadata so the rebuilt model matches the
         # trained architecture. Sigmoid has no parameters, so loading a sigmoid
@@ -653,7 +663,8 @@ async def predict_single_image(
                 # 60 sub-labels (20 elements x PRES/ACC/POS); Total_Score = sum.
                 # Apply post-hoc calibration if present in metadata: per-label decision
                 # thresholds + a non-negative linear readout of the 60 probabilities.
-                probs = torch.sigmoid(output)[0].tolist()
+                # TTA: average the sigmoid probabilities across all views (post-activation).
+                probs = torch.sigmoid(output).mean(dim=0).tolist()
                 thr = metadata.get('thresholds')
                 if not (isinstance(thr, list) and len(thr) == 60):
                     thr = [0.5] * 60
@@ -690,8 +701,8 @@ async def predict_single_image(
                     }
                 }
             elif training_mode == "classification":
-                # Get probabilities and predicted class
-                probabilities = torch.softmax(output, dim=1)[0]
+                # Get probabilities and predicted class (TTA: average softmax over views)
+                probabilities = torch.softmax(output, dim=1).mean(dim=0)
                 predicted_class = torch.argmax(probabilities).item()
                 
                 # Get class probabilities with custom names
@@ -733,8 +744,8 @@ async def predict_single_image(
                     }
                 }
             else:
-                # Regression - get predicted score
-                raw_value = output[0][0].item()
+                # Regression - get predicted score (TTA: average over views)
+                raw_value = output.mean(dim=0)[0].item()
                 predicted_value = raw_value
                 
                 # Denormalize if normalization was used

@@ -727,6 +727,7 @@ def run_training_job(config):
                 'enabled': class_weights is not None,
                 'weights': class_weights if class_weights else None
             },
+            'loss_function': getattr(trainer, 'loss_name', None),
             'pos_weight': {
                 'enabled': pos_weight is not None,
                 'weights': pos_weight if pos_weight else None

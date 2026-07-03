@@ -253,7 +253,9 @@ class CNNTrainer:
         if weight_decay > 0:
             logger.info(f"Weight decay (L2 regularization): {weight_decay}")
         
+        self.loss_name = None
         if training_mode == "classification":
+            self.loss_name = 'CrossEntropyLoss'
             # Use class weights if provided
             if class_weights is not None:
                 weights_tensor = torch.tensor(class_weights, dtype=torch.float32).to(self.device)
@@ -273,17 +275,36 @@ class CNNTrainer:
                     logger.info(f"  Label smoothing: {label_smoothing}")
         elif training_mode == "components":
             # Multi-label: 60 independent binary sub-labels (20 elements x PRES/ACC/POS).
-            # BCEWithLogitsLoss applies the sigmoid internally (stable); the model
-            # outputs raw logits (use_sigmoid=False).
-            pw = None
-            if pos_weight is not None:
-                pw = torch.tensor(pos_weight, dtype=torch.float32).to(self.device)
-            self.criterion = nn.BCEWithLogitsLoss(pos_weight=pw)
-            logger.info(f"Loss function: BCEWithLogitsLoss (components, {num_outputs} sub-labels)")
-            if pw is not None:
-                logger.info(f"  pos_weight enabled (per-label, len {len(pos_weight)})")
+            # The model outputs raw logits (use_sigmoid=False). Loss is config-selectable:
+            #   training.components.loss = 'asl' (Asymmetric Loss, default) | 'bce'.
+            comp_cfg = get_config().get('training.components', {}) or {}
+            loss_name = str(comp_cfg.get('loss', 'asl')).lower()
+            if loss_name == 'asl':
+                from .losses import AsymmetricLoss
+                a = comp_cfg.get('asl', {}) or {}
+                self.criterion = AsymmetricLoss(
+                    gamma_neg=float(a.get('gamma_neg', 4.0)),
+                    gamma_pos=float(a.get('gamma_pos', 1.0)),
+                    clip=float(a.get('clip', 0.05)),
+                )
+                self.loss_name = 'AsymmetricLoss'
+                logger.info(f"Loss function: AsymmetricLoss (components, {num_outputs} sub-labels; "
+                            f"gamma_neg={a.get('gamma_neg', 4.0)}, gamma_pos={a.get('gamma_pos', 1.0)}, "
+                            f"clip={a.get('clip', 0.05)})")
+                if pos_weight is not None:
+                    logger.info("  (pos_weight ignored — ASL handles pos/neg imbalance intrinsically)")
+            else:
+                pw = None
+                if pos_weight is not None:
+                    pw = torch.tensor(pos_weight, dtype=torch.float32).to(self.device)
+                self.criterion = nn.BCEWithLogitsLoss(pos_weight=pw)
+                self.loss_name = 'BCEWithLogitsLoss'
+                logger.info(f"Loss function: BCEWithLogitsLoss (components, {num_outputs} sub-labels)")
+                if pw is not None:
+                    logger.info(f"  pos_weight enabled (per-label, len {len(pos_weight)})")
         else:
             self.criterion = nn.MSELoss()
+            self.loss_name = 'MSELoss'
             logger.info(f"Loss function: MSELoss (regression)")
 
         # Learning rate scheduler
