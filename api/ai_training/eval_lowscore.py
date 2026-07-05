@@ -26,7 +26,7 @@ from ai_training.dataset import components_to_vector
 from ai_training.preprocessing import preprocess_bytes_for_prediction
 
 MODELS = "/app/data/models"
-BASELINE_STAMP = "20260613_005214"   # provides the shared val_image_ids
+BASELINE_STAMP = "20260625_055133"   # deployed model — provides the shared val_image_ids
 BINS = [(0, 9), (10, 19), (20, 29), (0, 19), (0, 29), (0, 60)]
 
 
