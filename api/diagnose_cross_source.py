@@ -26,6 +26,7 @@ from ai_training.preprocessing import preprocess_bytes_for_prediction
 MODELS = "/app/data/models"
 DEPLOYED = "model_Components_20260625_055133"
 SEED = 42
+# override the model via argv[2] (a stamp like 20260706_104159 or a .pth name)
 # component-training pool for this model (data_loader source filter + forced synth)
 IN_DOMAIN = {"TELEFRED", "SYNTHETIC"}
 
@@ -40,10 +41,19 @@ def domain_label(src):
     return "cross"          # OXFORD / ALGORITHM / OCS_MACHINE / DRAWN / …
 
 
+def resolve_model(arg):
+    if not arg:
+        return DEPLOYED
+    a = arg[:-4] if arg.endswith(".pth") else arg
+    return a if a.startswith("model_") else f"model_Components_{a}"
+
+
 def main():
     n_per = int(sys.argv[1]) if len(sys.argv) > 1 else 300
-    meta = json.load(open(f"{MODELS}/{DEPLOYED}_metadata.json"))
-    model = load_model(f"{MODELS}/{DEPLOYED}.pth", meta)
+    name = resolve_model(sys.argv[2] if len(sys.argv) > 2 else None)
+    meta = json.load(open(f"{MODELS}/{name}_metadata.json"))
+    model = load_model(f"{MODELS}/{name}.pth", meta)
+    print(f">> model: {name}")
     sc = meta.get("score_calibration") or {}
     w = np.array(sc["weights"], np.float32) if sc.get("weights") else None
     b = float(sc.get("bias", 0.0))
