@@ -47,12 +47,15 @@ Post-hoc per-label threshold + NNLS score calibration.
 
 ## Part B — Improvement ideas (prioritized)
 
-> **Implementation status (2026-07-03):** Tier-1 items **#1 (ASL), #2 (TTA), #3 (resolution)** are
-> **implemented and config-gated** (`training.components.loss: asl` + `.asl`; `inference.tta`;
-> `training.model_input: 400×193`). TTA is **live at inference now**; ASL + higher resolution take
-> effect on the **next component retrain** and still need an A/B vs the current model
-> (`eval_lowscore.py`) on the real held-out set. Ideally retrain on the LOWSCORER-enlarged set (the
-> 16-pt batch must be validated first — it is currently `validated=False` pending review).
+> **Implementation status (2026-07-13): Tier-1 SHIPPED.** #1 (ASL), #2 (TTA), #3 (resolution 400×193)
+> are live. Retrained on the LOWSCORER-enlarged set (712 validated LOWSCORER incl. the 16-pt batch) →
+> **`model_Components_20260706_104159` is now the current model**, beating the prior on every band
+> (0–29 MAE 2.68→2.45, overall 1.71→1.67; see CHANGELOG). Fixed val fold = deployed model's patients
+> for a fair A/B. **Lesson:** ASL needs a **hard-label** score calibration — the soft-prob NNLS
+> degenerates on ASL's skewed probs (looked like MAE 3.26 vs the real 1.67); calibration now
+> auto-selects soft vs hard per model. Parity fixes (draw/upload normalize, val un-augmented) also
+> shipped. **Still Tier-1-adjacent open:** the `06-10` per-source bias below is real but only helps
+> batch scoring (the live draw/upload path has no source label) — see the note under #10.
 
 ### Tier 1 — High impact / low risk (do first)
 
@@ -130,6 +133,14 @@ On limited data a **sketch-tuned CNN beat generic ResNet/VGG** for ROCF (Guerrer
 augmentation à la Sketch-a-Net). Independently, **hold out an entire source** (train TELEFRED → test
 OXFORD/OCS_MACHINE) to measure true cross-scanner generalization — the credibility signal in the ROCF
 work was an independent prospective replication (MAE 1.13 ≈ 1.11).
+
+> **Measured 2026-07 (`diagnose_cross_source.py`):** in-dist TELEFRED MAE 2.09 vs cross-source
+> OXFORD/ALGORITHM/OCS ~3.4–3.8, with a systematic per-source score bias (ALGORITHM +2.8, OCS +3.6,
+> OXFORD −1.9). A cheap **per-source affine calibration** (offset/slope per `source_format`, no
+> retrain) removes that bias — **but only for batch-scoring known-source data.** The live draw/upload
+> path has no source label (a fresh drawing on an unknown scanner), so it cannot pick a per-source
+> correction. The real model-side fix for the gap is **training on another source** (validated OXFORD/
+> ALGORITHM components) so the model learns the variance — a retrain, not a post-hoc step. Deferred.
 
 **11. Small deep ensemble + temperature scaling for the shipped model.**
 A 3–5 model deep ensemble (Lakshminarayanan 2017) gives the most robust uncertainty and typically

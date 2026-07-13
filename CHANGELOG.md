@@ -4,6 +4,47 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
+## [Unreleased] — 2026-07: LOWSCORER 16-pt batch, ASL+400×193 retrain shipped, parity fixes
+
+**New current component model: `model_Components_20260706_104159`** (ASL loss + 400×193 input,
+trained on the LOWSCORER-enlarged set). Beats the previous `…20260625_055133` on the shared 1291
+held-out images on **every** score band: derived-score MAE 0–29 **2.68→2.45**, overall **1.71→1.67**,
+20–29 band 4.08→3.76, component macro-F1 tied/better (0.970). Promoted via `current_models.json`.
+
+- **Data — 16-Punkte LOWSCORER batch (+50).** 50 real 16-point copy figures joined from
+  `Bildbewertung.xlsx` (a stray `16` mistyped into an ELEM cell was stripped for 43 rows; all sum to
+  16), consolidated into `labels.csv`, imported `source=LOWSCORER`/`task=MANUAL`, human-reviewed in
+  the new queue and validated. LOWSCORER total 712.
+- **Training — Asymmetric Loss (ASL)** for the 60-sub-label head (`api/ai_training/losses.py`),
+  config-selectable `training.components.loss = asl|bce` (default **asl**). Replaces per-label
+  `pos_weight` for the sparse pos/neg imbalance.
+- **Inference — Test-Time Augmentation** (`inference.tta`, on): `predict-single` averages the model
+  over N small geometric views (post-activation). **Higher input resolution** 284×137 → **400×193**
+  (same landscape AR, ~2× pixels), recorded per-model in metadata so inference auto-matches.
+- **Calibration — auto-select soft vs hard-label score readout.** The 60→Total_Score NNLS readout is
+  now fit **both** on soft probs and on hard (thresholded) labels; the val-winner is kept and recorded
+  as `score_calibration.readout`. ASL skews soft probs and makes a soft-prob NNLS degenerate (looked
+  like MAE 3.26 vs the true 1.67) — ASL models auto-pick **hard**, BCE models keep **soft**.
+  `predict-single` + `eval_lowscore` apply the recorded basis (back-compat: missing field → soft).
+- **Parity fixes.** Draw AND Upload predictions now route through `/api/normalize-image` (auto-crop →
+  AR-fit → center = the training-import normalization) before predicting — previously the raw canvas/
+  file entered the model at a different scale/position than any training image. The **validation set
+  is no longer augmented** (train-only), so val_loss/early-stopping reflect clean inference.
+- **Review queue — LOWSCORER mode** (`ai_training_data_view.html`): worklist of not-yet-validated
+  LOWSCORER rows, grid pre-filled with the row's real labels to review the value-2 (presence+accuracy
+  vs presence+position) split; Save marks validated. The `validated` badge/filter/stats now treat
+  LOWSCORER like SYNTHETIC (rely on the real flag).
+- **Diagnostics — cross-source eval** (`api/diagnose_cross_source.py`): runs a component model per
+  `source_format` on held-out images. Revealed a real cross-scanner gap (in-dist TELEFRED MAE 2.09 vs
+  OXFORD/ALGORITHM/OCS ~3.4–3.8) and a systematic per-source bias (ALGORITHM +2.8, OCS +3.6,
+  OXFORD −1.9). Deployment-path parity confirmed for black figures (draw/upload).
+- **Docs.** New `BLUEPRINT.md` (system map + ASCII data-flow), pruned dead classical-pipeline docs
+  from README, `docs/PIPELINE_IMPROVEMENTS.md` (literature-grounded roadmap).
+- **Housekeeping.** Removed old model checkpoints/backups (~4 GB) + optional component consistency
+  aux losses (`training.components.consistency`, default off).
+
+---
+
 ## [Unreleased] — Component editor: live confidence + model refresh/apply
 
 The shared ComponentEditor and the data-view (preview modal + Review & Label Queue) gain a way to see
