@@ -112,9 +112,15 @@ def fit_thresholds(probs, targets):
     return thr
 
 
-def fit_calibration(probs, total):
-    """Non-negative least squares: [probs | 1] @ [w; b] ≈ total."""
-    A = np.hstack([probs, np.ones((probs.shape[0], 1), np.float32)])
+def fit_calibration(feats, total):
+    """Non-negative least squares: [feats | 1] @ [w; b] ≈ total.
+
+    `feats` is the per-label readout basis — soft probabilities OR hard
+    (thresholded 0/1) labels. Hard-label fits are well-conditioned for losses
+    (e.g. ASL) that skew the soft-probability distribution and make a soft-prob
+    NNLS degenerate; soft fits are better for plain BCE. calibrate_model fits
+    both and keeps whichever wins on val."""
+    A = np.hstack([feats, np.ones((feats.shape[0], 1), np.float32)])
     coef, _ = nnls(A, total.astype(np.float64))
     return coef[:60].astype(np.float32), float(coef[60])
 
@@ -181,14 +187,31 @@ def calibrate_model(model_path, write=False, verbose=True):
     pva, yva = infer(model, va_rows, metadata)
 
     thr = fit_thresholds(ptr, ytr)
-    w, b = fit_calibration(ptr, ytr.sum(1))
+    # Fit the score readout two ways and keep whichever wins on val:
+    #  - soft: NNLS on the probabilities (good for BCE)
+    #  - hard: NNLS on the thresholded 0/1 labels (well-conditioned for ASL,
+    #    whose skewed soft probs make a soft-prob NNLS degenerate)
+    tot_tr = ytr.sum(1)
+    w_soft, b_soft = fit_calibration(ptr, tot_tr)
+    hard_tr = (ptr >= thr).astype(np.float32)
+    w_hard, b_hard = fit_calibration(hard_tr, tot_tr)
 
     true_va = yva.sum(1)
+    hard_va = (pva >= thr).astype(np.float32)
+    cal_soft = pva @ w_soft + b_soft
+    cal_hard = hard_va @ w_hard + b_hard
+    if score_metrics(cal_hard, true_va)["mae"] <= score_metrics(cal_soft, true_va)["mae"]:
+        readout, w, b = "hard", w_hard, b_hard
+    else:
+        readout, w, b = "soft", w_soft, b_soft
+
     derived = {
         "hard@0.5":   (pva >= 0.5).sum(1),
-        "hard@thr":   (pva >= thr).sum(1),
+        "hard@thr":   hard_va.sum(1),
         "soft-sum":   pva.sum(1),
-        "calibrated": (pva @ w + b),
+        "cal-soft":   cal_soft,
+        "cal-hard":   cal_hard,
+        "calibrated": (cal_hard if readout == "hard" else cal_soft),
     }
     result = {name: score_metrics(pred, true_va) for name, pred in derived.items()}
     result["macro_f1_0.5"] = round(macro_f1(pva, yva, 0.5), 4)
@@ -212,6 +235,7 @@ def calibrate_model(model_path, write=False, verbose=True):
             "weights": [round(float(x), 5) for x in w],
             "bias": round(b, 5),
             "fit_on": "train_image_ids", "method": "nnls",
+            "readout": readout,   # 'soft' → weights·probs ; 'hard' → weights·(probs>=thr)
         }
         metadata["calibration_metrics"] = result
         with open(meta_path, "w") as f:

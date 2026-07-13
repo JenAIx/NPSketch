@@ -68,8 +68,13 @@ def main():
         model = load_model(mp, meta)
         probs = infer(model, meta, rows)
         sc = meta.get("score_calibration") or {}
-        score = np.clip(probs @ np.array(sc["weights"]) + sc["bias"], 0, 60) if sc.get("weights") else probs.sum(1)
         thr = np.array(meta.get("thresholds", [0.5] * 60), np.float32)
+        if sc.get("weights"):
+            # readout basis matches predict-single: 'hard' → thresholded labels, else soft probs
+            basis = (probs >= thr).astype(np.float32) if sc.get("readout") == "hard" else probs
+            score = np.clip(basis @ np.array(sc["weights"]) + sc["bias"], 0, 60)
+        else:
+            score = probs.sum(1)
         results[s] = (score, probs, thr)
 
     # table per bin

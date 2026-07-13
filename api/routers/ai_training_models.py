@@ -681,9 +681,13 @@ async def predict_single_image(
                     })
                 sc = metadata.get('score_calibration') or {}
                 w = sc.get('weights'); bcal = sc.get('bias')
+                # readout basis: 'soft' → weights·probs (BCE models); 'hard' →
+                # weights·(probs>=thr) (well-conditioned for ASL; default 'soft'
+                # for older models without the field).
+                basis = hard if sc.get('readout') == 'hard' else probs
                 calibrated = None
                 if isinstance(w, list) and len(w) == 60 and bcal is not None:
-                    calibrated = round(float(sum(w[j] * probs[j] for j in range(60)) + bcal), 1)
+                    calibrated = round(float(sum(w[j] * basis[j] for j in range(60)) + bcal), 1)
                     calibrated = max(0.0, min(60.0, calibrated))
                 total_score = calibrated if calibrated is not None else int(sum(hard))
                 return {
