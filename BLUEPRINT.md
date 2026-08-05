@@ -10,7 +10,7 @@ line-detection pipeline (that was removed). Three training modes: **regression**
 **classification** (custom score classes), **components** (60 OCS-Plus sub-labels = 20 elements
 × Presence/Accuracy/Position; Total_Score = their sum). Deployed model today:
 `model_Components_20260706_104159.pth` (ASL + 400×193 + LOWSCORER; auto-selected **hard-label**
-score readout). Version **2.3.0**.
+score readout). Version **2.4.0**.
 
 ---
 

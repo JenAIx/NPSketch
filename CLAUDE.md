@@ -380,4 +380,4 @@ docker exec npsketch-api python3 -c "from database import get_db; next(get_db())
 ---
 
 **Container:** `npsketch-api` · **Workdir:** `/app` · **App URL:** http://localhost ·
-**API docs:** http://localhost/api/docs · **Version:** 2.3.0
+**API docs:** http://localhost/api/docs · **Version:** 2.4.0

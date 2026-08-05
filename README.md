@@ -991,7 +991,7 @@ MIT License - feel free to use and modify for your projects.
 
 **Stefan Brodoehl**  
 Date: October-December 2025, January–June 2026  
-Version: 2.3.0
+Version: 2.4.0
 
 ---
 

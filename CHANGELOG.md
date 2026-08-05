@@ -4,7 +4,7 @@ All notable changes to NPSketch will be documented in this file.
 
 ---
 
-## [Unreleased] — 2026-07: LOWSCORER 16-pt batch, ASL+400×193 retrain shipped, parity fixes
+## [2.4.0] - 2026-08-05 — Public deployment: access-token gate + Cloudflare named tunnel (also: LOWSCORER 16-pt batch, ASL+400×193 retrain, parity fixes)
 
 **New current component model: `model_Components_20260706_104159`** (ASL loss + 400×193 input,
 trained on the LOWSCORER-enlarged set). Beats the previous `…20260625_055133` on the shared 1291
@@ -60,9 +60,7 @@ held-out images on **every** score band: derived-score MAE 0–29 **2.68→2.45*
   header, since it only sees http behind the tunnel) so the `Secure` cookie is never dropped on an
   http visit, and uses `absolute_redirect off` to keep gate redirects on https.
 
----
-
-## [Unreleased] — Component editor: live confidence + model refresh/apply
+### Component editor: live confidence + model refresh/apply
 
 The shared ComponentEditor and the data-view (preview modal + Review & Label Queue) gain a way to see
 where the model is unsure and to re-apply an updated model on demand.
@@ -1269,7 +1267,7 @@ Restored best model from epoch 20
 
 ---
 
-**Current Version:** 2.3.0  
-**Last Updated:** 2026-06-24  
+**Current Version:** 2.4.0  
+**Last Updated:** 2026-08-05  
 **Status:** Production Ready
 
