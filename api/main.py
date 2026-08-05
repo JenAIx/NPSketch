@@ -20,6 +20,7 @@ import os
 
 from database import init_database, get_db
 from models import HealthResponse
+from auth import router as auth_router, AccessTokenMiddleware
 
 # Import routers
 from routers import (
@@ -42,6 +43,11 @@ app = FastAPI(
     version=APP_VERSION
 )
 
+# Access-token gate: rejects any /api/* request without a valid session cookie.
+# Added BEFORE CORS so CORS ends up the OUTERMOST middleware and its headers are
+# still attached to the 401 responses this guard emits.
+app.add_middleware(AccessTokenMiddleware)
+
 # Enable CORS for external access (e.g., from mars.biomag.uni-jena.de)
 app.add_middleware(
     CORSMiddleware,
@@ -57,6 +63,7 @@ os.makedirs(VIS_DIR, exist_ok=True)
 app.mount("/api/visualizations", StaticFiles(directory=VIS_DIR), name="visualizations")
 
 # Include routers
+app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(upload_router)
 app.include_router(training_data_router)
