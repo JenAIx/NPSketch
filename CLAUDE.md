@@ -316,7 +316,14 @@ NOT blindly re-run those Hungarian re-save scripts — they would corrupt the ve
   `augmentation.rotation_range = [-5, 5]`, `translation_range = [-3, 3]`,
   `training.defaults.batch_size = 8`.
 - **Env overrides:** `NPSKETCH_<SECTION>_<KEY>` (e.g. `NPSKETCH_TRAINING_DEFAULTS_BATCH_SIZE=16`,
-  `NPSKETCH_LOGGING_LEVEL=DEBUG`).
+  `NPSKETCH_LOGGING_LEVEL=DEBUG`). These only override keys that already exist in
+  `training_config.yaml`.
+- **Secrets (gitignored root `.env`):** `CLOUDFLARE_TUNNEL_TOKEN` (used by `cloudflared` via Compose)
+  and `NPSKETCH_ACCESS_TOKEN` (the app access-token gate — read directly with `os.getenv` in
+  `api/auth.py`, **not** via the YAML override loader; passed to the `api` service in
+  `docker-compose.yml`). Rotating `NPSKETCH_ACCESS_TOKEN` invalidates all existing sessions. Note:
+  editing bind-mounted single files (`nginx.conf`) needs `docker compose up -d --force-recreate nginx`
+  to take effect — a plain reload sees the stale inode.
 - **Type safety:** Pydantic models in `api/config/models.py` (`TrainingConfig`, `AugmentationConfig`,
   `SyntheticImageConfig`, `ModelMetadata`). Do not confuse with `api/models.py` (FastAPI schemas).
 - **Logging:** `from utils.logger import get_logger`. File: `/app/data/logs/training.log`.

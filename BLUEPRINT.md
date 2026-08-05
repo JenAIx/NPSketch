@@ -24,7 +24,7 @@ score readout). Version **2.3.0**.
                                      └───────────────────┬───────────────────────────┘
                                                          │ HTTP
    Cloudflare Named Tunnel  ─────────────────────────────┤  (stable URL: npsketch.jenai.de)
-   (npsketch-cloudflared → nginx:80)                     │
+   (npsketch-cloudflared → nginx:80)                     │  🔒 access-token gate (npsketch_session cookie)
                                                          ▼
                                      ┌───────────────────────────────────────────────┐
                                      │  nginx  (npsketch-nginx, :80)                  │
@@ -91,8 +91,8 @@ Three services on the `npsketch-network` bridge (talk by container name):
 
 | Service | Container | Image | Port | Role |
 |---------|-----------|-------|------|------|
-| nginx | `npsketch-nginx` | `nginx:latest` | `80:80` | Serves `/webapp`; reverse-proxies `/api/`→`api:8000`; `client_max_body_size 500M` |
-| api | `npsketch-api` | Dockerfile | `8000:8000` | FastAPI + PyTorch + OpenCV + SQLite; uvicorn `--reload` |
+| nginx | `npsketch-nginx` | `nginx:latest` | `80:80` | Serves `/webapp`; reverse-proxies `/api/`→`api:8000`; `client_max_body_size 500M`; **`auth_request` gate** on the static UI → redirects logged-out visitors to `/gate.html`; **forces http→https** (301 via `CF-Visitor`) so the `Secure` session cookie isn't dropped |
+| api | `npsketch-api` | Dockerfile | `8000:8000` | FastAPI + PyTorch + OpenCV + SQLite; uvicorn `--reload`; **`AccessTokenMiddleware`** (`api/auth.py`) 401s any `/api/*` without a valid `npsketch_session` cookie |
 | cloudflared | `npsketch-cloudflared` | `cloudflare/cloudflared:latest` | — | Named Tunnel `run --token ${CLOUDFLARE_TUNNEL_TOKEN}` (from `.env`), ingress `nginx:80` set in the Cloudflare dashboard, metrics `:2000` (`/ready`) → **stable URL `https://npsketch.jenai.de`** (Quick-Tunnel `--url http://nginx:80` kept as commented fallback) |
 
 **Volume mounts:**
@@ -254,6 +254,7 @@ sinusoidal tremor, partial cuts, detail distortion, positional shift).
 
 | Router | Prefix | Key endpoints |
 |--------|--------|---------------|
+| `auth.py` | `/api/auth` | login (token→session cookie), check (used by nginx `auth_request`), logout — the only `/api/*` paths reachable without a valid session |
 | `admin.py` | `/api/admin` | reset-database, cleanup-tmp, label-breakdown, cloudflare-status |
 | `upload.py` | `/api` | normalize-image, check-duplicate |
 | `training_data.py` | `/api` | save-drawn-image, training-data-images (+`only_missing`), .../original·processed·features, review-queue, training-data-stats |

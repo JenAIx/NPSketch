@@ -25,6 +25,9 @@ services:
       - ./api:/app:rw
     environment:
       - PYTHONUNBUFFERED=1
+      # Shared access token for the auth gate — substituted from the root .env
+      # (kept out of the container image; .env is gitignored).
+      - NPSKETCH_ACCESS_TOKEN=${NPSKETCH_ACCESS_TOKEN}
     networks:
       - npsketch-network
 

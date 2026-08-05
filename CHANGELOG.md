@@ -47,6 +47,18 @@ held-out images on **every** score band: derived-score MAE 0–29 **2.68→2.45*
   instead of the ephemeral Quick Tunnel, giving a fixed public address **`https://npsketch.jenai.de`**.
   Ingress (`npsketch.jenai.de → nginx:80`) is configured on the tunnel in the Cloudflare dashboard;
   the Quick-Tunnel command is retained as a commented fallback in `docker-compose.yml`.
+- **Security — shared access-token gate** for the now-public app. A visitor lands on `webapp/gate.html`,
+  enters the token, and receives an HMAC-signed, HttpOnly/Secure/SameSite=Lax session cookie
+  (`npsketch_session`, 30-day expiry). Enforced at two layers: a FastAPI `AccessTokenMiddleware`
+  (`api/auth.py`) is the authoritative guard that 401s any `/api/*` request without a valid cookie
+  (also protects the direct `:8000` port), and an nginx `auth_request` gates the static UI (redirects
+  logged-out visitors to the gate). Endpoints: `POST /api/auth/login`, `GET /api/auth/check`,
+  `POST /api/auth/logout`. The token is `NPSKETCH_ACCESS_TOKEN` in the gitignored `.env` (passed to the
+  `api` service via Compose substitution); the cookie signing key is derived from the token, so
+  rotating it invalidates all sessions. Fail-closed if the token is unset. Cookie signing uses stdlib
+  `hmac`/`hashlib` — no new dependencies. nginx 301-upgrades http→https (via Cloudflare's `CF-Visitor`
+  header, since it only sees http behind the tunnel) so the `Secure` cookie is never dropped on an
+  http visit, and uses `absolute_redirect off` to keep gate redirects on https.
 
 ---
 
