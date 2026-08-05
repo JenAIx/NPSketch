@@ -56,7 +56,9 @@ held-out images on **every** score band: derived-score MAE 0–29 **2.68→2.45*
   `POST /api/auth/logout`. The token is `NPSKETCH_ACCESS_TOKEN` in the gitignored `.env` (passed to the
   `api` service via Compose substitution); the cookie signing key is derived from the token, so
   rotating it invalidates all sessions. Fail-closed if the token is unset. Cookie signing uses stdlib
-  `hmac`/`hashlib` — no new dependencies.
+  `hmac`/`hashlib` — no new dependencies. nginx 301-upgrades http→https (via Cloudflare's `CF-Visitor`
+  header, since it only sees http behind the tunnel) so the `Secure` cookie is never dropped on an
+  http visit, and uses `absolute_redirect off` to keep gate redirects on https.
 
 ---
 

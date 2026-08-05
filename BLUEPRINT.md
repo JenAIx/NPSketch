@@ -91,7 +91,7 @@ Three services on the `npsketch-network` bridge (talk by container name):
 
 | Service | Container | Image | Port | Role |
 |---------|-----------|-------|------|------|
-| nginx | `npsketch-nginx` | `nginx:latest` | `80:80` | Serves `/webapp`; reverse-proxies `/api/`→`api:8000`; `client_max_body_size 500M`; **`auth_request` gate** on the static UI → redirects logged-out visitors to `/gate.html` |
+| nginx | `npsketch-nginx` | `nginx:latest` | `80:80` | Serves `/webapp`; reverse-proxies `/api/`→`api:8000`; `client_max_body_size 500M`; **`auth_request` gate** on the static UI → redirects logged-out visitors to `/gate.html`; **forces http→https** (301 via `CF-Visitor`) so the `Secure` session cookie isn't dropped |
 | api | `npsketch-api` | Dockerfile | `8000:8000` | FastAPI + PyTorch + OpenCV + SQLite; uvicorn `--reload`; **`AccessTokenMiddleware`** (`api/auth.py`) 401s any `/api/*` without a valid `npsketch_session` cookie |
 | cloudflared | `npsketch-cloudflared` | `cloudflare/cloudflared:latest` | — | Named Tunnel `run --token ${CLOUDFLARE_TUNNEL_TOKEN}` (from `.env`), ingress `nginx:80` set in the Cloudflare dashboard, metrics `:2000` (`/ready`) → **stable URL `https://npsketch.jenai.de`** (Quick-Tunnel `--url http://nginx:80` kept as commented fallback) |
 
