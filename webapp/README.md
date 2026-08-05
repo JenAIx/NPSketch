@@ -1,4 +1,4 @@
-# NPSketch v2.3 — Documentation
+# NPSketch v2.4 — Documentation
 
 **AI scoring of hand-drawn neuropsychological figures (OCS-Plus copy & recall).**
 
@@ -25,15 +25,26 @@ Three training/prediction modes share one ResNet-18 backbone:
 **Stack:** FastAPI (Python 3.10+) · SQLite (`npsketch.db`, single table `training_data_images`) ·
 PyTorch (ResNet-18) · OpenCV / PIL · static HTML/JS frontend served by nginx.
 
-Two Docker services (`docker-compose.yml`):
+Three Docker services (`docker-compose.yml`):
 
 | Service | Container | Port | Role |
 |---------|-----------|------|------|
-| nginx | `npsketch-nginx` | 80 | serves the frontend + reverse-proxies `/api` |
+| nginx | `npsketch-nginx` | 80 | serves the frontend + reverse-proxies `/api`; access-token gate on the UI |
 | api | `npsketch-api` | 8000 | FastAPI backend (OpenCV, PyTorch) |
+| cloudflared | `npsketch-cloudflared` | — | Cloudflare **named tunnel** → stable public URL `https://npsketch.jenai.de` |
 
 Volumes: `./api → /app` (RW, hot-reload) · `./data → /app/data` (RW: DB, models, visualizations,
 logs) · `./templates → /app/templates` (RO: source data) · `./webapp → nginx html` (RO).
+
+### Access & security
+
+The app is reachable on the public internet through the Cloudflare tunnel, so it sits behind a
+**shared access token**. A visitor lands on `/gate.html`, enters the token, and receives an
+HMAC-signed, HttpOnly/Secure session cookie (`npsketch_session`, 30-day). Enforcement is two-layer:
+a FastAPI middleware 401s any `/api/*` request without a valid cookie (the authoritative guard —
+also covers the direct `:8000` port), and an nginx `auth_request` redirects logged-out visitors to
+the gate. nginx force-upgrades http→https so the `Secure` cookie is never dropped. The token is the
+`NPSKETCH_ACCESS_TOKEN` secret in the gitignored `.env`; rotating it invalidates all sessions.
 
 ---
 
@@ -193,6 +204,8 @@ Output (overlays + labeled composites + `manifest.json`) lands in
 Full interactive list: `http://localhost/api/docs`.
 
 - `GET /api/health` — status + app version.
+- **Auth gate:** `POST /api/auth/login` (token → session cookie) · `GET /api/auth/check` (used by the
+  nginx gate) · `POST /api/auth/logout`. Every other `/api/*` endpoint requires the session cookie.
 - `POST /api/normalize-image`, `POST /api/check-duplicate` — upload preprocessing.
 - `POST /api/save-drawn-image` — save a drawn/uploaded image as training data (accepts `total_score`,
   `components`, `source_format` = DRAWN/UPLOAD).
@@ -214,9 +227,14 @@ Full interactive list: `http://localhost/api/docs`.
 ## Quick start
 
 ```bash
-docker compose up --build -d          # start (nginx :80, api :8000)
-# open http://localhost
+docker compose up --build -d          # start (nginx :80, api :8000, cloudflared tunnel)
+# open http://localhost  (local dev is ungated: no CF-Visitor header ⇒ no https-upgrade,
+#                         but /api/* still needs a session — log in once via the gate)
 docker compose logs -f api            # follow backend logs
 ```
+
+Public access is via the Cloudflare tunnel at `https://npsketch.jenai.de` (enter the access token on
+the gate). Secrets live in the gitignored root `.env`: `NPSKETCH_ACCESS_TOKEN` (gate) and
+`CLOUDFLARE_TUNNEL_TOKEN` (tunnel).
 
 Container: `npsketch-api` · workdir `/app` · DB `/app/data/npsketch.db`.
