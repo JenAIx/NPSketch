@@ -23,7 +23,7 @@ score readout). Version **2.3.0**.
                                      │  admin · docs   (static HTML/JS)               │
                                      └───────────────────┬───────────────────────────┘
                                                          │ HTTP
-   Cloudflare Quick Tunnel  ─────────────────────────────┤  (public, ephemeral URL)
+   Cloudflare Named Tunnel  ─────────────────────────────┤  (stable URL: npsketch.jenai.de)
    (npsketch-cloudflared → nginx:80)                     │
                                                          ▼
                                      ┌───────────────────────────────────────────────┐
@@ -93,7 +93,7 @@ Three services on the `npsketch-network` bridge (talk by container name):
 |---------|-----------|-------|------|------|
 | nginx | `npsketch-nginx` | `nginx:latest` | `80:80` | Serves `/webapp`; reverse-proxies `/api/`→`api:8000`; `client_max_body_size 500M` |
 | api | `npsketch-api` | Dockerfile | `8000:8000` | FastAPI + PyTorch + OpenCV + SQLite; uvicorn `--reload` |
-| cloudflared | `npsketch-cloudflared` | `cloudflare/cloudflared:latest` | — | Quick Tunnel `--url http://nginx:80`, metrics `:2000` (`/ready`, `/quicktunnel`) → **ephemeral public URL** |
+| cloudflared | `npsketch-cloudflared` | `cloudflare/cloudflared:latest` | — | Named Tunnel `run --token ${CLOUDFLARE_TUNNEL_TOKEN}` (from `.env`), ingress `nginx:80` set in the Cloudflare dashboard, metrics `:2000` (`/ready`) → **stable URL `https://npsketch.jenai.de`** (Quick-Tunnel `--url http://nginx:80` kept as commented fallback) |
 
 **Volume mounts:**
 

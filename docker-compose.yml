@@ -40,9 +40,17 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: npsketch-cloudflared
     restart: unless-stopped
+    env_file:
+      - .env
     # --metrics exposes /ready (connection status) and /quicktunnel (the public hostname)
     # on the internal network, which the API reads for the admin "External Access" panel.
-    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 --url http://nginx:80
+    #
+    # Named tunnel (stable subdomain, e.g. https://npsketch.jenai.de):
+    #   the ingress rule (npsketch.jenai.de -> http://nginx:80) is configured in the
+    #   Cloudflare dashboard on the tunnel; the token is read from .env.
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    # Quick Tunnel fallback (random public https://<random>.trycloudflare.com, no account):
+    #   command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 --url http://nginx:80
     depends_on:
       - nginx
     networks:

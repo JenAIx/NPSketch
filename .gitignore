@@ -37,6 +37,9 @@ Thumbs.db
 # Docker
 *.log
 
+# Secrets (Cloudflare tunnel token etc.)
+.env
+
 # Docker creates empty mount point directories - ignore them
 api/data/
 api/templates/

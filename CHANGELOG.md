@@ -42,6 +42,11 @@ held-out images on **every** score band: derived-score MAE 0–29 **2.68→2.45*
   from README, `docs/PIPELINE_IMPROVEMENTS.md` (literature-grounded roadmap).
 - **Housekeeping.** Removed old model checkpoints/backups (~4 GB) + optional component consistency
   aux losses (`training.components.consistency`, default off).
+- **Deployment — stable external URL via Cloudflare Named Tunnel.** The `cloudflared` service now
+  runs a named tunnel (`run --token ${CLOUDFLARE_TUNNEL_TOKEN}`, token read from a gitignored `.env`)
+  instead of the ephemeral Quick Tunnel, giving a fixed public address **`https://npsketch.jenai.de`**.
+  Ingress (`npsketch.jenai.de → nginx:80`) is configured on the tunnel in the Cloudflare dashboard;
+  the Quick-Tunnel command is retained as a commented fallback in `docker-compose.yml`.
 
 ---
 
